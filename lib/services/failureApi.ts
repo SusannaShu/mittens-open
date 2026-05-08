@@ -1,9 +1,8 @@
 /**
- * Failure Log API -- Stanford Life Design failure tracking.
- * Handles all /failure-log/* endpoints.
+ * Failure Log API -- Local implementation
  */
 
-import { baseApi } from './baseApi';
+import { localApi } from './localApi';
 
 export interface FailureEntry {
   id: number;
@@ -16,41 +15,26 @@ export interface FailureEntry {
   context?: Record<string, any> | null;
 }
 
-export const failureApi = baseApi.injectEndpoints({
+export const failureApi = localApi.injectEndpoints({
   endpoints: (build) => ({
-    /** GET /failure-log */
     getFailureLogs: build.query<FailureEntry[], number | void>({
-      query: (limit) => `/failure-log?_limit=${limit || 50}`,
-      providesTags: ['FailureLog'],
+      queryFn: async () => ({ data: [] }),
+      providesTags: ['FailureLog'] as any,
     }),
 
-    /** POST /failure-log */
     createFailureLog: build.mutation<{ status: string; failure: FailureEntry }, Partial<FailureEntry>>({
-      query: (body) => ({
-        url: '/failure-log',
-        method: 'POST',
-        body,
-      }),
-      invalidatesTags: ['FailureLog'],
+      queryFn: async (args) => ({ data: { status: 'mock', failure: { ...args, id: -1 } as FailureEntry } }),
+      invalidatesTags: ['FailureLog'] as any,
     }),
 
-    /** PUT /failure-log/:id */
     updateFailureLog: build.mutation<{ status: string; failure: FailureEntry }, { id: number } & Partial<FailureEntry>>({
-      query: ({ id, ...body }) => ({
-        url: `/failure-log/${id}`,
-        method: 'PUT',
-        body,
-      }),
-      invalidatesTags: ['FailureLog'],
+      queryFn: async (args) => ({ data: { status: 'mock', failure: args as FailureEntry } }),
+      invalidatesTags: ['FailureLog'] as any,
     }),
 
-    /** DELETE /failure-log/:id */
     deleteFailureLog: build.mutation<{ status: string }, number>({
-      query: (id) => ({
-        url: `/failure-log/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: ['FailureLog'],
+      queryFn: async () => ({ data: { status: 'deleted' } }),
+      invalidatesTags: ['FailureLog'] as any,
     }),
   }),
 });

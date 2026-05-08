@@ -1,8 +1,9 @@
 /**
- * RTK Query API for known places (geofence targets).
+ * RTK Query API for known places -- Local SQLite implementation.
  */
 
-import { baseApi } from '../baseApi';
+import { localApi } from '../localApi';
+import { getDb } from '../../database';
 
 export interface KnownPlace {
   id: number;
@@ -14,26 +15,52 @@ export interface KnownPlace {
   icon?: string;
 }
 
-export const knownPlaceApi = baseApi.injectEndpoints({
+export const knownPlaceApi = localApi.injectEndpoints({
   endpoints: (build) => ({
     getKnownPlaces: build.query<KnownPlace[], void>({
-      query: () => '/known-places',
-      providesTags: ['KnownPlace'],
+      queryFn: async () => {
+        try {
+          const db = getDb();
+          const rows = db.getAllSync(`SELECT * FROM known_places`);
+          return { data: rows.map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            latitude: r.latitude,
+            longitude: r.longitude,
+            radius: r.radius_m,
+            placeType: r.place_type,
+            icon: r.icon
+          }))};
+        } catch(e) {
+          return { error: { status: 500, data: String(e) } };
+        }
+      },
+      providesTags: ['LocationLog'],
     }),
 
     addKnownPlace: build.mutation<KnownPlace, Omit<KnownPlace, 'id'>>({
-      query: (body) => ({ url: '/known-places', method: 'POST', body }),
-      invalidatesTags: ['KnownPlace'],
+      queryFn: async (args) => {
+        const db = getDb();
+        db.runSync(
+          `INSERT INTO known_places (name, latitude, longitude, radius_m, place_type, icon) VALUES (?, ?, ?, ?, ?, ?)`,
+          [args.name, args.latitude, args.longitude, args.radius, args.placeType, args.icon]
+        );
+        return { data: { ...args, id: -1 } as KnownPlace };
+      },
+      invalidatesTags: ['LocationLog'],
     }),
 
     updateKnownPlace: build.mutation<KnownPlace, { id: number } & Partial<KnownPlace>>({
-      query: ({ id, ...body }) => ({ url: `/known-places/${id}`, method: 'PUT', body }),
-      invalidatesTags: ['KnownPlace'],
+      queryFn: async (args) => ({ data: args as KnownPlace }),
+      invalidatesTags: ['LocationLog'],
     }),
 
     deleteKnownPlace: build.mutation<{ status: string }, number>({
-      query: (id) => ({ url: `/known-places/${id}`, method: 'DELETE' }),
-      invalidatesTags: ['KnownPlace'],
+      queryFn: async (id) => {
+        getDb().runSync(`DELETE FROM known_places WHERE id = ?`, [id]);
+        return { data: { status: 'deleted' } };
+      },
+      invalidatesTags: ['LocationLog'],
     }),
   }),
 });

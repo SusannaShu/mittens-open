@@ -4,20 +4,17 @@
  */
 
 import { configureStore } from '@reduxjs/toolkit';
-import { baseApi } from './services/baseApi';
+import { localApi } from './services/localApi';
 
 // Import API slices to register their endpoints
 import './services/nutritionApi';
-import './services/profileApi';
-import './services/messagesApi';
-import './services/devTaskApi';
 
 export const store = configureStore({
   reducer: {
-    [baseApi.reducerPath]: baseApi.reducer,
+    [localApi.reducerPath]: localApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(baseApi.middleware),
+    getDefaultMiddleware().concat(localApi.middleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

@@ -1,9 +1,8 @@
 /**
- * Planned Schedule API — RTK Query endpoints for LMST rhythm blocks.
- * These are projected schedule overlays, NOT activity logs.
+ * Planned Schedule API — Local implementation
  */
 
-import { baseApi } from '../baseApi';
+import { localApi } from '../localApi';
 
 export interface PlannedBlock {
   id: number;
@@ -12,33 +11,23 @@ export interface PlannedBlock {
   scheduledAt: string;
 }
 
-export const plannedScheduleApi = baseApi.injectEndpoints({
+export const plannedScheduleApi = localApi.injectEndpoints({
   endpoints: (build) => ({
-    /** GET /planned-schedules/daily?date=YYYY-MM-DD */
     getPlannedSchedule: build.query<{ date: string; blocks: PlannedBlock[] }, string>({
-      query: (date) => `/planned-schedules/daily?date=${date}`,
+      queryFn: async (date) => ({ data: { date, blocks: [] } }),
       providesTags: ['DailySummary'],
     }),
 
-    /** POST /planned-schedules/sync */
     syncPlannedSchedule: build.mutation<
       { status: string; blocks: PlannedBlock[] },
       { date: string; blocks: { blockType: string; scheduledAt: string }[] }
     >({
-      query: (body) => ({
-        url: '/planned-schedules/sync',
-        method: 'POST',
-        body,
-      }),
+      queryFn: async () => ({ data: { status: 'mocked', blocks: [] } }),
       invalidatesTags: ['DailySummary'],
     }),
 
-    /** DELETE /planned-schedules/clear?date=YYYY-MM-DD */
     clearPlannedSchedule: build.mutation<{ status: string }, string>({
-      query: (date) => ({
-        url: `/planned-schedules/clear?date=${date}`,
-        method: 'DELETE',
-      }),
+      queryFn: async () => ({ data: { status: 'cleared' } }),
       invalidatesTags: ['DailySummary'],
     }),
   }),

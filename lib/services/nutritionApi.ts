@@ -1,292 +1,107 @@
 /**
- * Nutrition API -- meals, daily/weekly summaries, food analysis.
- * Handles all /nutrition-log/* endpoints.
+ * Nutrition API -- Local SQLite implementation for Mittens Open.
+ * Replaces Strapi cloud endpoints with direct database queries.
  */
 
-import { baseApi } from './baseApi';
-import { DailySummary, WeeklySummary, SnapResponse, SupplementRec, BioavailabilityNote, SolverMetadata } from '../types';
+import { localApi } from './localApi';
+import { getDb } from '../database';
+import { DailySummary, WeeklySummary, SnapResponse } from '../types';
 
-export const nutritionApi = baseApi.injectEndpoints({
+export const nutritionApi = localApi.injectEndpoints({
   endpoints: (build) => ({
-    /** GET /nutrition-log/daily */
     getDailySummary: build.query<DailySummary, string | void>({
-      query: (date) => {
-        const localDate = date || new Date().toLocaleDateString('en-CA');
-        const tz = new Date().getTimezoneOffset(); // minutes from UTC (e.g. 240 for EDT)
-        return `/nutrition-log/daily?date=${localDate}&tz=${tz}`;
+      queryFn: async (date) => {
+        try {
+          const db = getDb();
+          const targetDate = date || new Date().toLocaleDateString('en-CA');
+          const rows = db.getAllSync(`SELECT * FROM nutrition_logs WHERE logged_at LIKE ?`, [`${targetDate}%`]);
+          
+          const parsedMeals = rows.map((r: any) => ({
+            id: r.id,
+            loggedAt: r.logged_at,
+            mealType: r.meal_type,
+            logName: r.log_name,
+            items: r.items ? JSON.parse(r.items) : [],
+            summaryNutrients: r.summary_nutrients ? JSON.parse(r.summary_nutrients) : {},
+            source: r.source,
+            entryType: r.entry_type
+          }));
+
+          return { 
+            data: { 
+              date: targetDate, 
+              meals: parsedMeals, 
+              summary: {}, 
+              sunExposure: { totalMinutes: 0 } 
+            } 
+          };
+        } catch (e) {
+          return { error: { status: 500, data: String(e) } };
+        }
       },
       providesTags: ['DailySummary'],
     }),
 
-    /** GET /nutrition-log/weekly */
     getWeeklySummary: build.query<WeeklySummary, void>({
-      query: () => '/nutrition-log/weekly',
+      queryFn: async () => {
+        return { data: { weeklyAverage: {}, days: [] } };
+      },
       providesTags: ['WeeklySummary'],
     }),
 
-    /** GET /nutrition-log/recs */
     getRecommendations: build.query<{ gaps: any[]; recommendations: any[] }, void>({
-      query: () => '/nutrition-log/recs',
+      queryFn: async () => ({ data: { gaps: [], recommendations: [] } }),
     }),
 
-    /** POST /nutrition-log/log -- confirm analyzed items */
-    logConfirmed: build.mutation<any, { mealName: string; foods: any[]; mealType: string; imageId?: number; imageIds?: number[]; loggedAt?: string; activityConditions?: any }>({
-      query: ({ mealName, foods, mealType, imageId, imageIds, loggedAt, activityConditions }) => ({
-        url: '/nutrition-log/log',
-        method: 'POST',
-        body: { mealName, foods, mealType, source: 'vision', imageId, imageIds, loggedAt, activityConditions },
-      }),
-      invalidatesTags: ['DailySummary', 'WeeklySummary', 'MealPlan'],
+    logConfirmed: build.mutation<any, any>({
+      queryFn: async (args) => {
+        const db = getDb();
+        db.runSync(
+          `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source) VALUES (?, ?, ?, ?, ?, ?)`,
+          [args.loggedAt || new Date().toISOString(), args.mealType, args.mealName, JSON.stringify(args.foods), '{}', 'manual']
+        );
+        return { data: { success: true } };
+      },
+      invalidatesTags: ['DailySummary', 'WeeklySummary'],
     }),
 
-    /** POST /nutrition-log/snap */
-    snapMeal: build.mutation<SnapResponse, { image: string; mealType?: string; imageId?: number | null }>({
-      query: (body) => ({
-        url: '/nutrition-log/snap',
-        method: 'POST',
-        body: { image: body.image, mealType: body.mealType, imageId: body.imageId },
-      }),
-      invalidatesTags: ['DailySummary', 'MealPlan'],
-    }),
-
-    /** POST /nutrition-log/analyze (photo only, no logging) */
-    analyzePhoto: build.mutation<{ foods: any[] }, { image: string; mode?: 'meal' | 'fridge' }>({
-      query: ({ image, mode = 'meal' }) => ({
-        url: '/nutrition-log/analyze',
-        method: 'POST',
-        body: { image, mode },
-      }),
-    }),
-
-    /** POST /nutrition-log/analyze-text */
-    analyzeText: build.mutation<any, { text: string; imageId?: number; mealType?: string }>({
-      query: (body) => ({
-        url: '/nutrition-log/analyze-text',
-        method: 'POST',
-        body,
-      }),
-    }),
-
-    /** POST /nutrition-log/smart-snap */
-    smartSnap: build.mutation<any, { image: string; extraImages?: string[]; caption?: string; photoTimestamps?: string[] }>({
-      query: ({ image, extraImages, caption, photoTimestamps }) => ({
-        url: '/nutrition-log/smart-snap',
-        method: 'POST',
-        body: { image, extraImages, caption, photoTimestamps },
-      }),
-    }),
-
-    /** POST /nutrition-log/smart-snap-async -- returns jobId, processes in background */
-    smartSnapAsync: build.mutation<{ jobId: string; status: string }, { image: string; extraImages?: string[]; caption?: string; photoTimestamps?: string[] }>({
-      query: ({ image, extraImages, caption, photoTimestamps }) => ({
-        url: '/nutrition-log/smart-snap-async',
-        method: 'POST',
-        body: { image, extraImages, caption, photoTimestamps },
-      }),
-    }),
-
-    chatAsync: build.mutation<{ jobId: string; status: string }, string | { message: string; replyTo?: { id: string; text: string }; tz?: number }>({
-      query: (arg) => ({
-        url: '/nutrition-log/chat-async',
-        method: 'POST',
-        body: typeof arg === 'string'
-          ? { message: arg, tz: new Date().getTimezoneOffset() }
-          : { ...arg, tz: new Date().getTimezoneOffset() },
-      }),
-    }),
-
-    /** GET /nutrition-log/job-status/:jobId -- poll for any async job result */
-    checkJobStatus: build.query<{
-      status: 'processing' | 'completed' | 'failed';
-      result?: any;
-      error?: string;
-      message?: string;
-    }, string>({
-      query: (jobId) => `/nutrition-log/job-status/${jobId}`,
-    }),
-
-    /** PUT /nutrition-log/:id -- AI re-analyze from text */
-    updateEntry: build.mutation<any, { id: number; text: string }>({
-      query: ({ id, text }) => ({
-        url: `/nutrition-log/${id}`,
-        method: 'PUT',
-        body: { text },
-      }),
-      invalidatesTags: ['DailySummary', 'MealPlan'],
-    }),
-
-    /** PUT /nutrition-log/:id -- direct inline item edits */
-    updateEntryDirect: build.mutation<any, { id: number; items?: any[]; logName?: string; mealType?: string; loggedAt?: string }>({
-      query: ({ id, items, logName, mealType, loggedAt }) => ({
-        url: `/nutrition-log/${id}`,
-        method: 'PUT',
-        body: { items, logName, mealType, loggedAt },
-      }),
-      invalidatesTags: ['DailySummary', 'MealPlan'],
-    }),
-
-    /** DELETE /nutrition-log/:id */
     deleteEntry: build.mutation<any, number>({
-      query: (id) => ({
-        url: `/nutrition-log/${id}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: ['DailySummary', 'MealPlan'],
-    }),
-
-    chatWithMittens: build.mutation<{
-      reply: string;
-      itemsLogged: number;
-      itemsToLog: any[];
-      sunExposure?: { detected: boolean; logId: number | null };
-      sunExposureUpdate?: { duration_min?: number; coverage_pct?: number; sunscreen?: boolean } | null;
-      activityDetection?: { detected: boolean; subtype: string; logId: number | null; summary: string | null } | null;
-      failureLog?: any;
-      dataFetched?: string[] | null;
-    }, string | { message: string; replyTo?: { id: string; text: string }; tz?: number }>({
-      query: (arg) => ({
-        url: '/nutrition-log/chat',
-        method: 'POST',
-        body: typeof arg === 'string'
-          ? { message: arg, tz: new Date().getTimezoneOffset() }
-          : { ...arg, tz: new Date().getTimezoneOffset() },
-      }),
-      invalidatesTags: ['DailySummary', 'MealPlan'],
-    }),
-
-    /** POST /nutrition-log/nutrient-recs -- lazy-loaded per-nutrient AI recommendations */
-    getNutrientRecs: build.mutation<{
-      nutrient: string;
-      name: string;
-      unit: string;
-      actual: number;
-      rda: number;
-      deficit: number;
-      pct: number;
-      foods: Array<{ food: string; portion: string; amount: number; note?: string; servingsNeeded?: number; source: string; type?: string }>;
-      tip?: string;
-      supplementNote?: string;
-      source: string;
-    }, { nutrient: string }>({
-      query: ({ nutrient }) => ({
-        url: '/nutrition-log/nutrient-recs',
-        method: 'POST',
-        body: { nutrient },
-      }),
-    }),
-
-    /** POST /nutrition-log/dislike -- toggle food dislike with optional reason */
-    dislikeFood: build.mutation<
-      { dislikedFoods: Array<{ food: string; reason?: string | null }>; action: string },
-      { food: string; reason?: string }
-    >({
-      query: ({ food, reason }) => ({
-        url: '/nutrition-log/dislike',
-        method: 'POST',
-        body: { food, reason },
-      }),
-    }),
-
-    /** PUT /nutrition-log/sun/:id -- update sun exposure with refined data */
-    updateSunExposure: build.mutation<
-      { status: string; vitamin_d_mcg: number; reasoning: string },
-      { id: number; duration_min?: number; coverage_pct?: number; sunscreen?: boolean }
-    >({
-      query: ({ id, ...body }) => ({
-        url: `/nutrition-log/sun/${id}`,
-        method: 'PUT',
-        body,
-      }),
+      queryFn: async (id) => {
+        getDb().runSync(`DELETE FROM nutrition_logs WHERE id = ?`, [id]);
+        return { data: { success: true } };
+      },
       invalidatesTags: ['DailySummary'],
     }),
 
-    /** POST /nutrition-log/reestimate-item -- flag + re-estimate a specific item's nutrient */
-    reestimateItem: build.mutation<{
-      status: string;
-      itemName: string;
-      nutrient: string;
-      originalValue: number;
-      revisedValue: number;
-      confidence: string;
-      reasoning: string;
-      message?: string;
-      updatedEntries: number;
-      hadImage: boolean;
-    }, { itemName: string; nutrient: string }>({
-      query: (body) => ({
-        url: '/nutrition-log/reestimate-item',
-        method: 'POST',
-        body,
-      }),
+    updateEntryDirect: build.mutation<any, any>({
+      queryFn: async (args) => {
+        getDb().runSync(
+          `UPDATE nutrition_logs SET log_name = ?, meal_type = ?, logged_at = ?, items = ? WHERE id = ?`,
+          [args.logName, args.mealType, args.loggedAt, JSON.stringify(args.items), args.id]
+        );
+        return { data: { success: true } };
+      },
       invalidatesTags: ['DailySummary'],
     }),
-    getTodayMealPlan: build.query<{
-      plan: {
-        id: number;
-        date: string;
-        breakfast: { items: string[]; nutrients?: Record<string, number>; prepTip?: string; fromPantry?: Array<{ food: string; pantryItem: string; usedPortion: string }>; fromStore?: Array<{ food: string; forNutrients: any[] }> } | null;
-        lunch: { items: string[]; nutrients?: Record<string, number>; prepTip?: string; fromPantry?: Array<{ food: string; pantryItem: string; usedPortion: string }>; fromStore?: Array<{ food: string; forNutrients: any[] }> } | null;
-        dinner: { items: string[]; nutrients?: Record<string, number>; prepTip?: string; fromPantry?: Array<{ food: string; pantryItem: string; usedPortion: string }>; fromStore?: Array<{ food: string; forNutrients: any[] }> } | null;
-        groceryList: Array<{ food: string; portion: string; forMeals?: string[]; forNutrients: Array<{ nutrient: string; name: string; currentPct?: number }> }>;
-        gapCoverage: Record<string, { name: string; currentPct: number; afterPlanPct: number; planAdds?: number; unit: string; rda?: number; status: string }> | null;
-        uncoveredGaps?: Array<{ nutrient: string; name: string; afterPlanPct: number }>;
-        supplements?: SupplementRec[];
-        bioavailabilityNotes?: BioavailabilityNote[];
-        solverMetadata?: SolverMetadata | null;
-        generatedAt: string;
-      } | null;
-    }, void>({
-      query: () => '/daily-meal-plan/today',
-      providesTags: ['MealPlan'],
-    }),
 
-    /** POST /daily-meal-plan/generate (synchronous, kept for backward compat) */
-    generateMealPlan: build.mutation<{
-      plan: {
-        id: number;
-        date: string;
-        breakfast: any;
-        lunch: any;
-        dinner: any;
-        groceryList: any[];
-        gapCoverage: Record<string, any> | null;
-        uncoveredGaps?: any[];
-        supplements?: SupplementRec[];
-        bioavailabilityNotes?: BioavailabilityNote[];
-        solverMetadata?: SolverMetadata | null;
-        generatedAt: string;
-      };
-    }, void>({
-      query: () => ({
-        url: '/daily-meal-plan/generate',
-        method: 'POST',
-      }),
-      invalidatesTags: ['MealPlan'],
-    }),
-
-    /** POST /daily-meal-plan/generate-async -- returns jobId immediately */
-    generateMealPlanAsync: build.mutation<{
-      success: boolean;
-      jobId: string;
-      status: string;
-      message: string;
-    }, { customConstraint?: string } | void>({
-      query: (body) => ({
-        url: '/daily-meal-plan/generate-async',
-        method: 'POST',
-        body: body || {},
-      }),
-    }),
-
-    /** GET /daily-meal-plan/status/:jobId -- poll for async result */
-    checkMealPlanJobStatus: build.query<{
-      status: 'processing' | 'completed' | 'failed';
-      result?: { plan: any };
-      error?: string;
-      message?: string;
-    }, string>({
-      query: (jobId) => `/daily-meal-plan/status/${jobId}`,
-    }),
+    // Dummy stubs for AI features that require complex local-inference pipelines
+    snapMeal: build.mutation<SnapResponse, any>({ queryFn: async () => ({ data: { status: 'failed', items: [] } }) }),
+    analyzePhoto: build.mutation<any, any>({ queryFn: async () => ({ data: { foods: [] } }) }),
+    analyzeText: build.mutation<any, any>({ queryFn: async () => ({ data: { foods: [] } }) }),
+    smartSnap: build.mutation<any, any>({ queryFn: async () => ({ data: { success: false } }) }),
+    smartSnapAsync: build.mutation<any, any>({ queryFn: async () => ({ data: { jobId: 'mock', status: 'completed' } }) }),
+    chatAsync: build.mutation<any, any>({ queryFn: async () => ({ data: { jobId: 'mock', status: 'completed' } }) }),
+    checkJobStatus: build.query<any, string>({ queryFn: async () => ({ data: { status: 'completed' } }) }),
+    updateEntry: build.mutation<any, any>({ queryFn: async () => ({ data: { success: false } }) }),
+    chatWithMittens: build.mutation<any, any>({ queryFn: async () => ({ data: { reply: "I'm offline in this display version.", itemsLogged: 0, itemsToLog: [] } }) }),
+    getNutrientRecs: build.mutation<any, any>({ queryFn: async () => ({ data: { actual: 0, rda: 100, foods: [] } }) }),
+    dislikeFood: build.mutation<any, any>({ queryFn: async () => ({ data: { dislikedFoods: [], action: 'noop' } }) }),
+    updateSunExposure: build.mutation<any, any>({ queryFn: async () => ({ data: { status: 'ok' } }) }),
+    reestimateItem: build.mutation<any, any>({ queryFn: async () => ({ data: { status: 'failed' } }) }),
+    getTodayMealPlan: build.query<any, void>({ queryFn: async () => ({ data: { plan: null } }), providesTags: ['MealPlan'] }),
+    generateMealPlan: build.mutation<any, void>({ queryFn: async () => ({ data: { plan: null } }) }),
+    generateMealPlanAsync: build.mutation<any, any>({ queryFn: async () => ({ data: { success: true, jobId: 'mock', status: 'completed' } }) }),
+    checkMealPlanJobStatus: build.query<any, string>({ queryFn: async () => ({ data: { status: 'completed' } }) }),
   }),
 });
 
@@ -315,4 +130,3 @@ export const {
   useGenerateMealPlanAsyncMutation,
   useLazyCheckMealPlanJobStatusQuery,
 } = nutritionApi;
-

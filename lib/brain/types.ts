@@ -95,18 +95,11 @@ export interface ReadyProgress {
   progress?: number;
 }
 
-/** Brain selection is based on user settings in profile */
 export type BrainId =
   | 'e2b'
   | 'llama-rn'
   | 'fastvlm'
   | 'smolvlm2'
   | 'moondream2'
-  | 'gemma26b'
-  | 'gemini'
-  | 'gemini-flash'
-  | 'claude-sonnet'
-  | 'claude-opus'
-  | 'groq-free'
-  | 'openrouter-free';
+  | 'gemma26b';
 

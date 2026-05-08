@@ -1,11 +1,10 @@
 {
   "expo": {
-    "name": "Mittens",
-    "slug": "mittens-app",
+    "name": "Mittens Open",
+    "slug": "mittens-open",
     "version": "1.0.0",
     "scheme": [
-      "mittens",
-      "com.googleusercontent.apps.290553177371-ijq19ri6u5atfmo6apomk36h34kj4b24"
+      "mittens"
     ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -40,7 +39,7 @@
           "bluetooth-central"
         ]
       },
-      "bundleIdentifier": "com.susannahuang.mittensapp"
+      "bundleIdentifier": "com.susannahuang.mittensopen"
     },
     "android": {
       "adaptiveIcon": {
@@ -61,10 +60,10 @@
       ],
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyCq9TXXYYwOG12uy6-EM-pK0vNYluYL0FU"
+          "apiKey": "DUMMY_API_KEY_HACKATHON"
         }
       },
-      "package": "com.susannahuang.mittensapp"
+      "package": "com.susannahuang.mittensopen"
     },
     "web": {
       "favicon": "./assets/favicon.png"

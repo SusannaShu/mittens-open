@@ -29,17 +29,6 @@ const INFERENCE_KEY = 'mittens_inference_mode';
 const OLLAMA_URL_KEY = 'mittens_ollama_url';
 const OLLAMA_API_KEY = 'mittens_ollama_key';
 const OLLAMA_MODEL_KEY = 'mittens_ollama_model';
-const GEMINI_API_KEY = 'mittens_gemini_api_key';
-const CLAUDE_API_KEY = 'mittens_claude_api_key';
-const CLAUDE_VARIANT_KEY = 'mittens_claude_variant';
-
-const BACKEND_CLOUD_BRAINS = new Set([
-  'gemini-flash',
-  'claude-sonnet',
-  'claude-opus',
-  'groq-free',
-  'openrouter-free',
-]);
 
 let cachedBrain: Brain | null = null;
 let cachedBrainId: BrainId | null = null;
@@ -70,12 +59,6 @@ export async function getBrainId(): Promise<BrainId> {
   // First check explicit brain ID (set by setBrainId)
   const explicit = await AsyncStorage.getItem(BRAIN_KEY);
   if (explicit) {
-    // Legacy 'gemini' brain ID -> route through backend cloud instead of direct API
-    if (explicit === 'gemini') {
-      await AsyncStorage.setItem(BRAIN_KEY, 'gemini-flash');
-      resolvedBrainId = 'gemini-flash';
-      return resolvedBrainId;
-    }
 
     // New local VLM brain IDs -- these are explicit model selections, no tier correction needed
     if (['fastvlm', 'smolvlm2', 'moondream2'].includes(explicit)) {
@@ -105,18 +88,8 @@ export async function getBrainId(): Promise<BrainId> {
   // Derive from inference mode (written by profile UI)
   const inferenceMode = await AsyncStorage.getItem(INFERENCE_KEY);
   switch (inferenceMode) {
-    case 'claude': {
-      const variant = await AsyncStorage.getItem(CLAUDE_VARIANT_KEY);
-      resolvedBrainId = variant === 'claude-opus' ? 'claude-opus' : 'claude-sonnet';
-      break;
-    }
     case 'ollama':
       resolvedBrainId = 'gemma26b';
-      break;
-    case 'gemini':
-      // Inference mode 'gemini' is a legacy catch-all for cloud brains.
-      // Default to E2B (on-device) unless user explicitly chose a cloud brain.
-      resolvedBrainId = 'e2b';
       break;
     default:
       resolvedBrainId = 'e2b';
@@ -160,10 +133,6 @@ export function isE2BAvailable(): boolean {
 // -- Internal --
 
 async function createBrain(id: BrainId): Promise<Brain> {
-  if (BACKEND_CLOUD_BRAINS.has(id)) {
-    const { BackendCloudBrain } = require('./backendCloud');
-    return new BackendCloudBrain(id);
-  }
 
   switch (id) {
     case 'e2b': {
@@ -191,18 +160,6 @@ async function createBrain(id: BrainId): Promise<Brain> {
         apiKey: key || undefined,
         model: model || 'gemma4:26b',
       });
-    }
-    case 'gemini': {
-      const { GeminiBrain } = require('./gemini');
-      const apiKey = await AsyncStorage.getItem(GEMINI_API_KEY);
-      return new GeminiBrain(apiKey || '');
-    }
-    case 'claude-sonnet':
-    case 'claude-opus': {
-      const { ClaudeBrain } = require('./claude');
-      const apiKey = await AsyncStorage.getItem(CLAUDE_API_KEY);
-      const variant = id as 'claude-sonnet' | 'claude-opus';
-      return new ClaudeBrain(apiKey || '', variant);
     }
     case 'fastvlm': {
       const { FastVLMBrain } = require('./fastvlm');

@@ -1,6 +1,6 @@
 /**
  * API types for the Mittens Nutrition system.
- * Matches the Strapi controller response shapes.
+ * Matches the Backend controller response shapes.
  */
 
 export interface NutrientValues {

@@ -8,7 +8,7 @@
  * MIGRATED FROM:
  *   gemmaLocalProvider.estimateNutrients() → USDA-first approach
  *   lib/services/food/nutrientEstimator.ts → the actual USDA lookup
- *   geminiVision.estimateNutrients() (Strapi) → the AI fallback
+ *   geminiVision.estimateNutrients() (Backend) → the AI fallback
  *
  * KEY DESIGN:
  *   - USDA lookup is deterministic and free (no AI call)

@@ -2,7 +2,7 @@
  * DataProvider interface -- abstraction over data persistence.
  *
  * Two implementations:
- * - CloudDataProvider: wraps existing RTK Query / Strapi REST calls
+ * - CloudDataProvider: wraps existing RTK Query / Backend REST calls
  * - LocalDataProvider: SQLite via expo-sqlite
  */
 

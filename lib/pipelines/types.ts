@@ -62,7 +62,7 @@ export interface TriageResult {
  *   4. Current time (default fallback)
  *
  * MIGRATED FROM:
- *   - Strapi smartExtract TEMPORAL REASONING section
+ *   - Backend smartExtract TEMPORAL REASONING section
  *   - gemmaLocalProvider.triage() logTime field
  */
 export interface TemporalResult {

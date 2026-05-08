@@ -1,5 +1,5 @@
 /**
- * CloudDataProvider -- wraps existing Strapi API / RTK Query calls
+ * CloudDataProvider -- wraps existing Backend API / RTK Query calls
  * to conform to the DataProvider interface.
  *
  * No behavior change -- purely structural wrapper around existing functions.

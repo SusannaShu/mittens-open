@@ -7,7 +7,7 @@
  *
  * MIGRATED FROM:
  *   gemmaLocalProvider.ts → identifyFoods(), foodIdPass(), foodIdNextPass()
- *   geminiVision.js → MEAL_PROMPT (Strapi, the 67-line monster prompt)
+ *   geminiVision.js → MEAL_PROMPT (Backend, the 67-line monster prompt)
  *
  * KEY DIFFERENCES FROM OLD CODE:
  *   - Brain-agnostic: calls brain.vision() instead of LocalInferenceService

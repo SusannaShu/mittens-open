@@ -18,7 +18,7 @@ import { KnownPlace } from './knownPlaceApi';
 export const GEOFENCE_TASK = 'MITTENS_GEOFENCE';
 export const LOCATION_TASK = 'MITTENS_LOCATION';
 
-// In-memory state (persisted to Strapi on change)
+// In-memory state (persisted to Backend on change)
 let currentPlace: string | null = null;
 let currentLocation: { lat: number; lon: number } | null = null;
 let lastLocationTime: number = 0;

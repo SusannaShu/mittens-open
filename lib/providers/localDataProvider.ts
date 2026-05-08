@@ -1,7 +1,7 @@
 /**
  * LocalDataProvider -- SQLite-backed DataProvider implementation.
  *
- * Mirrors all Strapi CRUD operations using local SQLite.
+ * Mirrors all Backend CRUD operations using local SQLite.
  * Every write enqueues a sync record for cloud push.
  */
 

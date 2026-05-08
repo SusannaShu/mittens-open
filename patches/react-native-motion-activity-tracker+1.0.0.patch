@@ -123,7 +123,7 @@ index 0000000..ffe1858
 +++ b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
 @@ -0,0 +1,2 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<merger version="3"><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main" generated-set="main$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/debug/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug" generated-set="debug$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/debug/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/build/generated/res/resValues/debug"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated" generated-set="generated$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/build/generated/res/resValues/debug"/></dataSet><mergedItems/></merger>
++<merger version="3"><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/main/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main" generated-set="main$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/main/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/debug/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug" generated-set="debug$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/debug/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/build/generated/res/resValues/debug"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated" generated-set="generated$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/build/generated/res/resValues/debug"/></dataSet><mergedItems/></merger>
 \ No newline at end of file
 diff --git a/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugAssets/merger.xml b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugAssets/merger.xml
 new file mode 100644
@@ -132,7 +132,7 @@ index 0000000..aaf051d
 +++ b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugAssets/merger.xml
 @@ -0,0 +1,2 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/assets"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/debug/assets"/></dataSet><dataSet config="generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/build/intermediates/shader_assets/debug/compileDebugShaders/out"/></dataSet></merger>
++<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/main/assets"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/debug/assets"/></dataSet><dataSet config="generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/build/intermediates/shader_assets/debug/compileDebugShaders/out"/></dataSet></merger>
 \ No newline at end of file
 diff --git a/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugJniLibFolders/merger.xml b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugJniLibFolders/merger.xml
 new file mode 100644
@@ -141,7 +141,7 @@ index 0000000..02eecef
 +++ b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugJniLibFolders/merger.xml
 @@ -0,0 +1,2 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/jniLibs"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/debug/jniLibs"/></dataSet></merger>
++<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/main/jniLibs"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/debug/jniLibs"/></dataSet></merger>
 \ No newline at end of file
 diff --git a/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugShaders/merger.xml b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugShaders/merger.xml
 new file mode 100644
@@ -150,7 +150,7 @@ index 0000000..e7792f1
 +++ b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/incremental/mergeDebugShaders/merger.xml
 @@ -0,0 +1,2 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/shaders"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/debug/shaders"/></dataSet></merger>
++<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/main/shaders"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="./node_modules/react-native-motion-activity-tracker/android/src/debug/shaders"/></dataSet></merger>
 \ No newline at end of file
 diff --git a/node_modules/react-native-motion-activity-tracker/android/build/intermediates/java_res/debug/processDebugJavaRes/out/META-INF/react-native-motion-activity-tracker_debug.kotlin_module b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/java_res/debug/processDebugJavaRes/out/META-INF/react-native-motion-activity-tracker_debug.kotlin_module
 new file mode 100644
@@ -181,11 +181,11 @@ index 0000000..50057eb
 +5    <uses-sdk android:minSdkVersion="24" />
 +6
 +7    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
-+7-->/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:5-79
-+7-->/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:22-76
++7-->./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:5-79
++7-->./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:22-76
 +8    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
-+8-->/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:5-94
-+8-->/Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:22-91
++8-->./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:5-94
++8-->./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:22-91
 +9
 +10</manifest>
 diff --git a/node_modules/react-native-motion-activity-tracker/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml b/node_modules/react-native-motion-activity-tracker/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
@@ -625,28 +625,28 @@ index 0000000..984289f
 @@ -0,0 +1,24 @@
 +-- Merging decision tree log ---
 +manifest
-+ADDED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:1:1-4:12
-+INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:1:1-4:12
++ADDED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:1:1-4:12
++INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:1:1-4:12
 +	package
-+		INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
++		INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
 +	xmlns:android
-+		ADDED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:1:11-69
++		ADDED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:1:11-69
 +uses-permission#android.permission.ACTIVITY_RECOGNITION
-+ADDED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:5-79
++ADDED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:5-79
 +	android:name
-+		ADDED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:22-76
++		ADDED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:2:22-76
 +uses-permission#com.google.android.gms.permission.ACTIVITY_RECOGNITION
-+ADDED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:5-94
++ADDED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:5-94
 +	android:name
-+		ADDED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:22-91
++		ADDED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml:3:22-91
 +uses-sdk
-+INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
-+INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
-+INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
++INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
++INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
++INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
 +	android:targetSdkVersion
-+		INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
++		INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
 +	android:minSdkVersion
-+		INJECTED from /Users/susannahuang/Documents/GitHub/mittens-app/node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
++		INJECTED from ./node_modules/react-native-motion-activity-tracker/android/src/main/AndroidManifest.xml
 diff --git a/node_modules/react-native-motion-activity-tracker/android/build/tmp/compileDebugJavaWithJavac/previous-compilation-data.bin b/node_modules/react-native-motion-activity-tracker/android/build/tmp/compileDebugJavaWithJavac/previous-compilation-data.bin
 new file mode 100644
 index 0000000..583b25a

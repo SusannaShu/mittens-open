@@ -2,7 +2,7 @@
  * InferenceProvider interface -- abstraction over AI inference engines.
  *
  * Two implementations:
- * - GeminiCloudProvider: routes through Strapi -> Gemini (current flow)
+ * - GeminiCloudProvider: routes through Backend -> Gemini (current flow)
  * - GemmaLocalProvider: on-device LiteRT-LM native module
  */
 

@@ -3,7 +3,7 @@
  *
  * Replaces useChatHandlers with a clean pipeline-based architecture.
  * All inputs go through: triage → parallel pipelines → compose reply.
- * All data goes to local DB first, synced to Strapi via sync engine.
+ * All data goes to local DB first, synced to Backend via sync engine.
  */
 
 import { useState, useRef } from 'react';

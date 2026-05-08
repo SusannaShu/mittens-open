@@ -1,22 +1,22 @@
 /**
  * Lightweight user context stored at login.
- * Holds Strapi user fields (firstname, username, email, etc.)
+ * Holds Backend user fields (firstname, username, email, etc.)
  * so screens can access the user's name without an extra API call.
  */
 
-let _strapiUser: { firstname?: string; lastname?: string; username?: string; email?: string } | null = null;
+let _backendUser: { firstname?: string; lastname?: string; username?: string; email?: string } | null = null;
 
-export function setStrapiUser(user: any) {
-  _strapiUser = user;
+export function setBackendUser(user: any) {
+  _backendUser = user;
 }
 
-export function getStrapiUser() {
-  return _strapiUser;
+export function getBackendUser() {
+  return _backendUser;
 }
 
 /** Returns the user's display name: firstname > username > fallback */
 export function getUserDisplayName(fallback = 'User'): string {
-  if (_strapiUser?.firstname) return _strapiUser.firstname;
-  if (_strapiUser?.username) return _strapiUser.username;
+  if (_backendUser?.firstname) return _backendUser.firstname;
+  if (_backendUser?.username) return _backendUser.username;
   return fallback;
 }

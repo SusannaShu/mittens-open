@@ -6,7 +6,7 @@ import { Provider } from 'react-redux';
 import { store } from '../lib/store';
 import { colors } from '../lib/theme';
 import { usePendantBridge } from '../lib/hooks/pendant/usePendantBridge';
-import { setStrapiUser } from '../lib/userContext';
+import { setBackendUser } from '../lib/userContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -43,7 +43,7 @@ export default function RootLayout() {
     (async () => {
       try {
         // 1. Set mock user globally so context providers don't throw
-        setStrapiUser(mockLocalUser);
+        setBackendUser(mockLocalUser);
 
         // 2. Initialize local SQLite database
         const { initializeDatabase } = require('../lib/database');

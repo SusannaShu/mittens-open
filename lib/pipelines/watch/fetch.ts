@@ -165,9 +165,9 @@ async function fetchReddit(url: string): Promise<WatchFetchedItem[]> {
 }
 
 async function fetchIgStories(_handle: string): Promise<WatchFetchedItem[]> {
-  // IG stories require Strapi endpoint (Instaloader) -- deferred
+  // IG stories require Backend endpoint (Instaloader) -- deferred
   // For now, return empty with a note
-  console.log('[Watch] IG stories fetch not yet implemented (needs Strapi endpoint)');
+  console.log('[Watch] IG stories fetch not yet implemented (needs Backend endpoint)');
   return [];
 }
 

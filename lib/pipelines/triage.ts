@@ -23,7 +23,7 @@
  *   entries flow through the exact same phase code.
  *
  * MIGRATED FROM:
- *   - geminiVision.classifyImage() (Strapi) → the vision classification
+ *   - geminiVision.classifyImage() (Backend) → the vision classification
  *   - gemmaLocalProvider.triage() → the meal/pantry decision
  *   - gemmaLocalProvider.classifyIntent() → text-only intent classification
  *   - useChatHandlers.ts routing logic → the if/else chain
@@ -292,7 +292,7 @@ function normalizeTriageResult(parsed: any): TriageResult {
  *   - Integration with location session data (locationSessionApi.ts)
  *
  * MIGRATED FROM:
- *   - Strapi smartExtract duration_min estimation
+ *   - Backend smartExtract duration_min estimation
  *   - locationService.ts motion type detection
  */
 export async function inferDuration(

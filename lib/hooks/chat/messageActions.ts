@@ -35,7 +35,7 @@ export function doDeleteMessage(
             const dataMode = await getDataMode();
 
             if (dataMode === 'cloud') {
-              // Cloud mode: delete from Strapi + cascade-delete associated logs
+              // Cloud mode: delete from Backend + cascade-delete associated logs
               try {
                 const { getApiBase, getAuthToken } = require('../../api');
                 const base = getApiBase();

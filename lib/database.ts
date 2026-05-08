@@ -1,7 +1,7 @@
 /**
  * database.ts -- SQLite database for local-first mode.
  *
- * Mirrors all Strapi collections. JSON columns for complex data.
+ * Mirrors all Backend collections. JSON columns for complex data.
  * synced_at tracks which records have been pushed to cloud.
  * Uses lazy require to avoid loading native module at app startup.
  */
@@ -289,7 +289,7 @@ export async function initializeDatabase(): Promise<void> {
       synced_at TEXT
     );
 
-    -- Sync queue: tracks records that need to be pushed to Strapi
+    -- Sync queue: tracks records that need to be pushed to Backend
     CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       table_name TEXT NOT NULL,

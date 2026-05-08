@@ -7,7 +7,7 @@
  *
  * MIGRATED FROM:
  *   geminiVision.estimateNutrients() → the NOVA/isFermented/sourceType part
- *   (was crammed into the nutrient estimation prompt in Strapi)
+ *   (was crammed into the nutrient estimation prompt in Backend)
  *
  * FIELDS:
  *   - novaScale (1-4): NOVA food processing classification

@@ -52,7 +52,7 @@ export function useChatMessages() {
     photos: m.photos && m.photos.length > 0
       ? m.photos.map((p: any) => {
           if (typeof p === 'string') {
-            // Relative Strapi path -> prepend API base
+            // Relative Backend path -> prepend API base
             if (p.startsWith('/uploads/')) return `${getApiBase()}${p}`;
             return p;
           }

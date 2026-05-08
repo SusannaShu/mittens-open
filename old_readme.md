@@ -2,9 +2,9 @@
 
 Susanna's bot — brain, eyes, ears, and voice, in one project.
 
-Mittens runs on your phone. It tracks your nutrition, track your location to log your activities, reflects on your day through Stanford Life Design, helps you learn languages, watches the web for you, and talks to you about all of it. It sees what you eat, hears what you say, and remembers what matters to you.
+Mittens runs on your phone. It tracks your nutrition, track your location to log your activities, reflects on your day through Stanford Life Design, helps you learn languages, reads your emails, watches the web for you, and talks to you about all of it. It sees what you eat, hears what you say, and remembers what matters to you.
 
-Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays on-device.
+Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays on-device or syncs to the cloud. You decide.
 
 <p align="center">
   <img src="screenshots/today-dashboard.png" width="180" alt="Today dashboard" />
@@ -26,7 +26,9 @@ Local model on your phone. Host your own model and port it in, or bring your own
 
 **Smart pantry.** Photograph your fridge and Mittens inventories what's inside with freshness estimates. Meals auto-deduct from pantry. Grocery lists generated from meal plans cross-referenced against what you already have.
 
-**Talk to Mittens.** The chat is the primary interface. Mittens classifies what you say or photograph and routes to the right pipeline — food, activity, sleep, pantry, or web lookup. It reads your calendar, searches past conversations, remembers your habits and preferences, and updates its memory as your life changes. Voice input and TTS output.
+**Talk to Mittens.** The chat is the primary interface. Mittens classifies what you say or photograph and routes to the right pipeline — food, activity, sleep, pantry, email, or web lookup. It reads your calendar, searches past conversations, remembers your habits and preferences, and updates its memory as your life changes. Voice input and TTS output.
+
+**Email.** "Find my depop dress." "Check my emails with Olivia — did she say Sunday or Monday?" "Send an email to Gretchen saying I'm late." Mittens searches Gmail, reads and filters emails, extracts order confirmations into structured wardrobe items (for SUSU Closet), pulls calendar events out of messages, composes and sends emails. Drafts always shown for confirmation before sending. Gmail OAuth, separate from calendar.
 
 **Web + social lookup.** "Any free food from nycforfree today?" "Anything on HackerNews?" "New soft robotics papers — humanoid only, not marine." Mittens fetches the content (RSS, API, HTML scrape, or Instagram stories via server-side Instaloader), runs vision or text filtering through the brain, extracts structured details, and shows you cards. No polling — on-demand when you ask. Uses your lifeview/workview as implicit interest filters.
 
@@ -47,6 +49,7 @@ You ask Mittens something       Pendant captures something
          +-->  pantry     (fridge photo -> inventory)
          +-->  sleep      (sleep mention -> sleep log)
          +-->  chat       (conversation -> reply + side effects)
+         +-->  email      (Gmail agent: search, read, compose, send)
          +-->  watch      (web + social: fetch, filter, extract, cards)
 ```
 
@@ -58,22 +61,25 @@ Pendant frames and audio enter the same pipelines as manual input. Motion frames
 |-------|---------|------|---------------|
 | Gemma 4 E2B | ~150 tokens | Free | On your phone (LiteRT) |
 | Gemma 4 26B | 8K tokens | Free | Self-hosted (Ollama) |
+| Gemini Flash | 1M tokens | Free tier | Google Cloud |
+| Claude Sonnet/Opus | 200K tokens | Paid | Anthropic API |
 
 Brains are dumb text-in/text-out wrappers. Pipelines own all intelligence: prompt construction, response parsing, phase sequencing. Every phase checks `brain.contextWindow` and adapts -- compact format (short JSON keys) for E2B, verbose for large models. Swap brains in Profile without changing any pipeline code.
 
-The pendant works with any brain. On-device Gemma processes audio natively (no transcription step). Self-hosted Ollama receives the same. No pendant-specific code in any brain implementation.
+The pendant works with any brain. On-device Gemma processes audio natively (no transcription step). Cloud brains (Gemini, Claude) receive transcribed text + image. Self-hosted Ollama receives the same. No pendant-specific code in any brain implementation.
 
-### Data
+### Data (pick one)
 
 | Mode | Where | Backup |
 |------|-------|--------|
 | Local | SQLite on device | None (your phone) |
+| Cloud | SQLite + Strapi sync | Strapi backend |
 
-Default local: Gemma for private inference. 
+Default hybrid: Gemma for private inference + Cloud for backed-up data. Toggle each independently in Profile.
 
 ### Stack
 
-Expo dev client (React Native + TypeScript). Redux Toolkit. SQLite local-first. LiteRT-LM native module (iOS Swift + Android Kotlin) for on-device Gemma. Google Calendar OAuth. 
+Expo dev client (React Native + TypeScript). Redux Toolkit. SQLite local-first. Strapi backend (optional). LiteRT-LM native module (iOS Swift + Android Kotlin) for on-device Gemma. Google Calendar OAuth. Gmail OAuth. Cloudinary for photo storage.
 
 ## Prerequisites
 
@@ -104,6 +110,19 @@ npx expo run:ios
 
 This app requires an Expo dev client (not Expo Go) because it uses native modules: LiteRT for on-device inference, BLE for pendant communication, and Motion Activity for HAR.
 
+### Backend Configuration
+
+Update `lib/api.ts` with your Strapi URL. Default is `http://localhost:1337`.
+
+To run fully offline: select a local brain model in Profile and use local-only storage. No backend needed.
+
+To run with Strapi backend:
+```bash
+cd ~/Documents/GitHub/strapi-backend
+npm install
+npm run develop     # starts on :1337
+```
+
 ### Android Setup (Optional)
 
 ```bash
@@ -115,6 +134,42 @@ export PATH=$PATH:$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools
 npx expo run:android
 ```
 
+## Test Account
+
+Create a test account against your local Strapi backend:
+
+```bash
+curl -X POST http://localhost:1337/api/auth/local/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"<your_username>","email":"<your_email>","password":"<your_password>"}'
+```
+
+## Related Repos
+
+| Repo | Port | Purpose |
+|------|------|---------|
+| [strapi-backend](../strapi-backend) | :1337 | API backend -- auth, nutrition, activity, calendar, dev tasks |
+| [dev-hub](../dev-hub) | :4000 | Remote dev dashboard -- simulator stream, notes pipeline |
+| [susu-map](../susu-map) | :5173 | Community map -- free food, events, marketplace |
+| [building-fashion-future](../building-fashion-future) | :3001-3003 | Creative economy monorepo |
+
+See [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md) for full ecosystem setup.
+
+## Working with AI Agents
+
+Mittens development is designed for AI-assisted workflows:
+
+1. **Write notes** in the Dev Hub notepad (http://localhost:4000) describing bugs, features, or questions
+2. Notes get auto-parsed, triaged by project and priority, and stored as `dev-task` entries in Strapi
+3. The Dev Notes screen in Mittens (`app/dev-notes.tsx`) shows all tasks with approve/reject/retry actions
+4. Tasks include auto-generated AI prompts optimized for the assigned model tier
+
+RTK Query patterns:
+- All API slices live in `lib/services/`
+- Base API defined in `lib/services/baseApi.ts` (baseUrl: `http://localhost:1337`)
+- All Strapi v5 endpoints need `/api/` prefix in the URL path
+- Cache invalidation via tag types defined in baseApi
+
 ## Mittens Pendant
 
 A wearable XIAO ESP32S3 Sense pendant with camera, mic, and IMU. Firmware flashed and running.
@@ -125,7 +180,7 @@ A wearable XIAO ESP32S3 Sense pendant with camera, mic, and IMU. Firmware flashe
 - Motion wake: captures VGA 640x480 JPEG, WiFi POSTs to phone
 - Double-tap: records 5s PDM audio + captures frame, WiFi POSTs to phone
 - App receives frames and audio, displays in Pendant Feed screen (Profile tab)
-- Works with any brain mode (local E2B, self-hosted Ollama)
+- Works with any brain mode (local E2B, self-hosted Ollama, cloud Gemini/Claude)
 - No hardcoded WiFi credentials in firmware -- all provisioned from app
 
 **Next steps:**
@@ -140,12 +195,12 @@ See [mittens_pendant/MITTENS_PENDANT.md](mittens_pendant/MITTENS_PENDANT.md) for
 
 **Wrist band.** IMU for human activity recognition (eating vs typing), skin temp, PPG. Unlocks sleep staging, HRV, menstrual cycle tracking.
 
-**Wardrobe & Object Tracking.** Using local vision models to recognize clothing and personal items, integrating seamlessly into a broader personal inventory system with AR visualization.
+**SUSU Closet integration.** Fashion order items extracted from email flow into SUSU Closet's wardrobe. Mittens → Strapi → SUSU Closet. Later: SUSU Closet gets its own email import with server-side inference for web users.
 
 **Trading map.** Items marked "want to trade" flow from SUSU Closet to SUSU Map for local peer-to-peer trading.
 
-**Self-hosted brain.** M4 MacBook Pro running Gemma 4 26B via Ollama as the always-available home server brain. Phone connects over local network. Same pipeline code, just a different brain endpoint. 
+**Self-hosted brain.** M4 MacBook Pro running Gemma 4 26B via Ollama as the always-available home server brain. Phone connects over local network. Same pipeline code, just a different brain endpoint. Cloud brains (Gemini free tier, Claude) available as fallback when away from home.
 
 ## Cost
 
-$0/month. Gemma on-device. Bring your own self-hosted brain if you want.
+$0/month. Gemma on-device + Gemini free tier + your own Strapi. Bring your own API keys for premium models if you want them.

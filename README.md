@@ -1,8 +1,8 @@
 # Mittens Open (Hackathon Edition)
 
-> This repository is a sanitized, local-first fork of the private `mittens-app` codebase, prepared for the [Hackathon Name/Release].
+> This repository is a sanitized, local-first fork of the private `mittens-app` codebase.
 
-Mittens is a local-first iOS application designed to track life activities, nutrition, sleep, and overall well-being using on-device AI. This open version removes all proprietary cloud infrastructure, backend connectivity (Strapi), and private APIs, operating completely offline using SQLite and the E2B (Exec to Browser) inference models.
+Mittens is a local-first iOS application designed to track life activities, nutrition, sleep, and overall well-being using on-device AI. This open version removes all proprietary cloud infrastructure, backend connectivity, and private APIs, operating completely offline using SQLite and the E2B (Exec to Browser) inference models with camera pendant smart wearable for ambient visual and audio input analysis.
 
 ## Architecture (Open Version)
 
@@ -31,7 +31,7 @@ Mittens is a local-first iOS application designed to track life activities, nutr
 
 ## Cloud Infrastructure Placeholders
 
-In the original `mittens-app`, several features relied heavily on a private Strapi v5 backend, Socket.IO, and external APIs. To ensure the app remains fully functional off-grid, these have been replaced with Markdown placeholders or SQLite stubs:
+In the original `mittens-app`, several features relied heavily on a backend, Socket.IO, and external APIs. To ensure the app remains fully functional off-grid, these have been replaced with Markdown placeholders or SQLite stubs:
 
 - **Dev Hub**: Originally a remote server monitor for Docker logs.
 - **Dev Notes Pipeline**: Originally an NLP ingestion pipeline that created GitHub issues.
@@ -39,12 +39,6 @@ In the original `mittens-app`, several features relied heavily on a private Stra
 - **Sync Engine**: The entire `syncEngine.ts` file has been stripped as data no longer pushes to a backend.
 
 These screens still exist in the app but now contain static text explaining their original architecture.
-
-## Repository Notes
-
-- The Git history has been deliberately stripped to remove any trace of production API keys or sensitive commit histories from the private repository.
-- `lib/api.ts` has been rewritten as a no-op stub.
-- All cloud AI providers (Gemini, Claude, Groq) have been deleted from `lib/brain/`.
 
 ## License
 MIT

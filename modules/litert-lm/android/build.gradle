@@ -1,0 +1,49 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+group = 'expo.modules.litertlm'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+if (expoModulesCorePlugin.exists()) {
+  apply from: expoModulesCorePlugin
+  applyKotlinExpoModulesCorePlugin()
+  useDefaultAndroidSdkVersions()
+}
+
+android {
+  namespace "expo.modules.litertlm"
+
+  compileSdkVersion safeExtGet("compileSdkVersion", 34)
+
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 26)
+    targetSdkVersion safeExtGet("targetSdkVersion", 34)
+  }
+
+  buildFeatures {
+    buildConfig true
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+    // LiteRT-LM 0.10.0 was compiled with Kotlin 2.3, our project uses 2.1.
+    // This flag allows reading metadata from newer Kotlin versions.
+    freeCompilerArgs += ["-Xskip-metadata-version-check"]
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+
+  // LiteRT-LM: Google AI Edge on-device inference for Gemma 4
+  // 0.10.0 required for Gemma 4 E2B model format compatibility
+  implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
+
+  // Coroutines for async engine init + inference
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+}

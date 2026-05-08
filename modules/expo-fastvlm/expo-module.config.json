@@ -1,0 +1,6 @@
+{
+  "name": "ExpoFastvlm",
+  "ios": {
+    "modules": ["ExpoFastvlmModule"]
+  }
+}

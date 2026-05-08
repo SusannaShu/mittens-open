@@ -1,4 +1,4 @@
-# Mittens Open (Hackathon Edition)
+# Open Mittens
 
 > This repository is a sanitized, local-first fork of the private `mittens-app` codebase.
 

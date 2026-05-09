@@ -2,16 +2,17 @@
  * LocalAgentSetupModal -- onboarding step for AI provider selection.
  *
  * Design philosophy:
- * - Default path (tapping "Continue") auto-downloads E2B. No decisions needed.
- * - "Other options" reveals BYOK / Self-Hosted for power users.
- * - If download fails (space/RAM), gracefully suggests cloud mode.
+ * - Checks device RAM before offering E2B download.
+ * - If sufficient RAM (7GB+): default path auto-downloads E2B.
+ * - If low RAM (<7GB, e.g. iPhone SE 3): skips E2B, leads with self-hosted/BYOK.
+ * - If download fails (space/RAM), gracefully suggests self-hosted mode.
  * - Non-techy users never see anything scary.
  */
 
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Modal, ActivityIndicator,
-  TouchableOpacity, Image, Animated, TextInput, Platform,
+  TouchableOpacity, Image, Animated, TextInput, ScrollView,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
@@ -22,8 +23,10 @@ import {
 import { OllamaProvider } from '../../lib/providers/ollamaProvider';
 import { updateProfile } from '../../lib/api';
 import { setBrainId } from '../../lib/brain/selector';
+import { getDeviceRAM_GB } from '../../lib/services/ai/tierSelector';
 
 const MITTENS_ICON = require('../../assets/icon.png');
+const E2B_RAM_THRESHOLD_GB = 7;
 
 type Phase = 'choose' | 'downloading' | 'loading' | 'ready' | 'error' | 'cloud-confirm';
 
@@ -37,15 +40,22 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
   const [phase, setPhase] = useState<Phase>('choose');
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  // BYOK / Self-Hosted state
+  // RAM check
+  const [deviceRAM, setDeviceRAM] = useState<number | null>(null);
+  const isLowRAM = deviceRAM !== null && deviceRAM < E2B_RAM_THRESHOLD_GB;
+
+  // Self-Hosted / BYOK state
   const [ollamaUrl, setOllamaUrl] = useState('');
   const [ollamaKey, setOllamaKey] = useState('');
   const [ollamaModel, setOllamaModel] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionResult, setConnectionResult] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setDeviceRAM(getDeviceRAM_GB());
+  }, []);
 
   useEffect(() => {
     Animated.timing(progressAnim, {
@@ -55,7 +65,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
     }).start();
   }, [progress]);
 
-  // ── E2B local setup ──
+  // -- E2B local setup --
   const startLocalSetup = async () => {
     try {
       const alreadyDownloaded = await LocalInferenceService.isModelDownloaded();
@@ -77,16 +87,16 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
       const msg = e?.message || 'Setup failed';
       setErrorMsg(
         msg.includes('storage') || msg.includes('space') || msg.includes('disk')
-          ? 'Not enough storage space for the model (~2.6 GB). Try freeing some space, or use cloud mode.'
+          ? 'Not enough storage space for the model (~2.6 GB). Try freeing some space, or use a self-hosted server.'
           : msg.includes('memory') || msg.includes('RAM')
-          ? 'Your device may not have enough memory to run the model. Try cloud mode instead.'
+          ? 'Your device does not have enough memory to run the model. Use a self-hosted server instead.'
           : msg
       );
       setPhase('error');
     }
   };
 
-  // ── Self-Hosted / BYOK setup ──
+  // -- Self-Hosted / BYOK setup --
   const handleConnectOllama = async (mode: 'selfhost' | 'byok') => {
     if (!ollamaUrl) return;
     setTestingConnection(true);
@@ -115,7 +125,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
     }
   };
 
-  // ── Cloud mode ──
+  // -- Cloud mode --
   const handleUseCloud = async () => {
     await setAgentEnabled(false);
     await setBrainId('groq-free' as any);
@@ -133,113 +143,46 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
       <View style={s.container}>
         <Image source={MITTENS_ICON} style={s.icon} />
 
-        {/* ── Choose phase: default is local, advanced hidden ── */}
+        {/* -- Choose phase -- */}
         {phase === 'choose' && (
-          <View style={s.center}>
-            <Text style={s.title}>Private by default</Text>
-            <Text style={s.subtitle}>
-              Mittens runs on your device. Your data never leaves your phone.
-            </Text>
-
-            <View style={s.features}>
-              <FeatureRow icon="shield" text="On-device AI processing" />
-              <FeatureRow icon="lock" text="Your data stays private" />
-              <FeatureRow icon="wifi-off" text="Works offline" />
-            </View>
-
-            {/* Primary action: start local E2B */}
-            <TouchableOpacity style={s.primaryBtn} onPress={startLocalSetup}>
-              <Text style={s.primaryBtnText}>Continue</Text>
-            </TouchableOpacity>
-
-            <Text style={s.sizeHint}>~2.6 GB download, runs on most modern phones</Text>
-
-            {/* Advanced toggle */}
-            {!showAdvanced ? (
-              <TouchableOpacity
-                style={s.advancedToggle}
-                onPress={() => setShowAdvanced(true)}
-              >
-                <Text style={s.advancedText}>Other options</Text>
-                <Feather name="chevron-down" size={14} color={colors.textMuted} />
-              </TouchableOpacity>
+          <ScrollView
+            style={{ flex: 1, width: '100%' }}
+            contentContainerStyle={s.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {isLowRAM ? (
+              <LowRAMChooseView
+                deviceRAM={deviceRAM!}
+                ollamaUrl={ollamaUrl}
+                ollamaKey={ollamaKey}
+                ollamaModel={ollamaModel}
+                testingConnection={testingConnection}
+                connectionResult={connectionResult}
+                onUrlChange={setOllamaUrl}
+                onKeyChange={setOllamaKey}
+                onModelChange={setOllamaModel}
+                onConnect={handleConnectOllama}
+                onCloud={() => setPhase('cloud-confirm')}
+              />
             ) : (
-              <View style={s.advancedSection}>
-                <View style={s.advancedDivider} />
-
-                {/* Self-Hosted */}
-                <Text style={s.advLabel}>SELF-HOSTED</Text>
-                <Text style={s.advHint}>Run your own model server (Ollama, vLLM, etc.)</Text>
-                <TextInput
-                  style={s.advInput}
-                  value={ollamaUrl}
-                  onChangeText={setOllamaUrl}
-                  placeholder="http://192.168.x.x:11434"
-                  placeholderTextColor="#BBB"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-                <TextInput
-                  style={s.advInput}
-                  value={ollamaModel}
-                  onChangeText={setOllamaModel}
-                  placeholder="Model (default: gemma4:26b)"
-                  placeholderTextColor="#BBB"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-
-                {/* BYOK */}
-                <Text style={[s.advLabel, { marginTop: 12 }]}>BRING YOUR OWN KEY</Text>
-                <Text style={s.advHint}>Use your own API key with any OpenAI-compatible endpoint</Text>
-                <TextInput
-                  style={s.advInput}
-                  value={ollamaKey}
-                  onChangeText={setOllamaKey}
-                  placeholder="API key (sk-...)"
-                  placeholderTextColor="#BBB"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-
-                {connectionResult === false && (
-                  <Text style={s.errorText}>Could not connect. Check URL and make sure server is running.</Text>
-                )}
-                {connectionResult === true && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <Feather name="check-circle" size={14} color="#4CAF50" />
-                    <Text style={{ fontSize: 13, color: '#4CAF50', fontWeight: '600' }}>Connected</Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={[s.secondaryBtn, !ollamaUrl && { opacity: 0.4 }]}
-                  onPress={() => handleConnectOllama(ollamaKey ? 'byok' : 'selfhost')}
-                  disabled={!ollamaUrl || testingConnection}
-                >
-                  {testingConnection
-                    ? <ActivityIndicator size="small" color={colors.textPrimary} />
-                    : <Text style={s.secondaryBtnText}>Test connection</Text>
-                  }
-                </TouchableOpacity>
-
-                <View style={s.advancedDivider} />
-
-                {/* Cloud fallback */}
-                <TouchableOpacity style={s.cloudBtn} onPress={() => setPhase('cloud-confirm')}>
-                  <Feather name="cloud" size={14} color={colors.textMuted} />
-                  <Text style={s.cloudText}>Use cloud instead</Text>
-                </TouchableOpacity>
-              </View>
+              <FullRAMChooseView
+                ollamaUrl={ollamaUrl}
+                ollamaKey={ollamaKey}
+                ollamaModel={ollamaModel}
+                testingConnection={testingConnection}
+                connectionResult={connectionResult}
+                onUrlChange={setOllamaUrl}
+                onKeyChange={setOllamaKey}
+                onModelChange={setOllamaModel}
+                onConnect={handleConnectOllama}
+                onStartLocal={startLocalSetup}
+                onCloud={() => setPhase('cloud-confirm')}
+              />
             )}
-
-            <Text style={s.powered}>Powered by Gemma 4 E2B</Text>
-          </View>
+          </ScrollView>
         )}
 
-        {/* ── Downloading ── */}
+        {/* -- Downloading -- */}
         {phase === 'downloading' && (
           <View style={s.center}>
             <Text style={s.title}>Setting up Mittens</Text>
@@ -259,7 +202,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
           </View>
         )}
 
-        {/* ── Loading ── */}
+        {/* -- Loading -- */}
         {phase === 'loading' && (
           <View style={s.center}>
             <Text style={s.title}>Almost there</Text>
@@ -269,7 +212,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
           </View>
         )}
 
-        {/* ── Ready ── */}
+        {/* -- Ready -- */}
         {phase === 'ready' && (
           <View style={s.center}>
             <Text style={s.title}>Mittens is ready</Text>
@@ -288,7 +231,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
           </View>
         )}
 
-        {/* ── Error: suggest alternatives ── */}
+        {/* -- Error: suggest alternatives -- */}
         {phase === 'error' && (
           <View style={s.center}>
             <Text style={s.title}>Setup didn't work</Text>
@@ -298,7 +241,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
               <Text style={s.primaryBtnText}>Try again</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={s.secondaryBtn} onPress={() => { setShowAdvanced(true); setPhase('choose'); }}>
+            <TouchableOpacity style={s.secondaryBtn} onPress={() => { setPhase('choose'); }}>
               <Text style={s.secondaryBtnText}>Try self-hosted instead</Text>
             </TouchableOpacity>
 
@@ -311,7 +254,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
           </View>
         )}
 
-        {/* ── Cloud confirm ── */}
+        {/* -- Cloud confirm -- */}
         {phase === 'cloud-confirm' && (
           <View style={s.center}>
             <Text style={s.title}>Cloud mode</Text>
@@ -333,6 +276,220 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
   );
 }
 
+// --------------------------------------------------------------------------
+// Sub-views for the "choose" phase
+// --------------------------------------------------------------------------
+
+/**
+ * Shown when device has enough RAM (7GB+) for on-device E2B.
+ * Primary CTA = "Continue" to download E2B.
+ */
+function FullRAMChooseView({
+  ollamaUrl, ollamaKey, ollamaModel,
+  testingConnection, connectionResult,
+  onUrlChange, onKeyChange, onModelChange, onConnect,
+  onStartLocal, onCloud,
+}: {
+  ollamaUrl: string; ollamaKey: string; ollamaModel: string;
+  testingConnection: boolean; connectionResult: boolean | null;
+  onUrlChange: (v: string) => void; onKeyChange: (v: string) => void;
+  onModelChange: (v: string) => void;
+  onConnect: (mode: 'selfhost' | 'byok') => void;
+  onStartLocal: () => void; onCloud: () => void;
+}) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  return (
+    <View style={s.center}>
+      <Text style={s.title}>Private by default</Text>
+      <Text style={s.subtitle}>
+        Mittens runs on your device. Your data never leaves your phone.
+      </Text>
+
+      <View style={s.features}>
+        <FeatureRow icon="shield" text="On-device AI processing" />
+        <FeatureRow icon="lock" text="Your data stays private" />
+        <FeatureRow icon="wifi-off" text="Works offline" />
+      </View>
+
+      <TouchableOpacity style={s.primaryBtn} onPress={onStartLocal}>
+        <Text style={s.primaryBtnText}>Continue</Text>
+      </TouchableOpacity>
+
+      <Text style={s.sizeHint}>~2.6 GB download, runs on most modern phones</Text>
+
+      {!showAdvanced ? (
+        <TouchableOpacity style={s.advancedToggle} onPress={() => setShowAdvanced(true)}>
+          <Text style={s.advancedText}>Other options</Text>
+          <Feather name="chevron-down" size={14} color={colors.textMuted} />
+        </TouchableOpacity>
+      ) : (
+        <SelfHostedSection
+          ollamaUrl={ollamaUrl}
+          ollamaKey={ollamaKey}
+          ollamaModel={ollamaModel}
+          testingConnection={testingConnection}
+          connectionResult={connectionResult}
+          onUrlChange={onUrlChange}
+          onKeyChange={onKeyChange}
+          onModelChange={onModelChange}
+          onConnect={onConnect}
+          onCloud={onCloud}
+        />
+      )}
+
+      <Text style={s.powered}>Powered by Gemma 4 E2B</Text>
+    </View>
+  );
+}
+
+/**
+ * Shown when device has insufficient RAM (<7GB) for on-device E2B.
+ * Primary CTA = connect to self-hosted server.
+ * E2B download is not offered (would fail after 2.6GB download).
+ */
+function LowRAMChooseView({
+  deviceRAM,
+  ollamaUrl, ollamaKey, ollamaModel,
+  testingConnection, connectionResult,
+  onUrlChange, onKeyChange, onModelChange, onConnect,
+  onCloud,
+}: {
+  deviceRAM: number;
+  ollamaUrl: string; ollamaKey: string; ollamaModel: string;
+  testingConnection: boolean; connectionResult: boolean | null;
+  onUrlChange: (v: string) => void; onKeyChange: (v: string) => void;
+  onModelChange: (v: string) => void;
+  onConnect: (mode: 'selfhost' | 'byok') => void;
+  onCloud: () => void;
+}) {
+  return (
+    <View style={s.center}>
+      <Text style={s.title}>Connect your server</Text>
+      <Text style={s.subtitle}>
+        Your device has {deviceRAM.toFixed(1)} GB RAM. The on-device model needs 7 GB+, so Mittens will connect to your own server instead.
+      </Text>
+
+      <View style={s.features}>
+        <FeatureRow icon="lock" text="Your data stays private" />
+        <FeatureRow icon="server" text="Run models on your own hardware" />
+        <FeatureRow icon="zap" text="No RAM or storage limits" />
+      </View>
+
+      <View style={s.ramBadge}>
+        <Feather name="info" size={14} color={colors.textSecondary} />
+        <Text style={s.ramBadgeText}>
+          On-device AI requires 7 GB+ RAM. Use a Mac, PC, or cloud GPU to host the model, then connect from here.
+        </Text>
+      </View>
+
+      <SelfHostedSection
+        ollamaUrl={ollamaUrl}
+        ollamaKey={ollamaKey}
+        ollamaModel={ollamaModel}
+        testingConnection={testingConnection}
+        connectionResult={connectionResult}
+        onUrlChange={onUrlChange}
+        onKeyChange={onKeyChange}
+        onModelChange={onModelChange}
+        onConnect={onConnect}
+        onCloud={onCloud}
+        isPrimary
+      />
+
+      <Text style={s.powered}>Your server, your models</Text>
+    </View>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Shared components
+// --------------------------------------------------------------------------
+
+function SelfHostedSection({
+  ollamaUrl, ollamaKey, ollamaModel,
+  testingConnection, connectionResult,
+  onUrlChange, onKeyChange, onModelChange, onConnect,
+  onCloud, isPrimary = false,
+}: {
+  ollamaUrl: string; ollamaKey: string; ollamaModel: string;
+  testingConnection: boolean; connectionResult: boolean | null;
+  onUrlChange: (v: string) => void; onKeyChange: (v: string) => void;
+  onModelChange: (v: string) => void;
+  onConnect: (mode: 'selfhost' | 'byok') => void;
+  onCloud: () => void;
+  isPrimary?: boolean;
+}) {
+  return (
+    <View style={s.advancedSection}>
+      {!isPrimary && <View style={s.advancedDivider} />}
+
+      <Text style={s.advLabel}>SELF-HOSTED</Text>
+      <Text style={s.advHint}>Run your own model server (Ollama, vLLM, etc.)</Text>
+      <TextInput
+        style={s.advInput}
+        value={ollamaUrl}
+        onChangeText={onUrlChange}
+        placeholder="http://192.168.x.x:11434"
+        placeholderTextColor="#BBB"
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+      />
+      <TextInput
+        style={s.advInput}
+        value={ollamaModel}
+        onChangeText={onModelChange}
+        placeholder="Model (default: gemma4:26b)"
+        placeholderTextColor="#BBB"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      <Text style={[s.advLabel, { marginTop: 12 }]}>BRING YOUR OWN KEY</Text>
+      <Text style={s.advHint}>Use your own API key with any OpenAI-compatible endpoint</Text>
+      <TextInput
+        style={s.advInput}
+        value={ollamaKey}
+        onChangeText={onKeyChange}
+        placeholder="API key (sk-...)"
+        placeholderTextColor="#BBB"
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      {connectionResult === false && (
+        <Text style={s.errorText}>Could not connect. Check URL and make sure server is running.</Text>
+      )}
+      {connectionResult === true && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <Feather name="check-circle" size={14} color="#4CAF50" />
+          <Text style={{ fontSize: 13, color: '#4CAF50', fontWeight: '600' }}>Connected</Text>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[isPrimary ? s.primaryBtn : s.secondaryBtn, !ollamaUrl && { opacity: 0.4 }]}
+        onPress={() => onConnect(ollamaKey ? 'byok' : 'selfhost')}
+        disabled={!ollamaUrl || testingConnection}
+      >
+        {testingConnection
+          ? <ActivityIndicator size="small" color={isPrimary ? '#FFF' : colors.textPrimary} />
+          : <Text style={isPrimary ? s.primaryBtnText : s.secondaryBtnText}>Test connection</Text>
+        }
+      </TouchableOpacity>
+
+      <View style={s.advancedDivider} />
+
+      <TouchableOpacity style={s.cloudBtn} onPress={onCloud}>
+        <Feather name="cloud" size={14} color={colors.textMuted} />
+        <Text style={s.cloudText}>Use cloud instead</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function FeatureRow({ icon, text }: { icon: string; text: string }) {
   return (
     <View style={s.featureRow}>
@@ -342,6 +499,10 @@ function FeatureRow({ icon, text }: { icon: string; text: string }) {
   );
 }
 
+// --------------------------------------------------------------------------
+// Styles
+// --------------------------------------------------------------------------
+
 const s = StyleSheet.create({
   container: {
     flex: 1,
@@ -350,11 +511,16 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.xl,
   },
+  scrollContent: {
+    alignItems: 'center',
+    paddingBottom: spacing.xl,
+  },
   icon: {
     width: 64,
     height: 64,
     borderRadius: 32,
     marginBottom: spacing.lg,
+    marginTop: spacing.xl,
   },
   center: {
     alignItems: 'center',
@@ -439,6 +605,25 @@ const s = StyleSheet.create({
     color: colors.textMuted,
     opacity: 0.5,
     marginTop: spacing.lg,
+  },
+
+  // RAM badge
+  ramBadge: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFF8E1',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    marginBottom: spacing.lg,
+    width: '100%',
+  },
+  ramBadgeText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
 
   // Advanced section

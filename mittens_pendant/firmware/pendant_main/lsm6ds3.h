@@ -154,12 +154,20 @@ void lsmConfigureWake() {
   // 0x08 = INT2_DOUBLE_TAP
   lsmWrite(LSM6DS3_MD2_CFG, 0x08);
 
-  // Wait to settle
-  delay(100);
+  // Wait for IMU output to stabilize after configuration change.
+  // The original 100ms was too short -- residual vibration from the event
+  // that triggered the wake would immediately fire INT1 after reconfiguration.
+  delay(200);
 
-  // Clear any existing interrupts by reading the source registers
-  lsmRead(LSM6DS3_TAP_SRC);
-  lsmRead(LSM6DS3_WAKE_UP_SRC);
+  // Actively drain any interrupts that fired during configuration.
+  // With LIR enabled, reading the source registers clears the latch and
+  // drops the INT pins. Keep reading until both pins are LOW.
+  for (int i = 0; i < 20; i++) {
+    lsmRead(LSM6DS3_TAP_SRC);
+    lsmRead(LSM6DS3_WAKE_UP_SRC);
+    if (digitalRead(IMU_INT1_PIN) == LOW && digitalRead(IMU_INT2_PIN) == LOW) break;
+    delay(10);
+  }
 
   Serial.println("[IMU] Dual-INT armed: INT1=motion(D2), INT2=tap(D3)");
 }

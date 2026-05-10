@@ -53,6 +53,10 @@
 // LED (external on D6, active high)
 #define LED_PIN D6
 
+// Push-to-talk button (D1, active low with internal pullup)
+// Wire: D1 ──── Button ──── GND
+#define BUTTON_PIN  D1
+
 // ─── IMU ───
 
 #define LSM6DS3_ADDR  0x6B  // LSM6DS3 I2C address (SA0 high)
@@ -60,8 +64,8 @@
 // ─── Audio ───
 
 #define AUDIO_SAMPLE_RATE    16000  // 16kHz mono
-#define AUDIO_DURATION_SEC   5      // seconds to record on double-tap
-#define AUDIO_BUFFER_BYTES   (AUDIO_SAMPLE_RATE * 2 * AUDIO_DURATION_SEC)  // 160KB
+#define AUDIO_DURATION_SEC   10     // max seconds (push-to-talk stops early on release)
+#define AUDIO_BUFFER_BYTES   (AUDIO_SAMPLE_RATE * 2 * AUDIO_DURATION_SEC)  // 320KB max
 
 // ─── Network ───
 

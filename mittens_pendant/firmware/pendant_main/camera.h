@@ -4,12 +4,24 @@
  *
  * Uses VGA (640x480) with good JPEG quality for food/face analysis.
  * Single frame capture (not streaming) -- optimized for pendant wake cycle.
+ *
+ * Without deep sleep, the camera must be explicitly deinitialized between
+ * captures to avoid ESP_ERR_INVALID_STATE (0x103) on re-init.
  */
 
 #include "esp_camera.h"
 #include "config.h"
 
+static bool g_cameraInitialized = false;
+
 bool cameraInit() {
+  // If already initialized, deinit first to reset state
+  if (g_cameraInitialized) {
+    esp_camera_deinit();
+    g_cameraInitialized = false;
+    delay(100);
+  }
+
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer   = LEDC_TIMER_0;
@@ -43,14 +55,24 @@ bool cameraInit() {
     return false;
   }
 
+  g_cameraInitialized = true;
   Serial.println("[CAM] Initialized (VGA 640x480)");
   return true;
+}
+
+/** Deinitialize camera -- must be called after frame buffer is returned. */
+void cameraDeinit() {
+  if (g_cameraInitialized) {
+    esp_camera_deinit();
+    g_cameraInitialized = false;
+    Serial.println("[CAM] Deinitialized");
+  }
 }
 
 /**
  * Capture a single JPEG frame.
  * Throws away the first frame for auto-exposure warmup.
- * Returns the frame buffer (caller must call esp_camera_fb_return).
+ * Returns the frame buffer (caller must call esp_camera_fb_return then cameraDeinit).
  */
 camera_fb_t* captureFrame() {
   // Discard first frame (auto-exposure warmup)
@@ -68,3 +90,4 @@ camera_fb_t* captureFrame() {
   Serial.printf("[CAM] Frame: %d bytes, %dx%d\n", fb->len, fb->width, fb->height);
   return fb;
 }
+

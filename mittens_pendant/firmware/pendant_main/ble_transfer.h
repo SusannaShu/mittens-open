@@ -149,17 +149,26 @@ bool bleTransferStream() {
     offset += chunkSize;
     chunkNum++;
 
-    // Small delay between chunks to prevent BLE buffer overflow.
-    // ESP32 BLE stack can queue ~5 notifications; this pacing keeps it smooth.
-    delay(20);
+    // Pacing: 12ms between chunks + 50ms flush every 20 chunks.
+    // The ESP32 BLE stack can queue ~5 notifications; if we send faster
+    // than the radio transmits, the tail gets silently dropped.
+    if (chunkNum % 20 == 0) {
+      delay(50);  // Let BLE stack flush
+    } else {
+      delay(12);
+    }
 
-    // Log progress every 10 chunks
-    if (chunkNum % 10 == 0) {
+    // Log progress every 50 chunks (~9KB)
+    if (chunkNum % 50 == 0) {
       Serial.printf("[BLE-TX] Sent %d/%d bytes (%d%%)\n",
                     offset, g_transferTotal,
                     (int)(100.0f * offset / g_transferTotal));
     }
   }
+
+  // Give BLE stack time to flush the last few queued notifications
+  // before we consider the transfer done
+  delay(1000);
 
   Serial.printf("[BLE-TX] All %d chunks sent, waiting for DONE...\n", chunkNum);
 

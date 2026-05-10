@@ -30,9 +30,13 @@ bool micInit() {
 
 /**
  * Record audio into PSRAM buffer.
+ * If stopCheck is provided, it's called periodically during recording.
+ * When stopCheck returns true, recording stops early (push-to-talk release).
  * Returns number of bytes recorded (0 on failure).
  */
-size_t micRecord() {
+typedef bool (*StopCheckFn)();
+
+size_t micRecord(StopCheckFn stopCheck = nullptr) {
   if (!g_audioBuffer) {
     g_audioBuffer = (int16_t *)ps_malloc(AUDIO_BUFFER_BYTES);
     if (!g_audioBuffer) {
@@ -41,12 +45,22 @@ size_t micRecord() {
     }
   }
 
-  Serial.printf("[MIC] Recording %ds...\n", AUDIO_DURATION_SEC);
+  Serial.printf("[MIC] Recording (max %ds, release button to stop)...\n", AUDIO_DURATION_SEC);
 
   size_t totalRead = 0;
 
   while (totalRead < AUDIO_BUFFER_BYTES) {
-    size_t toRead = AUDIO_BUFFER_BYTES - totalRead;
+    // Check if we should stop early (button released)
+    if (stopCheck && stopCheck()) {
+      Serial.println("[MIC] Stop requested (button released)");
+      break;
+    }
+
+    // Read in small chunks so stopCheck is responsive
+    size_t toRead = 1024;
+    size_t remaining = AUDIO_BUFFER_BYTES - totalRead;
+    if (toRead > remaining) toRead = remaining;
+
     size_t bytesRead = I2S.readBytes((char *)((uint8_t *)g_audioBuffer + totalRead), toRead);
     
     if (bytesRead == 0) {
@@ -56,7 +70,8 @@ size_t micRecord() {
     totalRead += bytesRead;
   }
 
-  Serial.printf("[MIC] Recorded %d bytes\n", totalRead);
+  float seconds = (float)totalRead / (AUDIO_SAMPLE_RATE * 2);
+  Serial.printf("[MIC] Recorded %d bytes (%.1fs)\n", totalRead, seconds);
   return totalRead;
 }
 

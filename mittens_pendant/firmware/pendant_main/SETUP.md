@@ -51,7 +51,7 @@ All libraries used are **built into the ESP32 Arduino Core** — no external lib
 
 ## 5. Hardware Wiring
 
-The XIAO ESP32S3 Sense has the camera and PDM mic **built into the board**. External components are the **LSM6DS3 IMU** breakout and an **LED**:
+The XIAO ESP32S3 Sense has the camera and PDM mic **built into the board**. External components are the **LSM6DS3 IMU** breakout, an **LED**, and a **push-to-talk button**:
 
 <p align="center">
   <img src="../../../screenshots/pendant-workbench.jpg" width="380" alt="Pendant workbench with leather enclosure and electronics" />
@@ -73,9 +73,15 @@ XIAO ESP32S3 Sense          LED
 ─────────────────           ───
 D6          ───────────── Anode (+)
 GND         ───────────── Cathode (-) via resistor
+
+XIAO ESP32S3 Sense          Push-to-Talk Button
+─────────────────           ───────────────────
+D1          ───────────── One leg
+GND         ───────────── Other leg  (uses internal pullup)
 ```
 
-> The LED lights up whenever the pendant captures a photo (motion) or records audio (double-tap).
+> The LED lights up whenever the pendant captures a photo (motion) or records audio (double-tap/button).
+> The button is used for **push-to-talk**: hold to record, release to stop and send.
 
 ## 6. First Flash
 

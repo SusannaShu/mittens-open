@@ -175,13 +175,14 @@ void enterDeepSleep() {
   // Re-arm IMU dual-interrupt configuration
   lsmConfigureWake();
 
-  // Configure INT1 (D2/GPIO3) as deep sleep wake source (motion)
+  // Configure interrupt pins
   pinMode(IMU_INT1_PIN, INPUT);
   pinMode(IMU_INT2_PIN, INPUT);
   
-  // Wait for INT1 pin to go low (force clear any lingering interrupt)
+  // With LIR enabled, clear any latched interrupts by reading source registers.
+  // Keep reading until both INT pins go LOW.
   int retries = 50;
-  while (digitalRead(IMU_INT1_PIN) == HIGH && retries > 0) {
+  while ((digitalRead(IMU_INT1_PIN) == HIGH || digitalRead(IMU_INT2_PIN) == HIGH) && retries > 0) {
     lsmRead(LSM6DS3_TAP_SRC);
     lsmRead(LSM6DS3_WAKE_UP_SRC);
     delay(10);
@@ -189,9 +190,10 @@ void enterDeepSleep() {
   }
   
   if (digitalRead(IMU_INT1_PIN) == HIGH) {
-    Serial.println("[SLEEP] WARNING: INT1 pin stuck HIGH! Deep sleep will immediately wake.");
+    Serial.println("[SLEEP] WARNING: INT1 stuck HIGH -- will wake immediately.");
   } else {
-    Serial.println("[SLEEP] INT1 is LOW, safe to sleep.");
+    Serial.printf("[SLEEP] INT1=LOW, INT2=%s, safe to sleep.\n",
+                  digitalRead(IMU_INT2_PIN) == HIGH ? "HIGH(stale tap)" : "LOW");
   }
 
   // Deep sleep wakes ONLY from INT1 (motion). After wake, classifyWake()

@@ -12,6 +12,7 @@
  */
 
 #include <Wire.h>
+#include "esp_sleep.h"
 #include "config.h"
 
 // ─── LSM6DS3 Registers ───
@@ -66,26 +67,45 @@ bool lsmInit() {
 }
 
 // ─── Wake Classification ───
-// After deep sleep wake (always from INT1 = motion), check INT2 pin
-// to see if a double-tap also fired. Both events can happen simultaneously
-// since a tap is also motion.
+// After deep sleep wake (always via INT1 = motion), wait for the
+// double-tap detection window to close, then check INT2 to see if
+// a tap also fired. A tap always causes motion too (you're hitting
+// the device), so INT1 fires first and we need to wait for INT2.
 WakeReason classifyWake() {
+  // Set pin modes (GPIO state is lost after deep sleep)
+  pinMode(IMU_INT1_PIN, INPUT);
+  pinMode(IMU_INT2_PIN, INPUT);
+
+  // Wait for double-tap detection window to complete.
+  // INT_DUR2 DUR=4 at 416Hz -> ~307ms window. A tap wakes the ESP32
+  // via INT1 (motion), but the second tap of a double-tap might not
+  // have happened yet. Wait long enough for the full window + margin.
+  delay(450);
+
+  // Read pin states BEFORE reading registers.
+  // With LIR enabled, reading TAP_SRC/WAKE_UP_SRC clears the latch
+  // and the INT pins go LOW. So capture pin state first.
+  int int1State = digitalRead(IMU_INT1_PIN);
+  int int2State = digitalRead(IMU_INT2_PIN);
+
+  // Now read source registers (this clears the latched interrupts)
   uint8_t tapSrc = lsmRead(LSM6DS3_TAP_SRC);
   uint8_t wuSrc = lsmRead(LSM6DS3_WAKE_UP_SRC);
 
-  Serial.printf("[IMU] TAP_SRC=0x%02X, WAKE_UP_SRC=0x%02X, INT2=%d\n",
-                tapSrc, wuSrc, digitalRead(IMU_INT2_PIN));
+  Serial.printf("[IMU] INT1=%d, INT2=%d, TAP_SRC=0x%02X, WAKE_UP_SRC=0x%02X\n",
+                int1State, int2State, tapSrc, wuSrc);
 
-  // Check INT2 (double-tap pin) -- if high, the tap interrupt fired
-  if (digitalRead(IMU_INT2_PIN) == HIGH) {
-    // Confirm via register: bit 4 in TAP_SRC is DOUBLE_TAP
-    if (tapSrc & 0x10) return WAKE_DOUBLE_TAP;
-    // Single tap on INT2 (shouldn't happen with our config, but handle it)
-    if (tapSrc & 0x20) return WAKE_SINGLE_TAP;
+  // Double-tap: INT2 high OR TAP_SRC double-tap bit (bit 4)
+  if (int2State == HIGH || (tapSrc & 0x10)) {
+    return WAKE_DOUBLE_TAP;
   }
 
-  // INT2 not high -- pure motion wake
-  if (wuSrc & 0x08) return WAKE_MOTION;
+  // Motion: INT1 high, or WU_IA bit set (bit 3 on DS33, bit 5 on DS3),
+  // or we know we woke from ext0 (deep sleep on INT1)
+  if (int1State == HIGH || (wuSrc & 0x28) ||
+      esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    return WAKE_MOTION;
+  }
 
   return WAKE_UNKNOWN;
 }
@@ -106,10 +126,11 @@ void lsmConfigureWake() {
   // Gyro: Power down
   lsmWrite(LSM6DS3_CTRL2_G, 0x00);
 
-  // TAP_CFG (0x58): INTERRUPTS_ENABLE + TAP_X/Y/Z_EN (no LIR -- latching
-  // would prevent clearing INT2 independently)
-  // 0x8E = INTERRUPTS_ENABLE | TAP_X_EN | TAP_Y_EN | TAP_Z_EN
-  lsmWrite(LSM6DS3_TAP_CFG, 0x8E);
+  // TAP_CFG (0x58): INTERRUPTS_ENABLE + TAP_X/Y/Z_EN + LIR
+  // 0x8F = INTERRUPTS_ENABLE | TAP_X_EN | TAP_Y_EN | TAP_Z_EN | LIR
+  // LIR (Latched Interrupt Request) is CRITICAL for deep sleep:
+  // without it, interrupt registers auto-clear before ESP32 finishes booting.
+  lsmWrite(LSM6DS3_TAP_CFG, 0x8F);
 
   // Tap threshold (0x06 = tested working value, ~0.375g)
   lsmWrite(LSM6DS3_TAP_THS_6D, 0x06);

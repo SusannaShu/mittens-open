@@ -53,6 +53,11 @@ All libraries used are **built into the ESP32 Arduino Core** — no external lib
 
 The XIAO ESP32S3 Sense has the camera and PDM mic **built into the board**. External components are the **LSM6DS3 IMU** breakout and an **LED**:
 
+<p align="center">
+  <img src="../../../screenshots/pendant-workbench.jpg" width="380" alt="Pendant workbench with leather enclosure and electronics" />
+  <img src="../../../screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU with LED" />
+</p>
+
 ```
 XIAO ESP32S3 Sense          LSM6DS3
 ─────────────────           ────────

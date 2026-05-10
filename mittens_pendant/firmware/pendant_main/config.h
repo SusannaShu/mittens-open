@@ -40,21 +40,21 @@
 #define HREF_GPIO_NUM  47
 #define PCLK_GPIO_NUM  13
 
-// IMU I2C (external MPU-6050 breakout)
+// IMU I2C (external LSM6DS3 breakout)
 #define IMU_SDA_PIN  GPIO_NUM_5   // D4
 #define IMU_SCL_PIN  GPIO_NUM_6   // D5
-#define IMU_INT_PIN  GPIO_NUM_3   // D2 -- wake interrupt
+#define IMU_INT_PIN  GPIO_NUM_4   // D3 -- wake interrupt (INT1 from LSM6DS3)
 
 // PDM Microphone (built into Sense board)
 #define PDM_CLK_PIN  42
 #define PDM_DATA_PIN 41
 
-// LED (built-in, active low on XIAO)
-#define LED_PIN 21
+// LED (external on D6, active high)
+#define LED_PIN D6
 
 // ─── IMU ───
 
-#define LSM6DS3_ADDR  0x6A  // LSM6DS3 default I2C address (SA0 low)
+#define LSM6DS3_ADDR  0x6B  // LSM6DS3 I2C address (SA0 high)
 
 // ─── Audio ───
 

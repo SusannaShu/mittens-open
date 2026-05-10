@@ -51,11 +51,12 @@ uint8_t lsmRead(uint8_t reg) {
 // ─── Init ───
 bool lsmInit() {
   uint8_t whoami = lsmRead(LSM6DS3_WHO_AM_I);
-  if (whoami != 0x69) {
-    Serial.printf("[IMU] LSM6DS3 not found (WHO_AM_I=0x%02X)\n", whoami);
+  // Accept 0x69 (LSM6DS3) or 0x6A (LSM6DS33/LSM6DSO variants)
+  if (whoami != 0x69 && whoami != 0x6A) {
+    Serial.printf("[IMU] LSM6DS not found (WHO_AM_I=0x%02X)\n", whoami);
     return false;
   }
-  Serial.printf("[IMU] LSM6DS3 online (WHO_AM_I=0x%02X)\n", whoami);
+  Serial.printf("[IMU] LSM6DS online (WHO_AM_I=0x%02X)\n", whoami);
   return true;
 }
 
@@ -93,12 +94,13 @@ void lsmConfigureWake() {
   // Gyro: Power down
   lsmWrite(LSM6DS3_CTRL2_G, 0x00);
   
-  // Enable Tap on X, Y, Z, and enable Latched Interrupts (LIR=1)
-  // Latching ensures the ESP32 can read the interrupt source after waking up from deep sleep.
-  lsmWrite(LSM6DS3_TAP_CFG, 0x0F);
+  // Enable Tap on X, Y, Z, enable Latched Interrupts (LIR=1), and INTERRUPTS_ENABLE
+  // 0x8F = INTERRUPTS_ENABLE | LIR | TAP_X_EN | TAP_Y_EN | TAP_Z_EN
+  // (INTERRUPTS_ENABLE bit 7 is required for tap detection to fire on INT1)
+  lsmWrite(LSM6DS3_TAP_CFG, 0x8F);
   
-  // Set Tap threshold (0x0C = 12 * FS/32 = 12 * 2g/32 = 0.75g threshold)
-  lsmWrite(LSM6DS3_TAP_THS_6D, 0x0C);
+  // Set Tap threshold (0x09 = tested working value, ~0.56g)
+  lsmWrite(LSM6DS3_TAP_THS_6D, 0x09);
   
   // Set Tap durations (Quiet, Shock, Duration)
   // Max duration (0x7F) is good for general use

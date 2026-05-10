@@ -1,7 +1,7 @@
 /**
  * Mittens Pendant -- Main Firmware
  *
- * Hardware: XIAO ESP32S3 Sense + MPU-6050 IMU (I2C @ 0x68)
+ * Hardware: XIAO ESP32S3 Sense + LSM6DS3 IMU (I2C @ 0x6B) + LED on D6
  *
  * Deep sleep with IMU wake-on-motion. On wake, samples accelerometer
  * to classify the event via software tap detection:
@@ -41,8 +41,8 @@
 RTC_DATA_ATTR int wakeCount = 0;
 
 // --- LED ---
-void ledOn()  { digitalWrite(LED_PIN, LOW);  }  // Active low
-void ledOff() { digitalWrite(LED_PIN, HIGH); }
+void ledOn()  { digitalWrite(LED_PIN, HIGH); }  // Active high (external LED on D6)
+void ledOff() { digitalWrite(LED_PIN, LOW);  }
 
 // --- BLE Data Transfer Flow ---
 // Replaces WiFi POST. Captures data, stages it, and waits for phone to pull.
@@ -131,6 +131,7 @@ bool handleSingleTap() {
 
 bool handleMotion() {
   Serial.println("[FLOW] === MOTION ===");
+  ledOn();
 
   // Capture frame only (no audio for passive observation)
   bool camOk = cameraInit();
@@ -141,6 +142,7 @@ bool handleMotion() {
 
   if (!fb) {
     Serial.println("[FLOW] No frame captured, skipping");
+    ledOff();
     return true;
   }
 
@@ -158,6 +160,7 @@ bool handleMotion() {
   // Cleanup
   esp_camera_fb_return(fb);
   bleDeinit();
+  ledOff();
 
   return ok;
 }

@@ -20,6 +20,14 @@ function getProfileRow(): any {
 function rowToProfile(row: any): any {
   return {
     name: row.name,
+    heightIn: row.height_in,
+    heightCm: row.height_cm,
+    weightLb: row.weight_lb,
+    weightKg: row.weight_kg,
+    age: row.age,
+    sex: row.sex,
+    skinType: row.skin_type,
+    preferredUnit: row.preferred_unit,
     dietaryPreferences: row.dietary_preferences ? JSON.parse(row.dietary_preferences) : [],
     dislikedFoods: row.disliked_foods ? JSON.parse(row.disliked_foods) : [],
     memory: row.memory ? JSON.parse(row.memory) : [],
@@ -66,6 +74,14 @@ export const profileApi = baseApi.injectEndpoints({
 
           const fieldMap: Record<string, string> = {
             name: 'name',
+            heightIn: 'height_in',
+            heightCm: 'height_cm',
+            weightLb: 'weight_lb',
+            weightKg: 'weight_kg',
+            age: 'age',
+            sex: 'sex',
+            skinType: 'skin_type',
+            preferredUnit: 'preferred_unit',
             dietaryPreferences: 'dietary_preferences',
             dislikedFoods: 'disliked_foods',
             memory: 'memory',

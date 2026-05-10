@@ -143,7 +143,7 @@ export default function ProfileScreen() {
         }
       >
         {/* Header */}
-        <Text style={styles.greeting}>{getUserDisplayName()}'s Profile</Text>
+        <Text style={styles.greeting}>{profileContext?.name || 'Your'}'s Profile</Text>
         <Text style={styles.date}>Life design tools and identity</Text>
 
         

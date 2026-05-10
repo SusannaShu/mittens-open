@@ -52,6 +52,14 @@ export async function getProfile(): Promise<any> {
   if (!row) return {};
   return {
     name: row.name,
+    heightIn: row.height_in,
+    heightCm: row.height_cm,
+    weightLb: row.weight_lb,
+    weightKg: row.weight_kg,
+    age: row.age,
+    sex: row.sex,
+    skinType: row.skin_type,
+    preferredUnit: row.preferred_unit,
     dietaryPreferences: row.dietary_preferences ? JSON.parse(row.dietary_preferences) : [],
     dislikedFoods: row.disliked_foods ? JSON.parse(row.disliked_foods) : [],
     memory: row.memory ? JSON.parse(row.memory) : [],
@@ -83,6 +91,14 @@ export async function updateProfile(data: any): Promise<any> {
 
   const fieldMap: Record<string, string> = {
     name: 'name',
+    heightIn: 'height_in',
+    heightCm: 'height_cm',
+    weightLb: 'weight_lb',
+    weightKg: 'weight_kg',
+    age: 'age',
+    sex: 'sex',
+    skinType: 'skin_type',
+    preferredUnit: 'preferred_unit',
     dietaryPreferences: 'dietary_preferences',
     dislikedFoods: 'disliked_foods',
     memory: 'memory',

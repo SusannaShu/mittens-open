@@ -153,16 +153,20 @@ export class OllamaProvider implements InferenceProvider {
 
   /** Quick health check: can we reach the endpoint? */
   async ping(): Promise<boolean> {
+    const url = `${this.config.baseUrl}/v1/models`;
+    console.log(`[OllamaProvider] ping → ${url}`);
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`${this.config.baseUrl}/v1/models`, {
+      const timer = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(url, {
         signal: controller.signal,
         headers: this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {},
       });
       clearTimeout(timer);
+      console.log(`[OllamaProvider] ping status: ${res.status}`);
       return res.ok;
-    } catch {
+    } catch (e: any) {
+      console.error(`[OllamaProvider] ping failed:`, e?.message || e);
       return false;
     }
   }

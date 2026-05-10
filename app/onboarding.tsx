@@ -114,7 +114,8 @@ export default function OnboardingScreen() {
         chronotype,
         lightPromptEnabled,
         scheduleMode: 'local_clock',
-        scheduleTravelMode: 'home'
+        scheduleTravelMode: 'home',
+        onboarded: true
       };
 
       if (unit === 'imperial') {

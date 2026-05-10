@@ -109,16 +109,23 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
         model: ollamaModel || 'gemma4:26b',
       });
       const ok = await provider.ping();
+      console.log('[Setup] ping ok:', ok);
       setConnectionResult(ok);
       if (ok) {
+        console.log('[Setup] calling setInferenceMode...');
         await setInferenceMode('ollama');
+        console.log('[Setup] calling setAgentEnabled...');
         await setAgentEnabled(false);
         const modelKey = mode === 'byok' ? 'ollama-byok' : 'ollama-selfhost';
+        console.log('[Setup] calling setBrainId...');
         await setBrainId('gemma26b' as any);
+        console.log('[Setup] calling updateProfile...');
         await updateProfile({ aiModel: modelKey }).catch(() => {});
+        console.log('[Setup] all done, completing');
         setTimeout(() => onComplete(), 600);
       }
-    } catch {
+    } catch (e: any) {
+      console.error('[Setup] FAILED after ping:', e?.message || e);
       setConnectionResult(false);
     } finally {
       setTestingConnection(false);

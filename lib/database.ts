@@ -121,10 +121,17 @@ export async function initializeDatabase(): Promise<void> {
       synced_at TEXT
     );
 
-    -- Nutrition profile (single row)
     CREATE TABLE IF NOT EXISTS nutrition_profile (
       id INTEGER PRIMARY KEY DEFAULT 1,
       name TEXT,
+      height_in REAL,
+      height_cm REAL,
+      weight_lb REAL,
+      weight_kg REAL,
+      age INTEGER,
+      sex TEXT,
+      skin_type TEXT,
+      preferred_unit TEXT DEFAULT 'imperial',
       dietary_preferences TEXT,
       disliked_foods TEXT,
       memory TEXT,
@@ -339,6 +346,21 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_watch_items_hash ON watch_items(item_hash);
     CREATE INDEX IF NOT EXISTS idx_watch_items_shown ON watch_items(shown_at);
   `);
+
+  // Migrations: add columns that may be missing from older databases
+  const migrations = [
+    `ALTER TABLE nutrition_profile ADD COLUMN height_in REAL`,
+    `ALTER TABLE nutrition_profile ADD COLUMN height_cm REAL`,
+    `ALTER TABLE nutrition_profile ADD COLUMN weight_lb REAL`,
+    `ALTER TABLE nutrition_profile ADD COLUMN weight_kg REAL`,
+    `ALTER TABLE nutrition_profile ADD COLUMN age INTEGER`,
+    `ALTER TABLE nutrition_profile ADD COLUMN sex TEXT`,
+    `ALTER TABLE nutrition_profile ADD COLUMN skin_type TEXT`,
+    `ALTER TABLE nutrition_profile ADD COLUMN preferred_unit TEXT DEFAULT 'imperial'`,
+  ];
+  for (const sql of migrations) {
+    try { database.runSync(sql); } catch { /* column already exists */ }
+  }
 }
 
 /** Enqueue a record for sync to cloud. */

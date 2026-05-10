@@ -121,7 +121,7 @@ A wearable XIAO ESP32S3 Sense pendant with camera, mic, IMU, and push-to-talk bu
 
 <p align="center">
   <img src="screenshots/pendant-workbench.jpg" width="380" alt="Pendant workbench with leather enclosure and electronics" />
-  <img src="screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU with LED and button" />
+  <img src="screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU, LED, push-to-talk button, and LiPo battery" />
 </p>
 
 **Hardware wiring:**

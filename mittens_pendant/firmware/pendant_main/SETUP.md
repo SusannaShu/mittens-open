@@ -55,7 +55,7 @@ The XIAO ESP32S3 Sense has the camera and PDM mic **built into the board**. Exte
 
 <p align="center">
   <img src="../../../screenshots/pendant-workbench.jpg" width="380" alt="Pendant workbench with leather enclosure and electronics" />
-  <img src="../../../screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU with LED" />
+  <img src="../../../screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU, LED, push-to-talk button, and LiPo battery" />
 </p>
 
 ```

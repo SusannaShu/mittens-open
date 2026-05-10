@@ -121,12 +121,12 @@ A wearable XIAO ESP32S3 Sense pendant with camera, mic, and IMU. Firmware flashe
 
 **How it works:**
 - App auto-discovers pendant via BLE (scans for service UUID on launch)
-- User enters WiFi credentials in app -> pushed to pendant via BLE -> stored in NVS flash
-- Motion wake: captures VGA 640x480 JPEG, WiFi POSTs to phone
-- Double-tap: records 5s PDM audio + captures frame, WiFi POSTs to phone
+- Pendant features an LSM6DS3 IMU for hardware-level tap and motion detection, allowing ultra-low power deep sleep
+- Motion wake: captures VGA 640x480 JPEG, streams directly to phone via BLE chunked transfer
+- Double-tap: records 5s PDM audio + captures frame, streams directly to phone via BLE chunked transfer
 - App receives frames and audio, displays in Pendant Feed screen (Profile tab)
 - Works with any brain mode (local E2B, self-hosted Ollama)
-- No hardcoded WiFi credentials in firmware -- all provisioned from app
+- No WiFi required — entirely Bluetooth Low Energy data transfer
 
 **Next steps:**
 - Tune tap thresholds for leather enclosure

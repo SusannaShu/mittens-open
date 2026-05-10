@@ -18,17 +18,32 @@
 extern void wifiSavePhoneIP(const String &ip);
 extern void wifiSaveUserNetwork(const String &ssid, const String &password);
 
-static BLEServer *g_bleServer = nullptr;
+BLEServer *g_bleServer = nullptr;
 static BLECharacteristic *g_eventChar = nullptr;
 static BLECharacteristic *g_commandChar = nullptr;
 static bool g_bleConnected = false;
 
 // --- BLE Callbacks ---
 
+// Forward declaration for re-signaling on connect
+extern volatile bool g_pullRequested;
+extern uint8_t *g_transferData;
+
 class PendantServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *server) override {
     g_bleConnected = true;
     Serial.println("[BLE] Client connected");
+    // If we have pending data, re-signal DATA_READY after a short delay
+    // so the phone has time to subscribe to notifications
+    if (g_transferData != nullptr && !g_pullRequested) {
+      delay(500);  // Give phone time to discover services + subscribe
+      if (g_eventChar) {
+        String json = "{\"type\":\"DATA_READY\",\"ts\":" + String(millis()) + "}";
+        g_eventChar->setValue(json.c_str());
+        g_eventChar->notify();
+        Serial.println("[BLE] Re-signaled DATA_READY for late-connecting client");
+      }
+    }
   }
   void onDisconnect(BLEServer *server) override {
     g_bleConnected = false;
@@ -64,6 +79,11 @@ class PendantCommandCallback : public BLECharacteristicCallbacks {
 
 // ─── Init / Deinit ───
 
+// Characteristic pointers declared in ble_transfer.h
+extern BLECharacteristic *g_dataInfoChar;
+extern BLECharacteristic *g_dataStreamChar;
+extern BLECharacteristic *g_dataAckChar;
+
 void bleInit() {
   if (g_bleServer) return;
 
@@ -71,7 +91,10 @@ void bleInit() {
   g_bleServer = BLEDevice::createServer();
   g_bleServer->setCallbacks(new PendantServerCallbacks());
 
-  BLEService *service = g_bleServer->createService(SERVICE_UUID);
+  // Need more handles for 7 characteristics (default 15 is too few)
+  BLEService *service = g_bleServer->createService(
+    BLEUUID(SERVICE_UUID), 30  // 30 handles
+  );
 
   // Event signal: pendant -> phone (notify)
   g_eventChar = service->createCharacteristic(
@@ -87,6 +110,27 @@ void bleInit() {
   );
   g_commandChar->setCallbacks(new PendantCommandCallback());
 
+  // DATA_INFO: phone reads to get data sizes (read-only)
+  g_dataInfoChar = service->createCharacteristic(
+    DATA_INFO_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
+  g_dataInfoChar->setValue("none:0:0");
+
+  // DATA_STREAM: pendant notifies chunks to phone
+  g_dataStreamChar = service->createCharacteristic(
+    DATA_STREAM_UUID,
+    BLECharacteristic::PROPERTY_NOTIFY
+  );
+  g_dataStreamChar->addDescriptor(new BLE2902());
+
+  // DATA_ACK: phone writes flow control ("PULL", "DONE")
+  // Callback is set later by bleTransferAttachCallback() after ble_transfer.h is loaded
+  g_dataAckChar = service->createCharacteristic(
+    DATA_ACK_UUID,
+    BLECharacteristic::PROPERTY_WRITE
+  );
+
   service->start();
 
   BLEAdvertising *advertising = BLEDevice::getAdvertising();
@@ -95,7 +139,7 @@ void bleInit() {
   advertising->setMinPreferred(0x06);
   advertising->start();
 
-  Serial.println("[BLE] Advertising started");
+  Serial.println("[BLE] Advertising started (all characteristics ready)");
 }
 
 /** Send an event signal over BLE notify. */
@@ -118,4 +162,7 @@ void bleDeinit() {
   g_bleServer = nullptr;
   g_eventChar = nullptr;
   g_commandChar = nullptr;
+  g_dataInfoChar = nullptr;
+  g_dataStreamChar = nullptr;
+  g_dataAckChar = nullptr;
 }

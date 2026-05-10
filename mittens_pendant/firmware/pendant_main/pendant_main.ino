@@ -5,20 +5,19 @@
  *
  * Deep sleep with IMU wake-on-motion. On wake, samples accelerometer
  * to classify the event via software tap detection:
- *   DOUBLE_TAP -> record 5s PDM audio + capture JPEG -> WiFi POST
+ *   DOUBLE_TAP -> record 5s PDM audio + capture JPEG -> BLE transfer
  *   SINGLE_TAP -> BLE notify only
- *   MOTION     -> capture JPEG -> WiFi POST
+ *   MOTION     -> capture JPEG -> BLE transfer
  *
- * PROVISIONING:
- *   If no WiFi credentials are stored, or WiFi connection fails,
- *   the pendant stays awake with BLE advertising until the app
- *   connects and sends valid WiFi credentials. LED blinks to
- *   indicate setup mode. Only enters deep sleep after a successful
- *   WiFi connection confirms the credentials work.
+ * DATA TRANSFER:
+ *   All data (photos, audio) is sent over BLE chunked transfer.
+ *   No WiFi required for normal operation. The phone pulls data
+ *   after receiving a DATA_READY BLE notification.
  *
- * Two wireless channels:
- *   BLE  -> low-power signaling (tap events, pairing, config)
- *   WiFi -> data transfer (audio + frames via HTTP POST)
+ * PROVISIONING (WiFi still used for initial pairing only):
+ *   If no WiFi credentials are stored and the pendant has never
+ *   been paired, it enters provisioning mode. Once paired via BLE,
+ *   the pendant no longer needs WiFi for data transfer.
  *
  * Arduino IDE settings:
  *   Board:            XIAO_ESP32S3
@@ -31,11 +30,12 @@
 #include <Wire.h>
 
 #include "config.h"
-#include "mpu6050.h"
+#include "lsm6ds3.h"
 #include "camera.h"
 #include "pdm_mic.h"
-#include "wifi_post.h"
 #include "ble_signal.h"
+#include "ble_transfer.h"
+#include "wifi_post.h"
 
 // --- Persistent State (survives deep sleep) ---
 RTC_DATA_ATTR int wakeCount = 0;
@@ -44,13 +44,162 @@ RTC_DATA_ATTR int wakeCount = 0;
 void ledOn()  { digitalWrite(LED_PIN, LOW);  }  // Active low
 void ledOff() { digitalWrite(LED_PIN, HIGH); }
 
-// --- Provisioning Mode ---
+// --- BLE Data Transfer Flow ---
+// Replaces WiFi POST. Captures data, stages it, and waits for phone to pull.
 
 /**
- * Enter provisioning mode: BLE advertising, LED blinks, waiting for app.
- * Stays here until WiFi credentials arrive via BLE AND WiFi connects.
- * Called when no WiFi is configured or when WiFi connection fails.
+ * Stage data and wait for phone to pull it over BLE.
+ * Returns true if phone successfully pulled the data.
  */
+bool bleTransferAndWait(
+  const char *eventType,
+  uint8_t *jpegBuf, size_t jpegLen,
+  uint8_t *audioBuf, size_t audioLen
+) {
+  // Stage the data in PSRAM
+  if (!bleTransferStage(eventType, jpegBuf, jpegLen, audioBuf, audioLen)) {
+    return false;
+  }
+
+  // Signal the phone that data is ready
+  bleSignalEvent("DATA_READY");
+
+  // Wait for phone to connect and pull the data
+  bool ok = bleTransferStream();
+
+  // Cleanup
+  bleTransferCleanup();
+
+  return ok;
+}
+
+// --- Event Handlers ---
+
+bool handleDoubleTap() {
+  Serial.println("[FLOW] === DOUBLE TAP ===");
+  ledOn();
+
+  // 1. Record 5s audio
+  bool micOk = micInit();
+  size_t audioLen = 0;
+  if (micOk) {
+    audioLen = micRecord();
+    micDeinit();
+  }
+
+  // 2. Capture frame
+  bool camOk = cameraInit();
+  camera_fb_t *fb = nullptr;
+  if (camOk) {
+    fb = captureFrame();
+  }
+
+  // 3. Init BLE (includes data transfer characteristics)
+  bleInit();
+  bleTransferAttachCallback();
+
+  // 4. Signal the tap type first (for BLE-connected phones)
+  bleSignalEvent("DOUBLE_TAP");
+  delay(200);
+
+  // 5. Transfer data over BLE
+  bool ok = bleTransferAndWait(
+    "DOUBLE_TAP",
+    fb ? fb->buf : nullptr, fb ? fb->len : 0,
+    audioLen > 0 ? micGetBuffer() : nullptr, audioLen
+  );
+
+  // 6. Cleanup
+  if (fb) esp_camera_fb_return(fb);
+  micFreeBuffer();
+  bleDeinit();
+  ledOff();
+
+  return ok;
+}
+
+bool handleSingleTap() {
+  Serial.println("[FLOW] === SINGLE TAP ===");
+
+  bleInit();
+  bleSignalEvent("SINGLE_TAP");
+  delay(500);
+  bleDeinit();
+
+  return true;  // No data to transfer
+}
+
+bool handleMotion() {
+  Serial.println("[FLOW] === MOTION ===");
+
+  // Capture frame only (no audio for passive observation)
+  bool camOk = cameraInit();
+  camera_fb_t *fb = nullptr;
+  if (camOk) {
+    fb = captureFrame();
+  }
+
+  if (!fb) {
+    Serial.println("[FLOW] No frame captured, skipping");
+    return true;
+  }
+
+  // Init BLE (includes data transfer characteristics)
+  bleInit();
+  bleTransferAttachCallback();
+
+  // Transfer frame over BLE
+  bool ok = bleTransferAndWait(
+    "MOTION",
+    fb->buf, fb->len,
+    nullptr, 0
+  );
+
+  // Cleanup
+  esp_camera_fb_return(fb);
+  bleDeinit();
+
+  return ok;
+}
+
+// --- Deep Sleep ---
+
+void enterDeepSleep() {
+  Serial.println("[SLEEP] Entering deep sleep...");
+  Serial.flush();
+
+  // Re-arm IMU motion interrupt
+  lsmConfigureWake();
+
+  // Configure GPIO3 (INT) as wake source (active high)
+  pinMode(IMU_INT_PIN, INPUT);
+  
+  // Wait for INT pin to go low (force clear any lingering interrupt)
+  int retries = 50;
+  while (digitalRead(IMU_INT_PIN) == HIGH && retries > 0) {
+    lsmRead(LSM6DS3_TAP_SRC);
+    lsmRead(LSM6DS3_WAKE_UP_SRC);
+    delay(10);
+    retries--;
+  }
+  
+  if (digitalRead(IMU_INT_PIN) == HIGH) {
+    Serial.println("[SLEEP] WARNING: INT pin stuck HIGH! Deep sleep will immediately wake.");
+  } else {
+    Serial.println("[SLEEP] INT pin is LOW, safe to sleep.");
+  }
+
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)IMU_INT_PIN, 1);
+  rtc_gpio_pullup_dis((gpio_num_t)IMU_INT_PIN);
+  rtc_gpio_pulldown_en((gpio_num_t)IMU_INT_PIN);
+
+  esp_deep_sleep_start();
+}
+
+// --- Provisioning Mode (WiFi -- only for initial setup) ---
+// Kept for backwards compatibility. Once paired via BLE,
+// the pendant no longer needs WiFi for normal data transfer.
+
 void enterProvisioningMode() {
   Serial.println("[PROV] Entering provisioning mode -- waiting for valid WiFi");
 
@@ -79,11 +228,6 @@ void enterProvisioningMode() {
       } else {
         Serial.println("[PROV] WiFi failed -- sending WIFI_FAIL, waiting...");
         bleSignalEvent("WIFI_FAIL");
-        // We DO NOT clear stored creds here. This allows the pendant to
-        // continuously retry the connection. If the user just needs to
-        // toggle their iPhone Hotspot 'Allow Others to Join', it will
-        // succeed on the next loop! If the password was wrong, the app
-        // will overwrite the credentials via BLE.
       }
     }
 
@@ -95,11 +239,6 @@ void enterProvisioningMode() {
     }
   }
 
-  // Success -- solid LED 1s + signal, then reboot cleanly.
-  // BLE + WiFi coexistence fragments the heap on ESP32S3, so a
-  // clean reboot avoids heap corruption. NVS has the credentials
-  // now, so the reboot will skip provisioning and go straight to
-  // normal wake/sleep operation.
   ledOn();
   bleSignalEvent("PROVISIONED");
   delay(1000);
@@ -107,117 +246,6 @@ void enterProvisioningMode() {
   Serial.println("[PROV] Rebooting into normal mode...");
   Serial.flush();
   ESP.restart();
-}
-
-// --- Event Handlers ---
-
-/** Returns true if WiFi POST succeeded. */
-bool handleDoubleTap() {
-  Serial.println("[FLOW] === DOUBLE TAP ===");
-  ledOn();
-
-  // 1. Record 5s audio
-  bool micOk = micInit();
-  size_t audioLen = 0;
-  if (micOk) {
-    audioLen = micRecord();
-    micDeinit();
-  }
-
-  // 2. Capture frame
-  bool camOk = cameraInit();
-  camera_fb_t *fb = nullptr;
-  if (camOk) {
-    fb = captureFrame();
-  }
-
-  // 3. BLE signal (fast notification)
-  bleInit();
-  bleSignalEvent("DOUBLE_TAP");
-  delay(200);
-
-  // 4. WiFi POST data
-  bool wifiOk = false;
-  wifiLoadConfig();
-  if (wifiConnect()) {
-    wifiPostEvent(
-      "DOUBLE_TAP", wakeCount,
-      audioLen > 0 ? micGetBuffer() : nullptr, audioLen,
-      fb ? fb->buf : nullptr, fb ? fb->len : 0
-    );
-    wifiDisconnect();
-    wifiOk = true;
-  }
-
-  // 5. Cleanup memory to prevent heap corruption on next wake
-  if (fb) esp_camera_fb_return(fb);
-  micFreeBuffer();
-  bleDeinit();
-  ledOff();
-
-  // 6. Deep sleep
-  Serial.println("[SLEEP] Entering deep sleep...");
-  delay(100);
-  esp_deep_sleep_start();
-  return wifiOk;
-}
-
-bool handleSingleTap() {
-  Serial.println("[FLOW] === SINGLE TAP ===");
-
-  bleInit();
-  bleSignalEvent("SINGLE_TAP");
-  delay(500);
-  bleDeinit();
-
-  return true;  // No WiFi needed
-}
-
-bool handleMotion() {
-  Serial.println("[FLOW] === MOTION ===");
-
-  // Capture frame only (no audio for passive observation)
-  bool camOk = cameraInit();
-  camera_fb_t *fb = nullptr;
-  if (camOk) {
-    fb = captureFrame();
-  }
-
-  // WiFi POST frame
-  bool wifiOk = false;
-  if (fb) {
-    wifiLoadConfig();
-    if (wifiConnect()) {
-      wifiPostEvent(
-        "MOTION", wakeCount,
-        nullptr, 0,
-        fb->buf, fb->len
-      );
-      wifiDisconnect();
-      wifiOk = true;
-    }
-    esp_camera_fb_return(fb);
-  }
-
-  return wifiOk;
-}
-
-// --- Deep Sleep ---
-
-void enterDeepSleep() {
-  Serial.println("[SLEEP] Entering deep sleep...");
-  Serial.flush();
-
-  // Re-arm IMU motion interrupt
-  mpuConfigureMotionWake();
-
-  // Configure GPIO3 (INT) as wake source (active high)
-  pinMode(IMU_INT_PIN, INPUT);
-  esp_sleep_enable_ext0_wakeup(IMU_INT_PIN, 1);
-  rtc_gpio_pullup_dis(IMU_INT_PIN);
-  rtc_gpio_pulldown_en(IMU_INT_PIN);
-
-  esp_deep_sleep_start();
 }
 
 // --- Arduino Entry Points ---
@@ -238,45 +266,39 @@ void setup() {
   delay(50);
 
   // Check if IMU is present
-  if (!mpuInit()) {
+  if (!lsmInit()) {
     Serial.println("[BOOT] IMU not found -- entering test mode");
     bleInit();
+    bleTransferAttachCallback();
     return;
-  }
-
-  // On first boot, check if WiFi is provisioned at all
-  wifiLoadConfig();
-  if (g_userSSID.length() == 0 && strlen(WIFI_DEV_SSID_1) == 0) {
-    enterProvisioningMode();
   }
 
   // Classify what woke us
   WakeReason reason = classifyWake();
 
-  bool wifiOk = true;
+  bool transferOk = true;
   switch (reason) {
     case WAKE_DOUBLE_TAP:
-      wifiOk = handleDoubleTap();
+      transferOk = handleDoubleTap();
       break;
     case WAKE_SINGLE_TAP:
-      wifiOk = handleSingleTap();
+      transferOk = handleSingleTap();
       break;
     case WAKE_MOTION:
-      wifiOk = handleMotion();
+      transferOk = handleMotion();
       break;
     default:
       Serial.println("[FLOW] Unknown wake, ignoring");
       break;
   }
 
-  // If WiFi failed, don't sleep -- enter provisioning mode
-  // so user can fix the network from the app
-  if (!wifiOk) {
-    Serial.println("[FLOW] WiFi POST failed -- entering provisioning mode");
-    enterProvisioningMode();
+  // If BLE transfer failed (phone not nearby or not connected),
+  // that's OK -- just go back to sleep. The photo is lost but
+  // we don't block on it. The pendant is ephemeral by design.
+  if (!transferOk) {
+    Serial.println("[FLOW] BLE transfer failed (phone not nearby?) -- sleeping");
   }
 
-  // Only sleep if everything worked
   enterDeepSleep();
 }
 

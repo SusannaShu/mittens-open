@@ -54,7 +54,7 @@
 
 // ─── IMU ───
 
-#define MPU6050_ADDR  0x68  // MPU-6050 default I2C address (AD0 low)
+#define LSM6DS3_ADDR  0x6A  // LSM6DS3 default I2C address (SA0 low)
 
 // ─── Audio ───
 
@@ -75,17 +75,15 @@
 #define EVENT_SIGNAL_UUID   "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 #define COMMAND_UUID        "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
 
-// ─── Tap Detection Tuning ───
+// BLE chunked data transfer (photo + audio pull by phone)
+#define DATA_INFO_UUID      "6e400005-b5a3-f393-e0a9-e50e24dcca9e"  // Phone reads: {type, jpegLen, audioLen}
+#define DATA_STREAM_UUID    "6e400006-b5a3-f393-e0a9-e50e24dcca9e"  // Pendant notifies: binary chunks
+#define DATA_ACK_UUID       "6e400007-b5a3-f393-e0a9-e50e24dcca9e"  // Phone writes: flow control
 
-// Duration to sample accelerometer after wake (ms)
-#define TAP_SAMPLE_DURATION_MS  600
-// Minimum G magnitude to count as a tap impulse
-#define TAP_G_THRESHOLD  1.8f
-// Quiet threshold -- below this is "rest"
-#define TAP_QUIET_G      1.2f
-// Minimum gap between two peaks to count as separate taps (samples at 200Hz)
-#define TAP_MIN_GAP_SAMPLES  10  // 50ms at 200Hz
-// Fraction of samples above motion threshold to classify as sustained motion
-#define MOTION_RATIO_THRESHOLD  0.3f
-// G value for sustained motion detection
-#define MOTION_G_THRESHOLD  1.15f
+#define BLE_CHUNK_SIZE      180       // Bytes per BLE notification (safe for iOS MTU of 185)
+#define BLE_TRANSFER_TIMEOUT_MS  20000  // Max time to wait for phone to pull data
+#define BLE_ADVERTISE_WAIT_MS    15000  // How long to advertise DATA_READY before sleeping
+
+// ─── Tap Detection Tuning ───
+// Hardware tap detection is used with LSM6DS3.
+// Thresholds are configured directly in the IMU registers.

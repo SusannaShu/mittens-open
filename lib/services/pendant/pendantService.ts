@@ -22,7 +22,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PendantServer } from './pendantServer';
 import type { PendantEvent, PendantEventType } from './pendantProtocol';
-import { PENDANT_SERVICE_UUID, buildWifiCredentialCommand } from './pendantProtocol';
+import { PENDANT_SERVICE_UUID, DATA_INFO_UUID, DATA_STREAM_UUID, DATA_ACK_UUID, buildWifiCredentialCommand } from './pendantProtocol';
 
 // AsyncStorage keys
 const STORAGE_DEVICE_ID = '@pendant_device_id';
@@ -150,12 +150,27 @@ export class PendantService {
     });
   }
 
+  private isConnecting = false;
+
+  private disconnectSub: any = null;
+
   private async connectToDevice(deviceId: string): Promise<void> {
-    if (!this.bleManager) return;
+    if (!this.bleManager || this.isConnecting) return;
+    this.isConnecting = true;
 
     try {
-      this.bleDevice = await this.bleManager.connectToDevice(deviceId);
+      this.bleDevice = await this.bleManager.connectToDevice(deviceId, {
+        timeout: 5000, // 5s connection timeout
+      });
       await this.bleDevice.discoverAllServicesAndCharacteristics();
+
+      // Request higher MTU for faster chunked transfer (512 = max ESP32 supports)
+      try {
+        await this.bleDevice.requestMTU(512);
+        console.log('[Pendant] MTU negotiated');
+      } catch {
+        console.log('[Pendant] MTU negotiation skipped');
+      }
 
       // Subscribe to event signal notifications
       this.bleDevice.monitorCharacteristicForService(
@@ -169,25 +184,101 @@ export class PendantService {
         },
       );
 
-      // Monitor disconnection
-      this.bleDevice.onDisconnected(() => {
+      // Clean up old disconnect listener if it exists
+      if (this.disconnectSub) {
+        this.disconnectSub.remove();
+        this.disconnectSub = null;
+      }
+
+      // Monitor disconnection -- start background scan when pendant disconnects
+      this.disconnectSub = this.bleDevice.onDisconnected(() => {
+        console.log('[Pendant] Disconnected -- starting background scan');
         this.connected = false;
+        this.bleDevice = null;
         this.emitConnectionChange(false);
         for (const cb of this.disconnectCbs) cb();
-        // Auto-reconnect after 2 seconds
-        setTimeout(() => this.connectToDevice(deviceId), 2000);
+        // Start scanning for pendant to reconnect when it wakes up
+        this.startBackgroundScan(deviceId);
       });
 
       this.deviceId = deviceId;
       this.connected = true;
+      this.isConnecting = false;
       this.emitConnectionChange(true);
       await AsyncStorage.setItem(STORAGE_DEVICE_ID, deviceId);
       console.log('[Pendant] Connected to', deviceId);
+
+      // Proactively check if pendant already has data ready
+      // (handles case where DATA_READY was signaled before phone connected)
+      try {
+        const infoChar = await this.bleDevice.readCharacteristicForService(
+          PENDANT_SERVICE_UUID,
+          DATA_INFO_UUID,
+        );
+        if (infoChar?.value) {
+          const infoStr = atob(infoChar.value);
+          if (infoStr && !infoStr.startsWith('none')) {
+            console.log('[Pendant] Data already waiting on pendant:', infoStr);
+            this.pullDataOverBLE().catch((err) => {
+              console.error('[Pendant] Proactive BLE pull failed:', err?.message || err);
+            });
+          }
+        }
+      } catch (e: any) {
+        // DATA_INFO characteristic may not exist yet (old firmware)
+        console.log('[Pendant] DATA_INFO check skipped:', e?.message);
+      }
     } catch (err) {
       console.error('[Pendant] Connection error:', err);
       this.connected = false;
+      this.isConnecting = false;
+      this.bleDevice = null;
       this.emitConnectionChange(false);
+      // Pendant is probably asleep -- start scanning so we catch it when it wakes
+      this.startBackgroundScan(deviceId);
     }
+  }
+
+  /**
+   * Background scan for pendant. Runs continuously until the pendant
+   * is found and connected. The pendant only advertises briefly after
+   * waking from deep sleep, so we need to be actively scanning.
+   */
+  private backgroundScanActive = false;
+
+  private startBackgroundScan(deviceId: string): void {
+    if (!this.bleManager || this.backgroundScanActive) return;
+    this.backgroundScanActive = true;
+
+    console.log('[Pendant] Background scan started -- waiting for pendant to wake...');
+
+    this.bleManager.startDeviceScan(
+      [PENDANT_SERVICE_UUID],
+      { allowDuplicates: true },
+      async (error: any, device: any) => {
+        if (error) {
+          console.warn('[Pendant] Background scan error:', error.message);
+          this.backgroundScanActive = false;
+          // Retry scan after a delay
+          setTimeout(() => this.startBackgroundScan(deviceId), 3000);
+          return;
+        }
+
+        if (device && (device.id === deviceId || device.name === 'Mittens Pendant')) {
+          console.log('[Pendant] Found pendant advertising! Reconnecting...');
+          this.bleManager.stopDeviceScan();
+          this.backgroundScanActive = false;
+
+          try {
+            await this.connectToDevice(device.id);
+          } catch (err) {
+            console.error('[Pendant] Reconnect failed:', err);
+            // Retry scan
+            setTimeout(() => this.startBackgroundScan(deviceId), 2000);
+          }
+        }
+      },
+    );
   }
 
   disconnect(): void {
@@ -262,11 +353,187 @@ export class PendantService {
         console.log('[Pendant] Pendant WiFi provisioned successfully');
       }
 
-      // DOUBLE_TAP and MOTION will also arrive via WiFi with data
-      // The WiFi handler (handlePendantEvent) handles those
+      // DATA_READY: pendant has captured data, pull it over BLE
+      if (signal.type === 'DATA_READY') {
+        console.log('[Pendant] Data ready -- pulling over BLE...');
+        this.pullDataOverBLE().catch((err) => {
+          console.error('[Pendant] BLE data pull failed:', err?.message || err);
+        });
+      }
+
+      // DOUBLE_TAP and MOTION are also signaled separately for UI feedback
+      // Data arrives via DATA_READY flow above
     } catch {
       console.error('[Pendant] BLE signal parse error');
     }
+  }
+
+  /**
+   * Pull captured data from the pendant over BLE chunked transfer.
+   * 1. Read DATA_INFO to get event type + data sizes
+   * 2. Subscribe to DATA_STREAM for chunk notifications
+   * 3. Write "PULL" to DATA_ACK to start transfer
+   * 4. Collect chunks until all bytes received
+   * 5. Write "DONE" to DATA_ACK
+   * 6. Save to disk and emit event
+   */
+  private async pullDataOverBLE(): Promise<void> {
+    if (!this.bleDevice) {
+      console.warn('[Pendant] No BLE device connected, cannot pull data');
+      return;
+    }
+
+    const FileSystem = require('expo-file-system/legacy');
+    const PENDANT_DIR = FileSystem.documentDirectory + 'pendant/';
+
+    // Ensure directory exists
+    const dirInfo = await FileSystem.getInfoAsync(PENDANT_DIR);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(PENDANT_DIR, { intermediates: true });
+    }
+
+    // 1. Read DATA_INFO: "EVENT_TYPE:jpegLen:audioLen"
+    const infoChar = await this.bleDevice.readCharacteristicForService(
+      PENDANT_SERVICE_UUID,
+      DATA_INFO_UUID,
+    );
+
+    const infoStr = atob(infoChar.value);
+    const [eventType, jpegLenStr, audioLenStr] = infoStr.split(':');
+    const jpegLen = parseInt(jpegLenStr, 10) || 0;
+    const audioLen = parseInt(audioLenStr, 10) || 0;
+    const totalLen = jpegLen + audioLen;
+
+    console.log(`[Pendant] DATA_INFO: type=${eventType} jpeg=${jpegLen} audio=${audioLen} total=${totalLen}`);
+
+    if (totalLen === 0) {
+      console.warn('[Pendant] No data to pull');
+      return;
+    }
+
+    // 2. Set up chunk collection
+    const chunks: Uint8Array[] = [];
+    let receivedBytes = 0;
+
+    // Create a promise that resolves when all bytes are received
+    const transferComplete = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`BLE transfer timeout (received ${receivedBytes}/${totalLen})`));
+      }, 30000); // 30s timeout
+
+      // Subscribe to DATA_STREAM notifications
+      this.bleDevice.monitorCharacteristicForService(
+        PENDANT_SERVICE_UUID,
+        DATA_STREAM_UUID,
+        (error: any, characteristic: any) => {
+          if (error) {
+            clearTimeout(timeout);
+            reject(error);
+            return;
+          }
+
+          if (characteristic?.value) {
+            // Decode base64 chunk to bytes
+            const b64 = characteristic.value;
+            const binaryStr = atob(b64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+
+            chunks.push(bytes);
+            receivedBytes += bytes.length;
+
+            // Log progress every ~5KB
+            if (chunks.length % 10 === 0) {
+              console.log(`[Pendant] BLE received ${receivedBytes}/${totalLen} bytes (${Math.round(100 * receivedBytes / totalLen)}%)`);
+            }
+
+            // Check if we have all data
+            if (receivedBytes >= totalLen) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          }
+        },
+      );
+    });
+
+    // 3. Send PULL command to start transfer
+    await this.bleDevice.writeCharacteristicWithResponseForService(
+      PENDANT_SERVICE_UUID,
+      DATA_ACK_UUID,
+      btoa('PULL'),
+    );
+    console.log('[Pendant] PULL sent, receiving chunks...');
+
+    // 4. Wait for all data
+    await transferComplete;
+    console.log(`[Pendant] BLE transfer complete: ${receivedBytes} bytes in ${chunks.length} chunks`);
+
+    // 5. Send DONE acknowledgment
+    try {
+      await this.bleDevice.writeCharacteristicWithResponseForService(
+        PENDANT_SERVICE_UUID,
+        DATA_ACK_UUID,
+        btoa('DONE'),
+      );
+    } catch {
+      // Pendant may have already disconnected
+    }
+
+    // 6. Reassemble data
+    const fullData = new Uint8Array(receivedBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      fullData.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    // 7. Save JPEG and audio to disk
+    const timestamp = Date.now();
+    let framePath: string | undefined;
+    let audioPath: string | undefined;
+
+    if (jpegLen > 0) {
+      const jpegData = fullData.slice(0, jpegLen);
+      const frameFileName = `frame_${timestamp}.jpg`;
+      framePath = PENDANT_DIR + frameFileName;
+      // Convert to base64 for FileSystem
+      let binary = '';
+      for (let i = 0; i < jpegData.length; i++) {
+        binary += String.fromCharCode(jpegData[i]);
+      }
+      await FileSystem.writeAsStringAsync(framePath, btoa(binary), {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      console.log(`[Pendant] Frame saved: ${frameFileName} (${jpegLen} bytes)`);
+    }
+
+    if (audioLen > 0) {
+      const audioData = fullData.slice(jpegLen, jpegLen + audioLen);
+      const audioFileName = `audio_${timestamp}.pcm`;
+      audioPath = PENDANT_DIR + audioFileName;
+      let binary = '';
+      for (let i = 0; i < audioData.length; i++) {
+        binary += String.fromCharCode(audioData[i]);
+      }
+      await FileSystem.writeAsStringAsync(audioPath, btoa(binary), {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      console.log(`[Pendant] Audio saved: ${audioFileName} (${audioLen} bytes)`);
+    }
+
+    // 8. Emit event through the standard pendant pipeline
+    const event: PendantEvent = {
+      type: eventType as PendantEventType,
+      timestamp,
+      audioPath,
+      framePath,
+      meta: { type: eventType as PendantEventType, ts: timestamp },
+    };
+
+    this.handlePendantEvent(event);
   }
 
   private handlePendantEvent(event: PendantEvent): void {

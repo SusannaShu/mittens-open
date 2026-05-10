@@ -117,44 +117,38 @@ npx expo run:android
 
 ## Mittens Pendant
 
-A wearable XIAO ESP32S3 Sense pendant with camera, mic, and IMU. Firmware flashed and running.
+A wearable XIAO ESP32S3 Sense pendant with camera, mic, IMU, and push-to-talk button. Firmware flashed and running.
 
 <p align="center">
   <img src="screenshots/pendant-workbench.jpg" width="380" alt="Pendant workbench with leather enclosure and electronics" />
-  <img src="screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU with LED" />
+  <img src="screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU with LED and button" />
 </p>
 
 **Hardware wiring:**
 
 | XIAO Pin | GPIO | Connection |
 |----------|------|------------|
-| D2 | GPIO3 | LSM6DS3 INT1 (wake-up motion, deep sleep wake source) |
-| D3 | GPIO4 | LSM6DS3 INT2 (double-tap detection) |
+| D1 | GPIO2 | Push-to-talk button → GND (internal pullup) |
+| D2 | GPIO3 | LSM6DS3 INT1 (motion wake, deep sleep wake source) |
+| D3 | GPIO4 | LSM6DS3 INT2 (reserved) |
 | D4 | GPIO5 | LSM6DS3 SDA |
 | D5 | GPIO6 | LSM6DS3 SCL |
 | D6 | -- | LED anode (active high, capture indicator) |
 | 3V3 | -- | LSM6DS3 VCC |
-| GND | -- | LSM6DS3 GND, LED cathode (via resistor) |
+| GND | -- | LSM6DS3 GND, LED cathode (via resistor), button |
 
 LSM6DS3 SA0 tied to VCC (I2C address 0x6B).
 
 **How it works:**
-- App auto-discovers pendant via BLE (scans for service UUID on launch)
-- LSM6DS3 IMU uses dual-interrupt architecture: INT1 for motion wake, INT2 for double-tap
-- Deep sleep wakes on INT1 (motion). After wake, firmware checks INT2 to classify the event
-- Motion wake: LED on, captures VGA 640x480 JPEG, streams to phone via BLE, LED off
-- Double-tap: LED on, records 5s PDM audio + captures frame, streams to phone via BLE, LED off
-- App receives frames and audio, displays in Pendant Feed screen (Profile tab)
-- Works with any brain mode (local E2B, self-hosted Ollama)
-- No WiFi required -- entirely Bluetooth Low Energy data transfer
+- **Push-to-talk button** (D1): hold to record audio, release to capture photo and send. Variable-length recording up to 10s. 16kHz PCM mono.
+- **Motion detection** (IMU): LSM6DS3 triggers on movement, pendant captures a VGA JPEG and streams to phone. 3s cooldown between events.
+- **Smart sleep**: stays awake while BLE is connected or there's been activity in the last 5 min. Enters deep sleep after 5 min idle. Wakes on button press or motion.
+- **BLE transfer**: chunked notification protocol (180-byte chunks, 12ms pacing with periodic flush). App pulls data via PULL/DONE handshake. Concurrent pull protection prevents data corruption.
+- **iOS background reconnect**: `restoreStateIdentifier` enables iOS to maintain BLE scanning even when the app is backgrounded or killed. Phone auto-reconnects when pendant wakes.
+- **No WiFi required** — entirely Bluetooth Low Energy data transfer.
+- Works with any brain mode (local E2B, self-hosted Ollama).
 
-**Next steps:**
-- Tune tap thresholds for leather enclosure
-- Wire pendant captures into existing pipelines (food, activity, pantry auto-triage)
-- Rebuild dev client and test full BLE scan/connect/provision flow
-- Solder 400mAh LiPo battery and MOSFET power-gating for camera
-
-See [mittens_pendant/MITTENS_PENDANT.md](mittens_pendant/MITTENS_PENDANT.md) for hardware details and protocol docs.
+See [mittens_pendant/firmware/pendant_main/SETUP.md](mittens_pendant/firmware/pendant_main/SETUP.md) for hardware setup and flashing guide.
 
 ## The Vision
 

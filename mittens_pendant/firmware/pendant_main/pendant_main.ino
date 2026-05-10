@@ -172,10 +172,55 @@ bool handleMotion() {
   return ok;
 }
 
-// --- Deep Sleep (DISABLED for debugging) ---
-// Re-enable later once BLE connection is confirmed working.
+// --- Deep Sleep (idle timeout) ---
+// Only sleep when nothing has happened for IDLE_SLEEP_MS.
+// Wake on: button press (D1/GPIO2, LOW) or IMU motion (D2/GPIO3, HIGH).
 
-// void enterDeepSleep() { ... }
+#define IDLE_SLEEP_MS  (5UL * 60UL * 1000UL)  // 5 minutes
+
+static unsigned long lastActivityTime = 0;
+static bool hasEverConnected = false;
+
+void resetIdleTimer() {
+  lastActivityTime = millis();
+}
+
+void enterDeepSleep() {
+  Serial.println("[SLEEP] 5 min idle -- entering deep sleep");
+  Serial.println("[SLEEP] Wake via: button press (D1) or motion (D2)");
+  Serial.flush();
+
+  // Turn off BLE cleanly
+  bleDeinit();
+  ledOff();
+
+  // Re-arm IMU for motion wake
+  lsmConfigureWake();
+
+  // Clear any pending interrupts
+  int retries = 50;
+  while ((digitalRead(IMU_INT1_PIN) == HIGH || digitalRead(IMU_INT2_PIN) == HIGH) && retries > 0) {
+    lsmRead(LSM6DS3_TAP_SRC);
+    lsmRead(LSM6DS3_WAKE_UP_SRC);
+    delay(10);
+    retries--;
+  }
+
+  // Wake source 1: IMU motion (INT1 / GPIO3 goes HIGH)
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)IMU_INT1_PIN, 1);
+  rtc_gpio_pullup_dis((gpio_num_t)IMU_INT1_PIN);
+  rtc_gpio_pulldown_en((gpio_num_t)IMU_INT1_PIN);
+
+  // Wake source 2: Button press (D1 / GPIO2 goes LOW)
+  esp_sleep_enable_ext1_wakeup(BIT64((gpio_num_t)BUTTON_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
+  rtc_gpio_pullup_en((gpio_num_t)BUTTON_PIN);
+  rtc_gpio_pulldown_dis((gpio_num_t)BUTTON_PIN);
+
+  // Fallback: 30 min timer wake in case both sources fail
+  esp_sleep_enable_timer_wakeup(30ULL * 60ULL * 1000000ULL);
+
+  esp_deep_sleep_start();
+}
 
 // --- Provisioning Mode (WiFi -- only for initial setup) ---
 // Kept for backwards compatibility. Once paired via BLE,
@@ -245,7 +290,15 @@ void setup() {
   delay(100);
 
   wakeCount++;
-  Serial.printf("\n[BOOT] Mittens Pendant v2 (NO DEEP SLEEP) -- boot #%d\n", wakeCount);
+
+  // Check what woke us
+  esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
+  const char *wakeStr = "cold boot";
+  if (wakeReason == ESP_SLEEP_WAKEUP_EXT0) wakeStr = "MOTION (IMU INT1)";
+  else if (wakeReason == ESP_SLEEP_WAKEUP_EXT1) wakeStr = "BUTTON PRESS";
+  else if (wakeReason == ESP_SLEEP_WAKEUP_TIMER) wakeStr = "TIMER (30min fallback)";
+
+  Serial.printf("\n[BOOT] Mittens Pendant v3 -- boot #%d (%s)\n", wakeCount, wakeStr);
 
   // LED setup
   pinMode(LED_PIN, OUTPUT);
@@ -269,13 +322,14 @@ void setup() {
   if (!imuOk) {
     Serial.println("[BOOT] IMU not found -- test mode (type 'd' or 'm' in serial)");
     Serial.println("[BOOT] BLE is ON and advertising. Try connecting from phone.");
+    resetIdleTimer();
     return;
   }
 
   // Configure IMU for tap + motion interrupts
   lsmConfigureWake();
 
-  // Set up hardware interrupts (polling in loop instead of deep sleep)
+  // Set up hardware interrupts
   pinMode(IMU_INT1_PIN, INPUT);
   pinMode(IMU_INT2_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(IMU_INT1_PIN), onINT1, RISING);
@@ -287,13 +341,21 @@ void setup() {
   g_int1Fired = false;
   g_int2Fired = false;
 
+  // If woken by button, handle the press immediately
+  if (wakeReason == ESP_SLEEP_WAKEUP_EXT1) {
+    Serial.println("[BOOT] Woke from button -- waiting for release to start PTT...");
+    // Wait for button release, then handle
+    while (digitalRead(BUTTON_PIN) == LOW) delay(10);
+    // Small delay then check if they press again (they will for PTT)
+  }
+
+  resetIdleTimer();
   Serial.println("[BOOT] Ready! BLE advertising, IMU armed.");
-  Serial.println("[BOOT] BUTTON (D1): hold to talk, release to send");
-  Serial.println("[BOOT] Shake for motion, double-tap for audio+photo.");
-  Serial.printf("[BOOT] INT1(D2)=%d  INT2(D3)=%d  BTN(D1)=%d\n",
+  Serial.println("[BOOT] BUTTON (D1): hold to talk | MOTION: auto-capture");
+  Serial.printf("[BOOT] Sleep after %d min idle\n", IDLE_SLEEP_MS / 60000);
+  Serial.printf("[BOOT] INT1=%d INT2=%d BTN=%d\n",
                 digitalRead(IMU_INT1_PIN), digitalRead(IMU_INT2_PIN),
                 digitalRead(BUTTON_PIN));
-  Serial.printf("[BOOT] BLE connected: %s\n", bleIsConnected() ? "YES" : "no (waiting...)");
 }
 
 // Cooldown to avoid rapid re-triggers
@@ -309,6 +371,7 @@ void loop() {
       Serial.println("[BTN] Button pressed -- starting push-to-talk");
       handlePushToTalk();
       lastEventTime = millis();
+      resetIdleTimer();
       // Wait for button release before continuing
       while (digitalRead(BUTTON_PIN) == LOW) delay(10);
       return;
@@ -319,22 +382,27 @@ void loop() {
   if (Serial.available()) {
     char c = Serial.read();
     if (c == 'd' || c == 'D') {
-      Serial.println("[TEST] Simulating double-tap...");
-      handleDoubleTap();
+      Serial.println("[TEST] Simulating push-to-talk...");
+      handlePushToTalk();
+      resetIdleTimer();
     } else if (c == 'm' || c == 'M') {
       Serial.println("[TEST] Simulating motion...");
       handleMotion();
+      resetIdleTimer();
     } else if (c == 's' || c == 'S') {
-      // Status dump
-      Serial.printf("[STATUS] BLE: %s | INT1=%d INT2=%d BTN=%d | uptime=%lus\n",
+      unsigned long idleSec = (millis() - lastActivityTime) / 1000;
+      unsigned long sleepIn = 0;
+      if (millis() - lastActivityTime < IDLE_SLEEP_MS) {
+        sleepIn = (IDLE_SLEEP_MS - (millis() - lastActivityTime)) / 1000;
+      }
+      Serial.printf("[STATUS] BLE: %s | BTN=%d | idle=%lus | sleep in %lus\n",
                     bleIsConnected() ? "CONNECTED" : "advertising",
-                    digitalRead(IMU_INT1_PIN), digitalRead(IMU_INT2_PIN),
                     digitalRead(BUTTON_PIN),
-                    millis() / 1000);
+                    idleSec, sleepIn);
     }
   }
 
-  // --- IMU interrupt handling (motion only -- taps handled by button) ---
+  // --- IMU interrupt handling (motion only) ---
   if (g_int1Fired || g_int2Fired) {
     // Cooldown check
     if (millis() - lastEventTime < EVENT_COOLDOWN_MS) {
@@ -349,7 +417,6 @@ void loop() {
     g_int1Fired = false;
     g_int2Fired = false;
 
-    // Clear source registers (clears latched interrupts)
     uint8_t tapSrc = lsmRead(LSM6DS3_TAP_SRC);
     uint8_t wuSrc = lsmRead(LSM6DS3_WAKE_UP_SRC);
 
@@ -357,14 +424,31 @@ void loop() {
 
     handleMotion();
     lastEventTime = millis();
+    resetIdleTimer();
 
-    // Clear any interrupts that fired during handling
     lsmRead(LSM6DS3_TAP_SRC);
     lsmRead(LSM6DS3_WAKE_UP_SRC);
     g_int1Fired = false;
     g_int2Fired = false;
   }
 
+  // --- BLE connection keeps us awake ---
+  if (bleIsConnected()) {
+    if (!hasEverConnected) {
+      hasEverConnected = true;
+      Serial.println("[BLE] Phone connected! Staying awake.");
+    }
+    resetIdleTimer();  // Stay awake while phone is connected
+  }
+
+  // --- Idle timeout → deep sleep ---
+  if (millis() - lastActivityTime > IDLE_SLEEP_MS) {
+    Serial.printf("[SLEEP] Idle for %lu min, going to sleep...\n", IDLE_SLEEP_MS / 60000);
+    enterDeepSleep();
+    // Never reaches here
+  }
+
   delay(10);
 }
+
 

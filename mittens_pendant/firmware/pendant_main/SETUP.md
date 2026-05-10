@@ -97,21 +97,47 @@ GND         ───────────── Other leg  (uses internal pu
 6. Open **Serial Monitor** (🔍 button) at **115200 baud**
 7. Press the RESET button on the XIAO — you should see:
    ```
-   [BOOT] Mittens Pendant wake #1
+   [BOOT] Mittens Pendant v3 -- boot #1 (cold boot)
+   [BOOT] Starting BLE...
+   [BOOT] BLE advertising -- phone can connect now
    [IMU] LSM6DS3 online (WHO_AM_I=0x69)
+   [BOOT] Ready! BLE advertising, IMU armed.
+   [BOOT] BUTTON (D1): hold to talk | MOTION: auto-capture
+   [BOOT] Sleep after 5 min idle
    ```
 
-## 7. Testing Without IMU
+## 7. Usage
+
+**Push-to-talk (button on D1):**
+- Hold the button → LED turns on, mic starts recording
+- Release the button → recording stops, photo captured, data sent to phone via BLE
+- Variable-length recording (up to 10s)
+
+**Motion detection (automatic):**
+- Shake or move the pendant → photo captured and sent to phone
+- 3-second cooldown between motion events
+
+**Serial commands** (via Serial Monitor):
+- **`d`** — simulate a push-to-talk event (audio + photo)
+- **`m`** — simulate a motion event (photo only)
+- **`s`** — status dump (BLE state, button state, idle timer, time to sleep)
+
+**Sleep behavior:**
+- Stays awake while BLE is connected or there's recent activity
+- Enters deep sleep after 5 minutes idle (no connection, no motion, no button)
+- Wakes from deep sleep on button press or motion
+- 30-minute fallback timer wake
+
+## 8. Testing Without IMU
 
 If the LSM6DS3 isn't wired up, the firmware enters **test mode**:
 ```
-[BOOT] IMU not found -- entering test mode
+[BOOT] IMU not found -- test mode (type 'd' or 'm' in serial)
+[BOOT] BLE is ON and advertising. Try connecting from phone.
 ```
-In the Serial Monitor, type:
-- **`d`** — simulate a double-tap (capture photo + audio)
-- **`m`** — simulate a motion event (capture photo only)
+BLE still works in test mode — use serial commands to trigger events.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -119,5 +145,8 @@ In the Serial Monitor, type:
 | `ESP_I2S.h: No such file` | ESP32 Core version too old. Need **v3.0.0+**. Update in Board Manager. |
 | Upload fails with "no port" | Hold BOOT → press RESET → release BOOT to enter bootloader mode. |
 | `ps_malloc returned NULL` | PSRAM not enabled. Set **Tools → PSRAM → OPI PSRAM**. |
-| Camera init fails `0x105` | Another sketch left the camera initialized. Press RESET before uploading. |
-| `[IMU] Not found (WHO_AM_I=0x00)` | Check I2C wiring (SDA->D4, SCL->D5). Verify SA0->VCC for 0x6B. Check INT1->D2, INT2->D3. |
+| Camera init fails `0x103` | Camera already initialized. Firmware auto-deinits between captures. Press RESET if stuck. |
+| `[IMU] Not found (WHO_AM_I=0x00)` | Check I2C wiring (SDA→D4, SCL→D5). Verify SA0→VCC for 0x6B. Check INT1→D2. |
+| BLE transfer timeout | Phone may have multiple concurrent pull attempts. App has `isPulling` guard to prevent this. Reload app. |
+| Audio plays too fast/slow | Firmware records at 16kHz. Ensure app decodes PCM at 16kHz mono 16-bit. |
+

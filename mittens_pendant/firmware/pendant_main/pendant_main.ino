@@ -3,10 +3,11 @@
  *
  * Hardware: XIAO ESP32S3 Sense + LSM6DS3 IMU (I2C @ 0x6B) + LED on D6
  *
- * Deep sleep with IMU wake-on-motion. On wake, samples accelerometer
- * to classify the event via software tap detection:
+ * Deep sleep with IMU wake-on-motion via dual interrupts:
+ *   INT1 (D2) = motion wake -- deep sleep wake source
+ *   INT2 (D3) = double-tap -- checked after wake to classify event
+ *
  *   DOUBLE_TAP -> record 5s PDM audio + capture JPEG -> BLE transfer
- *   SINGLE_TAP -> BLE notify only
  *   MOTION     -> capture JPEG -> BLE transfer
  *
  * DATA TRANSFER:
@@ -171,30 +172,33 @@ void enterDeepSleep() {
   Serial.println("[SLEEP] Entering deep sleep...");
   Serial.flush();
 
-  // Re-arm IMU motion interrupt
+  // Re-arm IMU dual-interrupt configuration
   lsmConfigureWake();
 
-  // Configure GPIO3 (INT) as wake source (active high)
-  pinMode(IMU_INT_PIN, INPUT);
+  // Configure INT1 (D2/GPIO3) as deep sleep wake source (motion)
+  pinMode(IMU_INT1_PIN, INPUT);
+  pinMode(IMU_INT2_PIN, INPUT);
   
-  // Wait for INT pin to go low (force clear any lingering interrupt)
+  // Wait for INT1 pin to go low (force clear any lingering interrupt)
   int retries = 50;
-  while (digitalRead(IMU_INT_PIN) == HIGH && retries > 0) {
+  while (digitalRead(IMU_INT1_PIN) == HIGH && retries > 0) {
     lsmRead(LSM6DS3_TAP_SRC);
     lsmRead(LSM6DS3_WAKE_UP_SRC);
     delay(10);
     retries--;
   }
   
-  if (digitalRead(IMU_INT_PIN) == HIGH) {
-    Serial.println("[SLEEP] WARNING: INT pin stuck HIGH! Deep sleep will immediately wake.");
+  if (digitalRead(IMU_INT1_PIN) == HIGH) {
+    Serial.println("[SLEEP] WARNING: INT1 pin stuck HIGH! Deep sleep will immediately wake.");
   } else {
-    Serial.println("[SLEEP] INT pin is LOW, safe to sleep.");
+    Serial.println("[SLEEP] INT1 is LOW, safe to sleep.");
   }
 
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)IMU_INT_PIN, 1);
-  rtc_gpio_pullup_dis((gpio_num_t)IMU_INT_PIN);
-  rtc_gpio_pulldown_en((gpio_num_t)IMU_INT_PIN);
+  // Deep sleep wakes ONLY from INT1 (motion). After wake, classifyWake()
+  // checks INT2 (tap) to determine if it was a double-tap or just motion.
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)IMU_INT1_PIN, 1);
+  rtc_gpio_pullup_dis((gpio_num_t)IMU_INT1_PIN);
+  rtc_gpio_pulldown_en((gpio_num_t)IMU_INT1_PIN);
 
   esp_deep_sleep_start();
 }

@@ -119,14 +119,29 @@ npx expo run:android
 
 A wearable XIAO ESP32S3 Sense pendant with camera, mic, and IMU. Firmware flashed and running.
 
+**Hardware wiring:**
+
+| XIAO Pin | GPIO | Connection |
+|----------|------|------------|
+| D2 | GPIO3 | LSM6DS3 INT1 (wake-up motion, deep sleep wake source) |
+| D3 | GPIO4 | LSM6DS3 INT2 (double-tap detection) |
+| D4 | GPIO5 | LSM6DS3 SDA |
+| D5 | GPIO6 | LSM6DS3 SCL |
+| D6 | -- | LED anode (active high, capture indicator) |
+| 3V3 | -- | LSM6DS3 VCC |
+| GND | -- | LSM6DS3 GND, LED cathode (via resistor) |
+
+LSM6DS3 SA0 tied to VCC (I2C address 0x6B).
+
 **How it works:**
 - App auto-discovers pendant via BLE (scans for service UUID on launch)
-- Pendant features an LSM6DS3 IMU for hardware-level tap and motion detection, allowing ultra-low power deep sleep
-- Motion wake: captures VGA 640x480 JPEG, streams directly to phone via BLE chunked transfer
-- Double-tap: records 5s PDM audio + captures frame, streams directly to phone via BLE chunked transfer
+- LSM6DS3 IMU uses dual-interrupt architecture: INT1 for motion wake, INT2 for double-tap
+- Deep sleep wakes on INT1 (motion). After wake, firmware checks INT2 to classify the event
+- Motion wake: LED on, captures VGA 640x480 JPEG, streams to phone via BLE, LED off
+- Double-tap: LED on, records 5s PDM audio + captures frame, streams to phone via BLE, LED off
 - App receives frames and audio, displays in Pendant Feed screen (Profile tab)
 - Works with any brain mode (local E2B, self-hosted Ollama)
-- No WiFi required — entirely Bluetooth Low Energy data transfer
+- No WiFi required -- entirely Bluetooth Low Energy data transfer
 
 **Next steps:**
 - Tune tap thresholds for leather enclosure

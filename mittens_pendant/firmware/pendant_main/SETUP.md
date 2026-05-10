@@ -51,18 +51,26 @@ All libraries used are **built into the ESP32 Arduino Core** — no external lib
 
 ## 5. Hardware Wiring
 
-The XIAO ESP32S3 Sense has the camera and PDM mic **built into the board**. The only external component is the **LSM6DS3 IMU** breakout:
+The XIAO ESP32S3 Sense has the camera and PDM mic **built into the board**. External components are the **LSM6DS3 IMU** breakout and an **LED**:
 
 ```
 XIAO ESP32S3 Sense          LSM6DS3
 ─────────────────           ────────
 D4 (GPIO5)  ───────────── SDA
 D5 (GPIO6)  ───────────── SCL
-D2 (GPIO3)  ───────────── INT1
+D2 (GPIO3)  ───────────── INT1  (wake-up motion, deep sleep wake source)
+D3 (GPIO4)  ───────────── INT2  (double-tap detection)
 3V3         ───────────── VCC
 GND         ───────────── GND
-                          SA0 → GND (address 0x6A)
+                          SA0 -> VCC (address 0x6B)
+
+XIAO ESP32S3 Sense          LED
+─────────────────           ───
+D6          ───────────── Anode (+)
+GND         ───────────── Cathode (-) via resistor
 ```
+
+> The LED lights up whenever the pendant captures a photo (motion) or records audio (double-tap).
 
 ## 6. First Flash
 
@@ -101,4 +109,4 @@ In the Serial Monitor, type:
 | Upload fails with "no port" | Hold BOOT → press RESET → release BOOT to enter bootloader mode. |
 | `ps_malloc returned NULL` | PSRAM not enabled. Set **Tools → PSRAM → OPI PSRAM**. |
 | Camera init fails `0x105` | Another sketch left the camera initialized. Press RESET before uploading. |
-| `[IMU] Not found (WHO_AM_I=0x00)` | Check I2C wiring (SDA→D4, SCL→D5). Check LSM6DS3 has power. |
+| `[IMU] Not found (WHO_AM_I=0x00)` | Check I2C wiring (SDA->D4, SCL->D5). Verify SA0->VCC for 0x6B. Check INT1->D2, INT2->D3. |

@@ -1,11 +1,14 @@
 #pragma once
 /**
- * LSM6DS3 Driver -- Hardware motion wake + tap detection.
+ * LSM6DS3 Driver -- Dual-interrupt motion wake + tap detection.
  *
- * The LSM6DS3 features robust built-in hardware tap and double-tap detection.
- * We route Single Tap, Double Tap, and Wake-up (motion) events to the INT1 pin.
- * When the ESP32 wakes up from deep sleep, it reads the TAP_SRC and WAKE_UP_SRC
- * registers to instantly know the wake reason, without needing to sample data.
+ * Uses two interrupt pins for clean event separation:
+ *   INT1 (D2 / GPIO3) -- Wake-up motion only. This is the deep sleep wake source.
+ *   INT2 (D3 / GPIO4) -- Double-tap only. Checked after wake to distinguish events.
+ *
+ * After waking from deep sleep (always via INT1), the firmware reads both
+ * TAP_SRC and WAKE_UP_SRC to classify: if INT2 is also high, it was a double-tap.
+ * Otherwise it was general motion.
  */
 
 #include <Wire.h>
@@ -22,7 +25,9 @@
 #define LSM6DS3_TAP_THS_6D     0x59
 #define LSM6DS3_INT_DUR2       0x5A
 #define LSM6DS3_WAKE_UP_THS    0x5B
+#define LSM6DS3_WAKE_UP_DUR    0x5C
 #define LSM6DS3_MD1_CFG        0x5E
+#define LSM6DS3_MD2_CFG        0x5F
 
 // ─── Wake Reason ───
 enum WakeReason {
@@ -61,66 +66,79 @@ bool lsmInit() {
 }
 
 // ─── Wake Classification ───
+// After deep sleep wake (always from INT1 = motion), check INT2 pin
+// to see if a double-tap also fired. Both events can happen simultaneously
+// since a tap is also motion.
 WakeReason classifyWake() {
   uint8_t tapSrc = lsmRead(LSM6DS3_TAP_SRC);
   uint8_t wuSrc = lsmRead(LSM6DS3_WAKE_UP_SRC);
-  
-  Serial.printf("[IMU] TAP_SRC=0x%02X, WAKE_UP_SRC=0x%02X\n", tapSrc, wuSrc);
-  
-  // Bit 4 in TAP_SRC is DOUBLE_TAP
-  if (tapSrc & 0x10) return WAKE_DOUBLE_TAP;
-  
-  // Bit 5 in TAP_SRC is SINGLE_TAP
-  if (tapSrc & 0x20) return WAKE_SINGLE_TAP;
-  
-  // Bit 5 in WAKE_UP_SRC is WU_IA (Wakeup event)
-  if (wuSrc & 0x20) return WAKE_MOTION;
-  
+
+  Serial.printf("[IMU] TAP_SRC=0x%02X, WAKE_UP_SRC=0x%02X, INT2=%d\n",
+                tapSrc, wuSrc, digitalRead(IMU_INT2_PIN));
+
+  // Check INT2 (double-tap pin) -- if high, the tap interrupt fired
+  if (digitalRead(IMU_INT2_PIN) == HIGH) {
+    // Confirm via register: bit 4 in TAP_SRC is DOUBLE_TAP
+    if (tapSrc & 0x10) return WAKE_DOUBLE_TAP;
+    // Single tap on INT2 (shouldn't happen with our config, but handle it)
+    if (tapSrc & 0x20) return WAKE_SINGLE_TAP;
+  }
+
+  // INT2 not high -- pure motion wake
+  if (wuSrc & 0x08) return WAKE_MOTION;
+
   return WAKE_UNKNOWN;
 }
 
-// ─── Motion Wake Configuration ───
+// ─── Dual-Interrupt Configuration ───
+// Matches tested register values from tap_motion_lsm.ino
 void lsmConfigureWake() {
   // Soft reset
   lsmWrite(LSM6DS3_CTRL3_C, 0x01);
   delay(20);
-  
+
   // Enable auto-increment for multi-byte reads
   lsmWrite(LSM6DS3_CTRL3_C, 0x04);
-  
+
   // Accel: 416 Hz (High-Performance), +/- 2g
   lsmWrite(LSM6DS3_CTRL1_XL, 0x60);
-  
+
   // Gyro: Power down
   lsmWrite(LSM6DS3_CTRL2_G, 0x00);
-  
-  // Enable Tap on X, Y, Z, enable Latched Interrupts (LIR=1), and INTERRUPTS_ENABLE
-  // 0x8F = INTERRUPTS_ENABLE | LIR | TAP_X_EN | TAP_Y_EN | TAP_Z_EN
-  // (INTERRUPTS_ENABLE bit 7 is required for tap detection to fire on INT1)
-  lsmWrite(LSM6DS3_TAP_CFG, 0x8F);
-  
-  // Set Tap threshold (0x09 = tested working value, ~0.56g)
-  lsmWrite(LSM6DS3_TAP_THS_6D, 0x09);
-  
-  // Set Tap durations (Quiet, Shock, Duration)
-  // Max duration (0x7F) is good for general use
-  lsmWrite(LSM6DS3_INT_DUR2, 0x7F);
-  
-  // Enable single & double tap, set Wake-up threshold
-  // Bit 7=1 (Single/Double tap enable)
-  // Bits 5:0 = Wake-up threshold (e.g., 0x02 = 2 * FS/64 = 2 * 2g/64 = 0.0625g)
+
+  // TAP_CFG (0x58): INTERRUPTS_ENABLE + TAP_X/Y/Z_EN (no LIR -- latching
+  // would prevent clearing INT2 independently)
+  // 0x8E = INTERRUPTS_ENABLE | TAP_X_EN | TAP_Y_EN | TAP_Z_EN
+  lsmWrite(LSM6DS3_TAP_CFG, 0x8E);
+
+  // Tap threshold (0x06 = tested working value, ~0.375g)
+  lsmWrite(LSM6DS3_TAP_THS_6D, 0x06);
+
+  // INT_DUR2: DUR=4 (~330ms window), QUIET=2, SHOCK=2
+  // 0x42 = tested working value for reliable double-tap
+  lsmWrite(LSM6DS3_INT_DUR2, 0x42);
+
+  // Enable single + double tap detection, set wake-up threshold
+  // Bit 7 = SINGLE_DOUBLE_TAP enable, bits 5:0 = wake threshold (0x02)
   lsmWrite(LSM6DS3_WAKE_UP_THS, 0x82);
-  
-  // Route INT1: Single tap (bit 6), Wake-up (bit 5), Double tap (bit 3)
-  // 0x40 | 0x20 | 0x08 = 0x68
-  lsmWrite(LSM6DS3_MD1_CFG, 0x68); 
-  
+
+  // WAKE_UP_DUR: wake needs ~7ms sustained motion
+  lsmWrite(LSM6DS3_WAKE_UP_DUR, 0x02);
+
+  // Route ONLY wake-up (motion) to INT1 -- this is the deep sleep wake source
+  // 0x20 = INT1_WU
+  lsmWrite(LSM6DS3_MD1_CFG, 0x20);
+
+  // Route ONLY double-tap to INT2 -- checked after wake to classify event
+  // 0x08 = INT2_DOUBLE_TAP
+  lsmWrite(LSM6DS3_MD2_CFG, 0x08);
+
   // Wait to settle
   delay(100);
-  
+
   // Clear any existing interrupts by reading the source registers
   lsmRead(LSM6DS3_TAP_SRC);
   lsmRead(LSM6DS3_WAKE_UP_SRC);
-  
-  Serial.println("[IMU] Hardware Tap & Motion wake armed on INT1");
+
+  Serial.println("[IMU] Dual-INT armed: INT1=motion(D2), INT2=tap(D3)");
 }

@@ -40,10 +40,11 @@
 #define HREF_GPIO_NUM  47
 #define PCLK_GPIO_NUM  13
 
-// IMU I2C (external LSM6DS3 breakout)
-#define IMU_SDA_PIN  GPIO_NUM_5   // D4
-#define IMU_SCL_PIN  GPIO_NUM_6   // D5
-#define IMU_INT_PIN  GPIO_NUM_4   // D3 -- wake interrupt (INT1 from LSM6DS3)
+// IMU I2C + interrupts (external LSM6DS3 breakout)
+#define IMU_SDA_PIN   GPIO_NUM_5   // D4
+#define IMU_SCL_PIN   GPIO_NUM_6   // D5
+#define IMU_INT1_PIN  GPIO_NUM_3   // D2 -- INT1: wake-up motion (deep sleep wake source)
+#define IMU_INT2_PIN  GPIO_NUM_4   // D3 -- INT2: double-tap
 
 // PDM Microphone (built into Sense board)
 #define PDM_CLK_PIN  42

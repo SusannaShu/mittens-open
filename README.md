@@ -58,6 +58,7 @@ Pendant frames and audio enter the same pipelines as manual input. Motion frames
 |-------|---------|------|---------------|
 | Gemma 4 E2B | ~150 tokens | Free | On your phone (LiteRT) |
 | Gemma 4 26B | 8K tokens | Free | Self-hosted (Ollama) |
+| BYOK | Varies | Your key | Any OpenAI-compatible API |
 
 Brains are dumb text-in/text-out wrappers. Pipelines own all intelligence: prompt construction, response parsing, phase sequencing. Every phase checks `brain.contextWindow` and adapts -- compact format (short JSON keys) for E2B, verbose for large models. Swap brains in Profile without changing any pipeline code.
 
@@ -65,11 +66,7 @@ The pendant works with any brain. On-device Gemma E2B/E4B processes audio native
 
 ### Data
 
-| Mode | Where | Backup |
-|------|-------|--------|
-| Local | SQLite on device | None (your phone) |
-
-Default local: Gemma for private inference. 
+All data is stored locally on your device in SQLite. No cloud sync, no accounts. Your phone is your backup.
 
 ### Stack
 

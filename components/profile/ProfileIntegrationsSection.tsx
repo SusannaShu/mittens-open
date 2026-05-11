@@ -13,37 +13,20 @@ import { InferenceQueue } from '../../lib/services/ai/inferenceQueue';
 import { detectTier, getTierConfig, saveTier, getActiveTier, canRunModel, type LocalTier, type TierConfig } from '../../lib/services/ai/tierSelector';
 import { getModel, getDownloadSize, formatBytes } from '../../lib/services/ai/modelRegistry';
 import {
-  setInferenceMode, getInferenceMode, setDataMode, getDataMode,
+  setInferenceMode, setDataMode,
   getOllamaConfig, setOllamaConfig, getAgentEnabled, setAgentEnabled,
-  DataMode, InferenceMode,
+  InferenceMode,
 } from '../../lib/providers/providerFactory';
 import { OllamaProvider } from '../../lib/providers/ollamaProvider';
 import { invalidateBrainCache, setBrainId } from '../../lib/brain/selector';
 import { colors, radius, spacing } from '../../lib/theme';
 import { profileStyles as styles } from './profileStyles';
 
-const CLOUD_MODELS = [
-  { key: 'gemini-flash', label: 'Flash', sub: 'Gemini', inference: 'gemini' as InferenceMode },
-  { key: 'claude-sonnet', label: 'Sonnet', sub: 'Claude', inference: 'claude' as InferenceMode },
-  { key: 'claude-opus', label: 'Opus', sub: 'Claude', inference: 'claude' as InferenceMode },
-  { key: 'groq-free', label: 'Groq', sub: 'Llama 4 Scout', inference: 'gemini' as InferenceMode },
-  { key: 'openrouter-free', label: 'OpenRouter', sub: 'Gemma 4', inference: 'gemini' as InferenceMode },
-] as const;
-
-// Cloud models with backend-managed API keys (no client config needed)
-const BACKEND_CLOUD_KEYS = new Set(['gemini-flash', 'claude-sonnet', 'claude-opus', 'groq-free', 'openrouter-free']);
-
-const PRIVATE_MODELS = [
+const BRAIN_MODELS = [
   { key: 'ollama-selfhost', label: 'Self-Hosted', sub: 'Ollama', inference: 'ollama' as InferenceMode },
   { key: 'ollama-byok', label: 'BYOK', sub: 'own key', inference: 'ollama' as InferenceMode },
-  { key: 'smolvlm2-256m', label: 'SmolVLM2', sub: '256M', inference: 'gemini' as InferenceMode, localModelId: 'smolvlm2-256m' },
-  { key: 'fastvlm-0.5b', label: 'FastVLM', sub: '0.5B', inference: 'gemini' as InferenceMode, localModelId: 'fastvlm-0.5b' },
-  { key: 'moondream2', label: 'Moondream', sub: '1.9B', inference: 'gemini' as InferenceMode, localModelId: 'moondream2' },
   { key: 'gemma-e2b', label: 'Gemma E2B', sub: '4B', inference: 'gemini' as InferenceMode, localModelId: 'gemma-e2b' },
 ] as const;
-
-// Combined for lookups
-const BRAIN_MODELS = [...CLOUD_MODELS, ...PRIVATE_MODELS] as const;
 
 interface Props {
   profileContext: any;
@@ -57,7 +40,7 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [gemmaLoaded, setGemmaLoaded] = useState(LocalInferenceService.isModelLoaded());
   const [gemmaStatus, setGemmaStatus] = useState<string | null>(null);
-  const [currentDataMode, setCurrentDataMode] = useState<DataMode>('cloud');
+  // Open version: always local data mode
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     return profileContext?.aiModel || 'gemma-e2b';
   });
@@ -89,7 +72,8 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
 
   // Load current modes on mount
   useEffect(() => {
-    getDataMode().then(setCurrentDataMode);
+    // Open version: force local data mode
+    setDataMode('local');
     getAgentEnabled().then(en => {
       setAgentOn(en);
       // If agent was enabled, start loading Gemma
@@ -165,10 +149,6 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
           AsyncStorage.getItem('mittens_ollama_url').then(url => {
              setSelectedModel(url ? 'ollama-selfhost' : 'ollama-byok');
           });
-        } else if (mode === 'gemini') {
-           setSelectedModel('gemini-flash');
-        } else if (mode === 'claude') {
-           AsyncStorage.getItem('mittens_claude_variant').then(v => setSelectedModel(v || 'claude-sonnet'));
         }
       });
     }
@@ -382,9 +362,6 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
     }
 
     await setInferenceMode(selected.inference);
-    if (BACKEND_CLOUD_KEYS.has(modelKey)) {
-      await setBrainId(modelKey as any);
-    }
     invalidateBrainCache();
     setSelectedModel(modelKey);
     updateProfile({ aiModel: modelKey }).then(onRefresh).catch(() => {});
@@ -428,48 +405,14 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
     );
   };
 
-  const handleToggleDataMode = async (newMode: DataMode) => {
-    if (newMode === currentDataMode) return;
-
-    if (newMode === 'local') {
-      Alert.alert(
-        'Switch to Local Only?',
-        'This will store all data on your device only. In the future, switching to local will delete your cloud data.\n\nAre you sure?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Switch to Local',
-            style: 'destructive',
-            onPress: async () => {
-              await setDataMode('local');
-              setCurrentDataMode('local');
-            },
-          },
-        ]
-      );
-    } else {
-      await setDataMode('cloud');
-      setCurrentDataMode('cloud');
-      onSyncRequired?.();
-    }
-  };
+  // Data mode is always 'local' in the open-source version
 
   const currentModel = selectedModel;
   const isOllamaMode = currentModel === 'ollama-byok' || currentModel === 'ollama-selfhost';
-  const isCloudReady = BACKEND_CLOUD_KEYS.has(currentModel);
-  // Check if current model is a local VLM
-  const isLocalVLM = ['smolvlm2-256m', 'fastvlm-0.5b', 'moondream2', 'gemma-e2b'].includes(currentModel);
+  const isLocalVLM = currentModel === 'gemma-e2b';
   const currentLocalModel = isLocalVLM ? getModel(currentModel) : null;
   const brainDesc =
-    currentModel === 'smolvlm2-256m' ? 'SmolVLM2 256M -- tiny, vision, on-device' :
-    currentModel === 'fastvlm-0.5b' ? 'FastVLM 0.5B -- Apple, fastest vision' :
-    currentModel === 'moondream2' ? 'Moondream 2 -- compact VQA, on-device' :
     currentModel === 'gemma-e2b' ? 'Gemma 4 E2B -- best quality, on-device' :
-    currentModel === 'gemini-flash' ? 'Gemini Flash -- fast, free' :
-    currentModel === 'claude-sonnet' ? 'Claude Sonnet -- balanced' :
-    currentModel === 'claude-opus' ? 'Claude Opus -- smartest' :
-    currentModel === 'groq-free' ? 'Groq Llama 4 Scout -- fast, free' :
-    currentModel === 'openrouter-free' ? 'OpenRouter Gemma 4 -- free' :
     currentModel === 'ollama-byok' ? 'BYOK -- your API key' :
     currentModel === 'ollama-selfhost' ? `Self-Hosted -- ${ollamaUrl || 'not configured'}` :
     'Gemma 4 E2B -- best quality, on-device';
@@ -604,18 +547,9 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
 
           {/* Brain selector */}
           <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
-            {/* Cloud row -- scrollable for 5+ options */}
             <View style={{ marginBottom: 6 }}>
-              <Text style={styles.rowLabel}>CLOUD</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                {CLOUD_MODELS.map(renderBrainPill)}
-              </ScrollView>
-            </View>
-            {/* Private row -- scrollable for more options */}
-            <View style={{ marginBottom: 6 }}>
-              <Text style={styles.rowLabel}>PRIVATE</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                {PRIVATE_MODELS.map(renderBrainPill)}
+                {BRAIN_MODELS.map(renderBrainPill)}
               </ScrollView>
             </View>
 
@@ -697,16 +631,7 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
             )}
           </View>
 
-          {/* Cloud models: Ready to use badge (keys on backend) */}
-          {isCloudReady && (
-            <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Feather name="check-circle" size={12} color="#4CAF50" />
-                <Text style={{ fontSize: 12, color: '#4CAF50', fontWeight: '600' }}>Ready to use</Text>
-                <Text style={{ fontSize: 10, color: colors.textMuted }}>-- no setup needed</Text>
-              </View>
-            </View>
-          )}
+
 
           {/* Ollama / BYOK config -- only for self-hosted and BYOK */}
           {isOllamaMode && (
@@ -779,42 +704,7 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
             </View>
           )}
 
-          {/* Data Storage -- independent toggle */}
-          <View style={styles.integrationRow}>
-            <View style={styles.integrationIcon}>
-              <Feather name={currentDataMode === 'local' ? 'smartphone' : 'cloud'} size={18} color={colors.textPrimary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>Data Storage</Text>
-              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
-                {currentDataMode === 'local' ? 'Private, all data on device' : 'Backed up to your account'}
-              </Text>
-            </View>
-          </View>
-          <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity
-                style={[styles.actBtn, { flex: 1, alignItems: 'center', paddingVertical: 6 }, currentDataMode === 'cloud' && styles.actBtnActive]}
-                onPress={() => handleToggleDataMode('cloud')}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Feather name="cloud" size={12} color={currentDataMode === 'cloud' ? '#fff' : colors.textPrimary} />
-                  <Text style={[styles.actText, { fontSize: 12 }, currentDataMode === 'cloud' && styles.actTextActive]}>Cloud</Text>
-                </View>
-                <Text style={[{ fontSize: 9, color: colors.textMuted, marginTop: 1 }, currentDataMode === 'cloud' && { color: 'rgba(255,255,255,0.7)' }]}>synced + backed up</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actBtn, { flex: 1, alignItems: 'center', paddingVertical: 6 }, currentDataMode === 'local' && styles.actBtnActive]}
-                onPress={() => handleToggleDataMode('local')}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Feather name="smartphone" size={12} color={currentDataMode === 'local' ? '#fff' : colors.textPrimary} />
-                  <Text style={[styles.actText, { fontSize: 12 }, currentDataMode === 'local' && styles.actTextActive]}>Local Only</Text>
-                </View>
-                <Text style={[{ fontSize: 9, color: colors.textMuted, marginTop: 1 }, currentDataMode === 'local' && { color: 'rgba(255,255,255,0.7)' }]}>on device, private</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+
 
           {/* Gmail -- functional */}
           <View style={styles.integrationRow}>

@@ -7,6 +7,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "tunnel": "bash scripts/tunnel.sh",
     "postinstall": "npx patch-package 2>/dev/null; echo \"export * from './MotionActivityTracker.types';\" > node_modules/react-native-motion-activity-tracker/build/types/index.js 2>/dev/null || true"
   },
   "dependencies": {

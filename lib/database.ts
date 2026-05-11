@@ -50,7 +50,7 @@ export async function initializeDatabase(): Promise<void> {
       items TEXT,
       summary_nutrients TEXT,
       estimation_status TEXT DEFAULT 'complete' CHECK(estimation_status IN ('pending','estimating','partial','complete')),
-      source TEXT DEFAULT 'vision' CHECK(source IN ('vision','manual')),
+      source TEXT DEFAULT 'vision' CHECK(source IN ('vision','manual','pendant')),
       entry_type TEXT DEFAULT 'food' CHECK(entry_type IN ('food','activity')),
       activity_meta TEXT,
       energy INTEGER,
@@ -335,6 +335,25 @@ export async function initializeDatabase(): Promise<void> {
       shown_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Pendant scene log (ambient intelligence pipeline)
+    CREATE TABLE IF NOT EXISTS pendant_scene_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scene_type TEXT NOT NULL,
+      sub_phase TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      close_reason TEXT,
+      place_name TEXT,
+      latitude REAL,
+      longitude REAL,
+      items TEXT,
+      frame_paths TEXT,
+      pantry_deltas TEXT,
+      frame_count INTEGER DEFAULT 0,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_created ON mittens_messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_nutrition_logged ON nutrition_logs(logged_at);
@@ -345,6 +364,7 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_wardrobe_retailer ON wardrobe_items(retailer);
     CREATE INDEX IF NOT EXISTS idx_watch_items_hash ON watch_items(item_hash);
     CREATE INDEX IF NOT EXISTS idx_watch_items_shown ON watch_items(shown_at);
+    CREATE INDEX IF NOT EXISTS idx_scene_log_started ON pendant_scene_log(started_at);
   `);
 
   // Migrations: add columns that may be missing from older databases
@@ -357,6 +377,11 @@ export async function initializeDatabase(): Promise<void> {
     `ALTER TABLE nutrition_profile ADD COLUMN sex TEXT`,
     `ALTER TABLE nutrition_profile ADD COLUMN skin_type TEXT`,
     `ALTER TABLE nutrition_profile ADD COLUMN preferred_unit TEXT DEFAULT 'imperial'`,
+    // Ambient intelligence pipeline columns
+    `ALTER TABLE activity_logs ADD COLUMN image_uris TEXT`,
+    `ALTER TABLE location_logs ADD COLUMN frame_path TEXT`,
+    `ALTER TABLE nutrition_logs ADD COLUMN pipeline_log TEXT`,
+    `ALTER TABLE activity_logs ADD COLUMN pipeline_log TEXT`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

@@ -185,6 +185,30 @@ export function summarizeResult(domain: string, phase: string, data: any): strin
       case 'watch:extract':
         return `${data?.length || 0} item(s) extracted`;
 
+      // Scene (ambient intelligence)
+      case 'scene:classify':
+        return `${data.sceneType} / ${data.subPhase} (conf: ${data.confidence})`;
+      case 'scene:extend':
+        return `Extended ${data.sceneType}, frame #${data.frameCount}`;
+      case 'scene:open':
+        return `Opened ${data.sceneType}/${data.subPhase} at ${data.place || 'unknown'}`;
+      case 'scene:close':
+        return `Closed: ${data.closeReason}, ${data.frameCount} frames`;
+      case 'scene:match':
+        return data.matched ? `Matched ${data.sceneType}` : 'No match';
+
+      // Memory retrieval
+      case 'memory:retrieve':
+        return `Tier ${data.tier}, ${data.notesUsed} note(s)`;
+      case 'memory:upsert':
+        return `${data.category}: "${(data.note || '').slice(0, 40)}"`;
+
+      // Pantry
+      case 'pantry:decrement':
+        return `${data.item} -${data.qty}${data.unit}, ${data.remaining} left`;
+      case 'pantry:add':
+        return `Added ${data.item} (${data.confidence} confidence)`;
+
       default:
         const str = JSON.stringify(data);
         return str.length > 80 ? str.slice(0, 80) + '...' : str;

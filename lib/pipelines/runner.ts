@@ -2,7 +2,7 @@ import { TemporalResult } from './types';
 import { PipelineLogger, summarizeResult } from './logger';
 
 export interface PipelineInput {
-  source: 'chat' | 'manual';
+  source: 'chat' | 'manual' | 'pendant';
   text?: string;
   photos?: string[];
   manualData?: any; // pre-filled fields for manual entry

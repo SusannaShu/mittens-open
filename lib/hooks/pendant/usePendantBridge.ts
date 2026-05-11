@@ -198,6 +198,15 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             timestamp: Date.now(),
             framePath,
           });
+
+          // Route through ambient intelligence pipeline
+          try {
+            const { getSceneStreamManager } = require('../../services/ambient/sceneStreamManager');
+            const manager = getSceneStreamManager();
+            manager.onPendantFrame(framePath, Date.now());
+          } catch (err: any) {
+            console.warn('[PendantBridge] Ambient pipeline error (non-blocking):', err?.message);
+          }
         });
 
       } catch (err: any) {

@@ -234,6 +234,7 @@ interface Features {
   speedStdDev: number;
   stopsPerMin: number;       // count of zero-ish speed samples per minute
   totalDisplacement: number; // m, sum of leg distances in window
+  netDisplacement: number;   // m, distance from first to last point in window
   stepRateHz: number;        // steps/sec averaged across window
   pedometerHasData: boolean;
   arType: ClassifiedMotion;
@@ -262,7 +263,7 @@ function computeFeatures(now: number): Features {
   );
   const stopsPerMin = (stopSamples / windowSeconds) * 60;
 
-  // Total displacement (sum of GPS leg lengths)
+  // Total displacement (sum of GPS leg lengths) and Net displacement (start to end)
   let totalDisplacement = 0;
   for (let i = 1; i < positionHistory.length; i++) {
     totalDisplacement += haversineMeters(
@@ -271,6 +272,13 @@ function computeFeatures(now: number): Features {
       positionHistory[i].lat,
       positionHistory[i].lon,
     );
+  }
+
+  let netDisplacement = 0;
+  if (positionHistory.length > 1) {
+    const first = positionHistory[0];
+    const last = positionHistory[positionHistory.length - 1];
+    netDisplacement = haversineMeters(first.lat, first.lon, last.lat, last.lon);
   }
 
   // Step rate: diff the two most recent pedometer snapshots
@@ -301,6 +309,7 @@ function computeFeatures(now: number): Features {
     speedStdDev,
     stopsPerMin,
     totalDisplacement,
+    netDisplacement,
     stepRateHz,
     pedometerHasData,
     arType,
@@ -350,15 +359,16 @@ function decide(f: Features, now: number): ClassificationResult {
     return mk('walking', 0.95, `step rate ${f.stepRateHz.toFixed(1)}/s`);
   }
   // No-pedometer fallback: GPS-only walk band, confirmed by AR or by sustained
-  // displacement.
-  if (!f.pedometerHasData && f.medianSpeed >= 0.6 && f.medianSpeed < 2.5 && f.totalDisplacement > 40) {
+  // displacement. Net displacement must be > 15m to prevent GPS jitter from appearing as walking.
+  if (!f.pedometerHasData && f.medianSpeed >= 0.6 && f.medianSpeed < 2.5 && f.totalDisplacement > 40 && f.netDisplacement > 15) {
     const arAgrees = f.arType === 'walking' && f.arConfidence !== 'low' && f.arFresh;
     return mk('walking', arAgrees ? 0.8 : 0.6, arAgrees ? 'speed band + AR walking' : 'speed band + displacement');
   }
 
   // No steps detected, but movement is real -- this is the bike/transit branch.
   const noSteps = !f.pedometerHasData || f.stepRateHz < 0.4;
-  if (noSteps && f.totalDisplacement > 60) {
+  // Net displacement must be > 30m to avoid large GPS jumps being classified as transit
+  if (noSteps && f.totalDisplacement > 60 && f.netDisplacement > 30) {
     // TRANSIT signatures: many stops (lights/stations) OR high speed variance
     //   OR sustained high speed.
     if (f.stopsPerMin > 1.5 || f.speedStdDev > 4 || f.medianSpeed > 8) {

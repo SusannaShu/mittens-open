@@ -50,6 +50,15 @@ export default function RootLayout() {
         await initializeDatabase();
         
         console.log('[init] Local database ready');
+
+        // 3. Initialize Location & Motion Tracking
+        const { initLocationServices, startActivityRecognition } = require('../lib/services/location/locationService');
+        const { getKnownPlaces } = require('../lib/services/location/knownPlaceApi');
+        const places = await getKnownPlaces();
+        await initLocationServices(places);
+        await startActivityRecognition();
+        
+        console.log('[init] Location services started');
       } catch (err) {
         console.warn('[init] Initialization failed:', err);
       } finally {

@@ -61,7 +61,7 @@ Pendant frames and audio enter the same pipelines as manual input. Motion frames
 
 Brains are dumb text-in/text-out wrappers. Pipelines own all intelligence: prompt construction, response parsing, phase sequencing. Every phase checks `brain.contextWindow` and adapts -- compact format (short JSON keys) for E2B, verbose for large models. Swap brains in Profile without changing any pipeline code.
 
-The pendant works with any brain. On-device Gemma processes 16kHz PCM audio natively (no transcription step needed). If you use a brain that lacks native audio support (like self-hosted Ollama), the pendant bridge automatically falls back to your phone's native iOS/Android Speech-to-Text engine to transcribe the audio locally before sending the text prompt. No pendant-specific code in any brain implementation.
+The pendant works with any brain. On-device Gemma E2B/E4B processes audio natively (no transcription step). For self-hosted Ollama, pendant audio is automatically transcribed via the iPhone's native Speech framework, then sent as text alongside the photo. No pendant-specific code in any brain implementation.
 
 ### Data
 
@@ -117,11 +117,24 @@ npx expo run:android
 
 ## Mittens Pendant
 
-A wearable XIAO ESP32S3 Sense pendant with camera, mic, IMU, and push-to-talk button. Firmware flashed and running.
+A wearable XIAO ESP32S3 Sense pendant with camera, mic, IMU, and push-to-talk button. Leather-enclosed with a hand-drawn Mittens face. Firmware flashed and running.
+
+<p align="center">
+  <img src="screenshots/pendant-front.jpg" width="280" alt="Pendant front — leather housing with Mittens face" />
+  <img src="screenshots/pendant-back.jpg" width="280" alt="Pendant back — camera, button, LED, and mic visible" />
+</p>
 
 <p align="center">
   <img src="screenshots/pendant-workbench.jpg" width="380" alt="Pendant workbench with leather enclosure and electronics" />
   <img src="screenshots/pendant-wiring.jpg" width="380" alt="XIAO ESP32S3 wired to LSM6DS3 IMU, LED, push-to-talk button, and LiPo battery" />
+</p>
+
+**First conversation (May 10, 2026):** Susanna said "Hey Mittens, I'm so happy I made you!" and Mittens replied "That sounds like such a wonderful achievement! It looks like you are beaming with happiness in that photo."
+
+<p align="center">
+  <img src="screenshots/pendant-voice-capture.png" width="260" alt="Voice capture — Mittens heard Susanna and responded" />
+  <img src="screenshots/pendant-vision-capture.png" width="260" alt="Vision capture — motion-triggered photo" />
+  <img src="screenshots/pendant-terminal-logs.jpg" width="340" alt="Terminal showing BLE transfer, STT transcription, and brain response" />
 </p>
 
 **Hardware wiring:**
@@ -144,6 +157,7 @@ LSM6DS3 SA0 tied to VCC (I2C address 0x6B).
 - **Motion detection** (IMU): LSM6DS3 triggers on movement, pendant captures a VGA JPEG and streams to phone. 3s cooldown between events.
 - **Smart sleep**: stays awake while BLE is connected or there's been activity in the last 5 min. Enters deep sleep after 5 min idle. Wakes on button press or motion.
 - **BLE transfer**: chunked notification protocol (180-byte chunks, 12ms pacing with periodic flush). App pulls data via PULL/DONE handshake. Concurrent pull protection prevents data corruption.
+- **On-device STT fallback**: when the active brain doesn't support native audio (e.g. self-hosted Ollama), pendant audio is converted from raw PCM to WAV and transcribed locally using iOS Speech framework. The transcript is then sent as text to the brain alongside the photo.
 - **iOS background reconnect**: `restoreStateIdentifier` enables iOS to maintain BLE scanning even when the app is backgrounded or killed. Phone auto-reconnects when pendant wakes.
 - **No WiFi required** — entirely Bluetooth Low Energy data transfer.
 - Works with any brain mode (local E2B, self-hosted Ollama).

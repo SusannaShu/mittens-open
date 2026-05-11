@@ -11,8 +11,9 @@
 
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { getApiBase, getAuthToken } from '../../api';
 import { KnownPlace } from './knownPlaceApi';
+import { getDb } from '../../database';
+import { recordLocationPoint } from './locationSessionBuilder';
 
 // Task names (must match defineTask calls)
 export const GEOFENCE_TASK = 'MITTENS_GEOFENCE';
@@ -93,7 +94,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
 // Event handlers
 // ──────────────────────────────────────────
 
-async function logToServer(entry: {
+function logToLocal(entry: {
   latitude?: number | null;
   longitude?: number | null;
   eventType: string;
@@ -103,18 +104,31 @@ async function logToServer(entry: {
   loggedAt: string;
 }) {
   try {
-    const token = getAuthToken();
-    if (!token) return;
-    await fetch(`${getApiBase()}/location-logs`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(entry),
-    });
+    const db = getDb();
+    db.runSync(
+      `INSERT INTO location_logs (latitude, longitude, activity_type, place_name, recorded_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        entry.latitude ?? null,
+        entry.longitude ?? null,
+        entry.motionType ?? null,
+        entry.placeName ?? null,
+        entry.loggedAt,
+      ]
+    );
+
+    // Feed into the session builder to populate location_sessions
+    if (entry.latitude != null && entry.longitude != null) {
+      recordLocationPoint({
+        latitude: entry.latitude,
+        longitude: entry.longitude,
+        motionType: entry.motionType ?? null,
+        speed: entry.speed ?? null,
+        loggedAt: entry.loggedAt,
+      });
+    }
   } catch (err) {
-    console.warn('[location] Failed to log to server:', err);
+    console.warn('[location] Failed to log locally:', err);
   }
 }
 
@@ -164,7 +178,7 @@ function handleGeofenceEvent(
     }
   }
 
-  logToServer({
+  logToLocal({
     latitude: region.latitude,
     longitude: region.longitude,
     eventType: evtType,
@@ -184,27 +198,60 @@ function handleSignificantLocationChange(location: Location.LocationObject) {
   currentLocation = { lat: latitude, lon: longitude };
   lastLocationTime = Date.now();
 
-  // Get motion type from Activity Recognition API (primary)
-  // Falls back to GPS speed if AR not available or stale (>60s)
+  // Feed the new sample into the phone motion classifier and use its output
+  // as the authoritative motion type. The classifier fuses GPS displacement,
+  // pedometer step rate, and AR (with confidence gating) on a 90s window.
+  // It is far more resistant to fidget-induced false positives than any one
+  // of those signals alone.
   let motionType: string | null = null;
+  let motionConfidence: number | null = null;
   try {
-    const { getCurrentMotion } = require('./motionService');
-    const arMotion = getCurrentMotion();
-    if (arMotion.type !== 'unknown' && Date.now() - arMotion.timestamp < 60000) {
-      motionType = arMotion.type;
+    const { recordGpsSample, classifyNow } = require('./phoneMotionClassifier');
+    recordGpsSample({
+      lat: latitude,
+      lon: longitude,
+      speed: location.coords.speed,
+      accuracy: location.coords.accuracy,
+      time: Date.now(),
+    });
+    const result = classifyNow();
+    if (result.type !== 'unknown') {
+      motionType = result.type;
+      motionConfidence = result.confidence;
     }
-  } catch { /* motionService not loaded */ }
+  } catch (err) {
+    // Classifier not loaded yet (or threw): fall through to legacy logic
+    console.warn('[location] motion classifier unavailable:', (err as any)?.message);
+  }
 
-  // Fallback to GPS speed inference if AR unavailable
-  if (!motionType && location.coords.speed != null && location.coords.speed > 0) {
-    const speedKmh = location.coords.speed * 3.6;
-    if (speedKmh < 2) motionType = 'stationary';
-    else if (speedKmh < 8) motionType = 'walking';
-    else if (speedKmh < 25) motionType = 'cycling';
-    else motionType = 'driving';
+  // Legacy fallback only if classifier returned unknown / failed to load.
+  if (!motionType) {
+    try {
+      const { getCurrentMotion } = require('./motionService');
+      const arMotion = getCurrentMotion();
+      const fresh = Date.now() - arMotion.timestamp < 60000;
+      const trustworthy = arMotion.confidence === 'medium' || arMotion.confidence === 'high';
+      if (arMotion.type !== 'unknown' && fresh && trustworthy && hasRecentDisplacement(30, 60_000)) {
+        motionType = arMotion.type;
+      }
+    } catch { /* motionService not loaded */ }
+
+    if (!motionType && location.coords.speed != null) {
+      const speedKmh = location.coords.speed * 3.6;
+      if (speedKmh < 2) {
+        motionType = 'stationary';
+      } else if (hasRecentDisplacement(30, 60_000)) {
+        if (speedKmh < 8) motionType = 'walking';
+        else if (speedKmh < 25) motionType = 'cycling';
+        else motionType = 'driving';
+      }
+    }
   }
 
   lastMotionType = motionType;
+  if (motionConfidence != null) {
+    console.log(`[location] motion=${motionType} conf=${motionConfidence.toFixed(2)}`);
+  }
 
   // Only log if moved meaningfully. Motion transitions can force their own samples,
   // so the regular trail stream can stay distance-based without cutting off endpoints.
@@ -258,7 +305,7 @@ function logLocationPoint(entry: {
   });
   if (locationHistory.length > 15) locationHistory.shift();
 
-  logToServer(entry);
+  logToLocal(entry);
 }
 
 async function pullAndLogMotionPoint(
@@ -340,9 +387,41 @@ async function confirmMotionStart(motionType: string, anchor: { lat: number; lon
   };
 }
 
+/**
+ * Look at the recent locationHistory and report whether the user has actually
+ * displaced more than `meters` within the last `withinMs` milliseconds.
+ *
+ * This is the gate that protects us from the classic "fidget-marked-as-walking"
+ * failure mode: Activity Recognition can fire a low-confidence walking event
+ * from hand jiggle while the phone is on a desk. If GPS hasn't moved, we
+ * shouldn't believe the event.
+ */
+function hasRecentDisplacement(meters: number, withinMs: number = 60_000): boolean {
+  const now = Date.now();
+  // Reduce locationHistory to points within the window
+  const recent = locationHistory.filter((p) => now - p.time <= withinMs);
+  if (recent.length < 2) return false;
+  // Total path length traversed
+  let total = 0;
+  for (let i = 1; i < recent.length; i++) {
+    total += haversineMeters(recent[i - 1].lat, recent[i - 1].lon, recent[i].lat, recent[i].lon);
+    if (total >= meters) return true;
+  }
+  return false;
+}
+
 function handleMotionStateChange(motionType: string) {
   if (!motionType || motionType === 'unknown') return;
   const wasStationary = lastMotionType === 'stationary' || !activeTrailMotion;
+
+  // Displacement gate: any non-stationary AR event must be backed by real
+  // GPS displacement in the recent past, otherwise we're being lied to by
+  // a fidget-induced classification. Stationary is always allowed through.
+  if (motionType !== 'stationary' && !hasRecentDisplacement(30, 60_000)) {
+    console.log(`[location] Ignoring "${motionType}" AR event -- no GPS displacement in last 60s`);
+    return;
+  }
+
   lastMotionType = motionType;
 
   if (motionType === 'stationary') {
@@ -367,13 +446,20 @@ function handleMotionStateChange(motionType: string) {
 
   if (!wasStationary && activeTrailMotion === motionType) return;
 
+  // We need an anchor to measure displacement against. If we have neither
+  // a stationaryAnchor nor a currentLocation, pull a GPS sample to use as
+  // the anchor -- but DO NOT log it as a motion point yet. confirmMotionStart
+  // will decide whether to log based on subsequent displacement.
   const anchor = stationaryAnchor || currentLocation;
   if (!anchor) {
-    pullAndLogMotionPoint(motionType).then((loc) => {
-      if (loc) {
-        activeTrailMotion = motionType;
-        stationaryAnchor = null;
-      }
+    getCurrentPositionForTransition().then((sample) => {
+      if (!sample) return;
+      const loc = { lat: sample.coords.latitude, lon: sample.coords.longitude };
+      currentLocation = loc;
+      lastLocationTime = Date.now();
+      notifyListeners();
+      clearPendingMotionStart();
+      confirmMotionStart(motionType, loc).catch(() => {});
     }).catch(() => {});
     return;
   }
@@ -449,6 +535,17 @@ export async function initLocationServices(
  * Called after initLocationServices so native module has time to load.
  */
 export async function startActivityRecognition(): Promise<boolean> {
+  // Always start the phone motion classifier (pedometer + GPS fusion). It is
+  // the primary source of motion labels now.
+  try {
+    const { startMotionClassifier } = require('./phoneMotionClassifier');
+    await startMotionClassifier();
+  } catch (err) {
+    console.warn('[location] Failed to start phone motion classifier:', err);
+  }
+
+  // Activity Recognition is still useful as a soft prior fed into the
+  // classifier. Start it if available, but don't fail the whole flow if not.
   try {
     const { startMotionTracking, onMotionChange } = require('./motionService');
     const started = await startMotionTracking();

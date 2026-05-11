@@ -13,7 +13,7 @@
 
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getApiBase, getAuthToken } from '../../api';
+import { getDb } from '../../database';
 import { getCurrentLocation, getCurrentPlace, setCurrentPlaceManual, updateGeofences, getKnownPlacesCache } from './locationService';
 import { saveMittensMessage } from '../schedule/alarmScheduler';
 import { FOCUS_TIMER_STORAGE_KEY } from '../../../hooks/useFocusTimer';
@@ -129,9 +129,6 @@ export function checkDwell(): void {
  * Respects sleep window, active timer, and daily prompt limit.
  */
 async function handleDwellDetected(lat: number, lon: number, dwellMinutes: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) return;
-
   // Guard 1: Check if within sleep window
   if (await isInSleepWindow()) return;
 
@@ -142,21 +139,26 @@ async function handleDwellDetected(lat: number, lon: number, dwellMinutes: numbe
   if (await isDailyLimitReached()) return;
 
   try {
-    // Check backend known-places for coordinate match
-    const placesRes = await fetch(`${getApiBase()}/known-places`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (placesRes.ok) {
-      const places = await placesRes.json();
-      const match = places.find((p: { latitude: number; longitude: number; radius: number; name: string }) =>
-        haversineMeters(p.latitude, p.longitude, lat, lon) < (p.radius || 50)
-      );
-      if (match) {
-        setCurrentPlaceManual(match.name);
-        try { await updateGeofences(places); } catch {}
-        return;
-      }
-      try { await updateGeofences(places); } catch {}
+    const db = getDb();
+    // Check known_places in SQLite for coordinate match
+    const places = db.getAllSync('SELECT * FROM known_places') as any[];
+    const match = places.find((p: any) =>
+      haversineMeters(p.latitude, p.longitude, lat, lon) < (p.radius_m || 50)
+    );
+    if (match) {
+      setCurrentPlaceManual(match.name);
+      // Refresh geofences with updated places
+      const knownPlaces = places.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        radius: p.radius_m || 100,
+        placeType: p.place_type,
+        icon: p.icon,
+      }));
+      try { await updateGeofences(knownPlaces); } catch {}
+      return;
     }
 
     // No known place match -- ask the user
@@ -180,21 +182,21 @@ async function handleDwellDetected(lat: number, lon: number, dwellMinutes: numbe
  */
 async function isInSleepWindow(): Promise<boolean> {
   try {
-    const token = getAuthToken();
-    if (!token) return false;
-    const res = await fetch(`${getApiBase()}/nutrition-profiles/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return false;
-    const profile = await res.json();
-    const bedtime = profile.bedtime; // e.g. "22:30"
-    const wakeTime = profile.wakeTime; // e.g. "06:30"
-    if (!bedtime || !wakeTime) return false;
+    const db = getDb();
+    const row = db.getFirstSync('SELECT * FROM nutrition_profile WHERE id = 1') as any;
+    if (!row) return false;
+
+    // Derive bedtime/wake from LMST schedule fields
+    const wakeMins = row.wake_time_lmst_minutes || 375; // default 6:15 AM
+    const sleepHours = row.sleep_hours || 8;
+    const bedMins = (wakeMins - sleepHours * 60 + 1440) % 1440;
 
     const now = new Date();
-    const [bedH, bedM] = bedtime.split(':').map(Number);
-    const [wakeH, wakeM] = wakeTime.split(':').map(Number);
     const nowMin = now.getHours() * 60 + now.getMinutes();
+    const bedH = Math.floor(bedMins / 60);
+    const bedM = bedMins % 60;
+    const wakeH = Math.floor(wakeMins / 60);
+    const wakeM = wakeMins % 60;
     const bedMin = bedH * 60 + bedM;
     const wakeMin = wakeH * 60 + wakeM;
 

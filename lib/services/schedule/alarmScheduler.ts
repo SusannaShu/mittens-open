@@ -9,6 +9,7 @@
 import * as Notifications from 'expo-notifications';
 import { CalendarEvent } from '../calendarEventApi';
 import { getApiBase, getAuthToken } from '../../api';
+import { getDb } from '../../database';
 import { notifyMittensMessage } from '../../mittensNotify';
 import { materializeSchedule } from './scheduleComputer';
 import { scheduleLightPrompt } from './lightExposurePrompt';
@@ -207,12 +208,8 @@ export async function dynamicallyUpdateAlarms(
  */
 export async function clearScheduledRhythms(dateString: string): Promise<void> {
   try {
-    const token = getAuthToken();
-    if (!token) return;
-    await fetch(`${getApiBase()}/planned-schedules/clear?date=${dateString}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const db = getDb();
+    db.runSync('DELETE FROM planned_schedules WHERE schedule_date = ?', [dateString]);
   } catch (err) {
     console.warn('[alarm] Failed to clear planned schedule', err);
   }
@@ -240,26 +237,34 @@ export async function ensureRhythmsForDate(profile: any, dateString: string, exi
   ];
 
   try {
-    const token = getAuthToken();
-    if (!token) return false;
+    const db = getDb();
 
-    // Check if blocks already exist on the server
-    const res = await fetch(`${getApiBase()}/planned-schedules/daily?date=${dateString}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.blocks && data.blocks.length > 0) return false;
+    // Check if blocks already exist in SQLite
+    const existing = db.getFirstSync(
+      'SELECT events FROM planned_schedules WHERE schedule_date = ?',
+      [dateString]
+    ) as any;
+    if (existing && existing.events) {
+      const parsed = JSON.parse(existing.events);
+      if (parsed.length > 0) return false;
     }
 
-    // Sync fresh blocks
-    const syncRes = await fetch(`${getApiBase()}/planned-schedules/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ date: dateString, blocks }),
-    });
+    // Build full blocks with IDs
+    const fullBlocks = blocks.map((b, i) => ({
+      id: i + 1,
+      date: dateString,
+      blockType: b.blockType,
+      scheduledAt: b.scheduledAt,
+    }));
 
-    return syncRes.ok;
+    // Upsert: delete existing then insert
+    db.runSync('DELETE FROM planned_schedules WHERE schedule_date = ?', [dateString]);
+    db.runSync(
+      'INSERT INTO planned_schedules (schedule_date, events) VALUES (?, ?)',
+      [dateString, JSON.stringify(fullBlocks)]
+    );
+
+    return true;
   } catch (err) {
     console.warn('[alarm] Failed to ensure planned schedule', err);
     return false;
@@ -491,21 +496,17 @@ async function scheduleNotif(
 
 export async function saveMittensMessage(text: string, activityType: string, extraMetadata?: any): Promise<void> {
   try {
-    const token = getAuthToken();
-    if (!token) return;
-    await fetch(`${getApiBase()}/mittens-messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        role: 'mittens',
-        text,
-        activityType,
-        metadata: { automated: true, timestamp: new Date().toISOString(), ...(extraMetadata || {}) },
-      }),
+    const db = getDb();
+    const metadata = JSON.stringify({
+      automated: true,
+      timestamp: new Date().toISOString(),
+      ...(extraMetadata || {}),
     });
+    db.runSync(
+      `INSERT INTO mittens_messages (role, text, activity_type, metadata)
+       VALUES ('mittens', ?, ?, ?)`,
+      [text, activityType, metadata]
+    );
 
     // Fire local notification + badge
     await notifyMittensMessage(text, {

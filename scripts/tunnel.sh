@@ -19,6 +19,8 @@ set -euo pipefail
 OLLAMA_PORT=11434
 LOG_FILE="$HOME/.ollama-tunnel.log"
 URL_FILE="$HOME/.ollama-tunnel-url"
+OLLAMA_PLIST="$HOME/Library/LaunchAgents/homebrew.mxcl.ollama.plist"
+TUNNEL_AGENT="com.mittens.ollama-tunnel"
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -40,7 +42,50 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-# ── 1. Ollama ─────────────────────────────────────────────
+# ── 1. Ollama tunnel config ──────────────────────────────
+# Ollama needs two env vars to work behind a Cloudflare tunnel:
+#   OLLAMA_ORIGINS=*    → accept non-localhost Origin headers
+#   OLLAMA_HOST=0.0.0.0 → accept non-localhost Host headers
+# We set these in both the brew source plist (survives `brew services restart`)
+# and the active LaunchAgent plist.
+OLLAMA_SRC_PLIST="$(brew --prefix)/opt/ollama/homebrew.mxcl.ollama.plist"
+echo -e "${CYAN}▸${RESET} Checking Ollama tunnel config..."
+NEEDS_RESTART=false
+
+set_plist_env() {
+  local plist="$1" key="$2" val="$3"
+  if [ -f "$plist" ] && ! grep -q "$key" "$plist"; then
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:${key} string '${val}'" "$plist" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:${key} '${val}'" "$plist"
+    return 0
+  fi
+  return 1
+}
+
+for plist in "$OLLAMA_SRC_PLIST" "$OLLAMA_PLIST"; do
+  if set_plist_env "$plist" "OLLAMA_ORIGINS" "*"; then
+    echo -e "  ${YELLOW}Added OLLAMA_ORIGINS=* → $(basename "$plist")${RESET}"
+    NEEDS_RESTART=true
+  fi
+  if set_plist_env "$plist" "OLLAMA_HOST" "0.0.0.0"; then
+    echo -e "  ${YELLOW}Added OLLAMA_HOST=0.0.0.0 → $(basename "$plist")${RESET}"
+    NEEDS_RESTART=true
+  fi
+done
+
+if [ "$NEEDS_RESTART" = true ]; then
+  echo -e "  ${YELLOW}Restarting Ollama with tunnel-friendly config...${RESET}"
+  brew services stop ollama
+  sleep 1
+  pkill -9 -f "ollama serve" 2>/dev/null || true
+  sleep 2
+  brew services start ollama
+  sleep 3
+else
+  echo -e "  ${GREEN}✓ OLLAMA_ORIGINS and OLLAMA_HOST already set${RESET}"
+fi
+
+# ── 2. Ollama ─────────────────────────────────────────────
 echo -e "${CYAN}▸${RESET} Checking Ollama..."
 if ! curl -s "http://localhost:$OLLAMA_PORT/" > /dev/null 2>&1; then
   echo -e "  ${YELLOW}Ollama not running — starting via brew services${RESET}"
@@ -57,14 +102,22 @@ if ! curl -s "http://localhost:$OLLAMA_PORT/" > /dev/null 2>&1; then
 fi
 echo -e "  ${GREEN}✓ Ollama running on :${OLLAMA_PORT}${RESET}"
 
-# ── 2. Kill old tunnel ───────────────────────────────────
+# ── 3. Stop competing LaunchAgent tunnel ─────────────────
+# The LaunchAgent has KeepAlive=true and will fight this script's tunnel
+if launchctl list | grep -q "$TUNNEL_AGENT" 2>/dev/null; then
+  echo -e "${CYAN}▸${RESET} Stopping LaunchAgent tunnel (${TUNNEL_AGENT})..."
+  launchctl unload "$HOME/Library/LaunchAgents/${TUNNEL_AGENT}.plist" 2>/dev/null || true
+  sleep 1
+fi
+
+# ── 4. Kill any remaining cloudflared tunnels ────────────
 if pgrep -f "cloudflared tunnel.*localhost:$OLLAMA_PORT" > /dev/null 2>&1; then
   echo -e "${CYAN}▸${RESET} Killing previous tunnel..."
   pkill -f "cloudflared tunnel.*localhost:$OLLAMA_PORT" 2>/dev/null || true
   sleep 1
 fi
 
-# ── 3. Start Cloudflare Quick Tunnel ─────────────────────
+# ── 5. Start Cloudflare Quick Tunnel ─────────────────────
 echo -e "${CYAN}▸${RESET} Starting Cloudflare tunnel → localhost:${OLLAMA_PORT}"
 > "$LOG_FILE"  # clear old log
 
@@ -100,7 +153,7 @@ fi
 
 echo "$TUNNEL_URL" > "$URL_FILE"
 
-# ── 4. Print status ─────────────────────────────────────
+# ── 6. Print status ─────────────────────────────────────
 echo ""
 echo -e "${BOLD}${GREEN}  ╔══════════════════════════════════════════════════════╗${RESET}"
 echo -e "${BOLD}${GREEN}  ║  ${CYAN}🐱 Mittens E2B Tunnel Active${GREEN}                        ║${RESET}"
@@ -116,7 +169,7 @@ echo -e "${DIM}  Paste the URL into Mittens Profile → Brain Endpoint${RESET}"
 echo -e "${DIM}  Press Ctrl-C to stop the tunnel${RESET}"
 echo ""
 
-# ── 5. Stream logs ───────────────────────────────────────
+# ── 7. Stream logs ───────────────────────────────────────
 echo -e "${CYAN}▸${RESET} Streaming tunnel logs..."
 echo -e "${DIM}─────────────────────────────────────────────────────${RESET}"
 tail -f "$LOG_FILE"

@@ -115,6 +115,32 @@ export PATH=$PATH:$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools
 npx expo run:android
 ```
 
+### Self-Hosted Brain (Ollama Tunnel)
+
+To use the self-hosted Gemma 26B brain from outside your local network (e.g. testing on cellular, sharing with someone):
+
+```bash
+# Prerequisites (one-time)
+brew install ollama cloudflared
+ollama pull gemma4:e2b
+
+# Start tunnel — shows public URL and streams logs
+./scripts/tunnel.sh
+# or
+npm run tunnel
+```
+
+The script:
+1. Ensures Ollama is running and configured for tunnel access (`OLLAMA_ORIGINS=*`, `OLLAMA_HOST=0.0.0.0`)
+2. Stops any competing LaunchAgent tunnels
+3. Starts a Cloudflare Quick Tunnel to `localhost:11434`
+4. Prints the public URL (e.g. `https://abc-xyz.trycloudflare.com`)
+5. Streams tunnel logs until you `Ctrl-C`
+
+**When does the URL change?** Only when `cloudflared` restarts — i.e., when you re-run `tunnel.sh` or the process is killed. The URL stays stable as long as the tunnel process is running.
+
+**To configure in the app:** go to Profile → Integrations → Brain → Self-Hosted, paste the tunnel URL, and tap Test Connection.
+
 ## Mittens Pendant
 
 A wearable XIAO ESP32S3 Sense pendant with camera, mic, IMU, and push-to-talk button. Leather-enclosed with a hand-drawn Mittens face. Firmware flashed and running.

@@ -66,6 +66,18 @@ export function recordLocationPoint(entry: {
       return;
     }
 
+    // Check for distance jump (untracked transit while app was suspended)
+    let lastLat = activeSession.end_lat ?? activeSession.start_lat;
+    let lastLon = activeSession.end_lon ?? activeSession.start_lon;
+    const distFromLast = haversineMeters(lastLat, lastLon, entry.latitude, entry.longitude);
+    
+    if (distFromLast > 200) {
+      // Significant jump without tracking. Break session so it resolves the new place correctly.
+      closeSession(db, activeSession.id, now);
+      startNewSession(db, entry.latitude, entry.longitude, motionType, now);
+      return;
+    }
+
     // Check for motion type change
     const currentMotion = activeSession.motion_type || 'unknown';
     if (motionType !== currentMotion && motionType !== 'unknown') {

@@ -84,8 +84,10 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   }
   if (data) {
     const { locations } = data as { locations: Location.LocationObject[] };
-    if (locations.length > 0) {
-      handleSignificantLocationChange(locations[locations.length - 1]);
+    if (locations && locations.length > 0) {
+      for (const loc of locations) {
+        handleSignificantLocationChange(loc);
+      }
     }
   }
 });

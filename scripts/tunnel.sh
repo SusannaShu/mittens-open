@@ -32,15 +32,22 @@ RESET='\033[0m'
 cleanup() {
   echo ""
   echo -e "${DIM}Shutting down tunnel...${RESET}"
-  # Kill the cloudflared process we started
   if [ -n "${CF_PID:-}" ] && kill -0 "$CF_PID" 2>/dev/null; then
     kill "$CF_PID" 2>/dev/null
     wait "$CF_PID" 2>/dev/null || true
   fi
-  echo -e "${GREEN}✓ Tunnel stopped${RESET}"
+  if [ -n "${CAFF_PID:-}" ] && kill -0 "$CAFF_PID" 2>/dev/null; then
+    kill "$CAFF_PID" 2>/dev/null
+  fi
+  echo -e "${GREEN}✓ Tunnel stopped, sleep re-enabled${RESET}"
   exit 0
 }
 trap cleanup SIGINT SIGTERM
+
+# ── 0. Prevent Mac from sleeping ─────────────────────────
+caffeinate -dims &
+CAFF_PID=$!
+echo -e "${CYAN}▸${RESET} Sleep prevention active (caffeinate PID $CAFF_PID)"
 
 # ── 1. Ollama tunnel config ──────────────────────────────
 # Ollama needs two env vars to work behind a Cloudflare tunnel:

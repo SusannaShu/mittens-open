@@ -57,6 +57,22 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
 
           console.log('[PendantBridge] Double-tap received, audio:', audioPath.slice(-30));
 
+          // Check if there's a pending mittensAsk -- route response to ask resolver
+          try {
+            const { hasPendingAsk, resolveAsk } = require('../../services/ambient/mittensAsk');
+            if (hasPendingAsk()) {
+              console.log('[PendantBridge] Pending ask detected -- routing to resolveAsk');
+              // Transcribe the response
+              const { transcribeAudioFile } = require('../../services/ai/voiceService');
+              const transcript = await transcribeAudioFile(audioPath);
+              if (transcript) {
+                resolveAsk(transcript);
+              }
+              processingRef.current = false;
+              return;
+            }
+          } catch { /* mittensAsk not loaded */ }
+
           // Save to pendant store for UI display
           const captureId = pendantStore.addCapture({
             type: 'DOUBLE_TAP' as const,

@@ -354,6 +354,28 @@ export async function initializeDatabase(): Promise<void> {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Memory notes (three-tier memory system)
+    CREATE TABLE IF NOT EXISTS memory_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      note TEXT NOT NULL,
+      source TEXT DEFAULT 'user' CHECK(source IN ('user','inferred')),
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Smart pantry (portion-aware ingredient tracking)
+    CREATE TABLE IF NOT EXISTS smart_pantry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_name TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0,
+      unit TEXT NOT NULL DEFAULT 'units',
+      last_added_qty REAL,
+      confidence TEXT DEFAULT 'guess' CHECK(confidence IN ('high','medium','guess')),
+      last_seen_at TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_created ON mittens_messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_nutrition_logged ON nutrition_logs(logged_at);

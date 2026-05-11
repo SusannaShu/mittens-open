@@ -151,7 +151,7 @@ class SceneStreamManager {
       );
 
       // Check after-frame triggers
-      this.checkAfterFrameTriggers(matched, logger);
+      this.checkAfterFrameTriggers(matched, classification, logger);
     } else {
       // No match -- close stale scenes and open new one
       this.handleNonMatches(classification, logger);
@@ -193,6 +193,16 @@ class SceneStreamManager {
         subPhase: s.subPhase,
       }));
     }
+
+    // Retrieve relevant memory for the current context
+    try {
+      const { retrieveMemory } = require('./memoryUpsert');
+      const keyword = context.place || 'kitchen';
+      const memory = retrieveMemory(keyword);
+      if (memory) {
+        context.recentMemory = memory.text;
+      }
+    } catch { /* memoryUpsert not loaded */ }
 
     return context;
   }
@@ -255,6 +265,7 @@ class SceneStreamManager {
 
   private checkAfterFrameTriggers(
     scene: Scene,
+    classification: SceneClassification,
     logger: PipelineLogger,
   ): void {
     // Sedentary check for work scenes
@@ -265,6 +276,14 @@ class SceneStreamManager {
     // Cook timer detection for meal scenes
     if (scene.type === 'meal_prep' && scene.food?.method) {
       this.checkCookTimer(scene, logger);
+    }
+
+    // Ask about ambiguous food items
+    if (
+      (scene.type === 'meal_prep' || scene.type === 'eating') &&
+      classification.items.length > 0
+    ) {
+      this.checkAmbiguousItems(classification, logger);
     }
   }
 
@@ -293,6 +312,35 @@ class SceneStreamManager {
       console.log('[SceneStream] Cook timer expired for', scene.food.method);
       // Will be handled by nudge system in Step 7
     }
+  }
+
+  /**
+   * Check for ambiguous food items and ask the user for clarification.
+   * Fires mittensAsk when an item's confidence is below 0.7.
+   */
+  private checkAmbiguousItems(
+    classification: SceneClassification,
+    _logger: PipelineLogger,
+  ): void {
+    const ambiguous = classification.items.filter((i) => i.confidence < 0.7);
+    if (ambiguous.length === 0) return;
+
+    // Only ask about the first ambiguous item (don't spam)
+    const item = ambiguous[0];
+    const question = `Is that ${item.name}?`;
+
+    // Fire and forget -- mittensAsk is async with timeout
+    try {
+      const { mittensAsk } = require('./mittensAsk');
+      const { learnFromResponse } = require('./memoryUpsert');
+
+      mittensAsk(question).then((answer: string | null) => {
+        if (answer) {
+          learnFromResponse(question, answer);
+          console.log(`[SceneStream] Learned from ask: "${answer}"`);
+        }
+      }).catch(() => {});
+    } catch { /* modules not loaded */ }
   }
 
   // ─── Timeout / Cleanup ────────────────
@@ -341,6 +389,14 @@ class SceneStreamManager {
 
     // Persist scene log
     persistScene(scene, logger.finalize());
+
+    // Apply pantry deltas if any
+    if (scene.pantryDeltas.length > 0) {
+      try {
+        const { applyPantryDeltas } = require('./smartPantry');
+        applyPantryDeltas(scene.pantryDeltas);
+      } catch { /* smartPantry not loaded */ }
+    }
 
     // Route to existing pipelines for actual log creation
     this.routeToLogPipeline(scene);

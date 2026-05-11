@@ -6,8 +6,10 @@
 import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import MapView, { Marker } from 'react-native-maps';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
+import { useState } from 'react';
 import EntryReviewCard, { PendingEntry } from './EntryReviewCard';
 import MealPipelineCard, { FoodPipelineItem } from './MealPipelineCard';
 import PipelineLogBubble from './PipelineLogBubble';
@@ -46,6 +48,7 @@ export interface ChatMessage {
   clientId?: string;
   role: 'user' | 'mittens';
   text: string;
+  audio?: string;
   photos?: string[];
   itemsLogged?: number;
   timestamp: Date;
@@ -138,6 +141,7 @@ interface ChatBubbleProps {
 
 export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPress, onEditPendingEntry, onDismissEntry, onLongPress, onDelete, onSwitchBrain, onQueueTask, onViewNutrients, onFoodEdit, onPortionEdit, onFoodRemove, onAddFood, onViewAllNutrients, onScrollToEnd, onAddToCloset, onSendEmail, onAddToCalendar, onGmailConnected, onPantryItemEdit, onPantryItemRemove, onPantryAddItem }: ChatBubbleProps) {
   const router = useRouter();
+  const [isPlaying, setIsPlaying] = useState(false);
   const isUser = message.role === 'user';
   const isError = message.id.startsWith('e-');
   const photos = message.photos || [];
@@ -157,6 +161,24 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
   const timeStr = message.timestamp
     ? new Date(message.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     : '';
+
+  const handlePlayAudio = async () => {
+    if (!message.audio || isPlaying) return;
+    try {
+      setIsPlaying(true);
+      const { sound } = await Audio.Sound.createAsync({ uri: resolvePhotoUri(message.audio) });
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          setIsPlaying(false);
+          sound.unloadAsync();
+        }
+      });
+    } catch (err) {
+      console.log('Failed to play audio:', err);
+      setIsPlaying(false);
+    }
+  };
 
   return (
     <View>
@@ -218,6 +240,24 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
           <Text style={styles.dataFetchedTag}>
             Checked: {message.dataFetched.map(d => DATA_LABELS[d] || d).join(', ')}
           </Text>
+        )}
+
+        {/* Audio Message */}
+        {message.audio && (
+          <TouchableOpacity 
+            style={[
+              styles.audioBtn, 
+              isUser && styles.audioBtnUser,
+              { marginBottom: message.text ? -2 : 10 }
+            ]} 
+            onPress={handlePlayAudio} 
+            activeOpacity={0.8}
+          >
+            <Feather name={isPlaying ? "volume-2" : "play"} size={16} color={isUser ? '#000' : '#fff'} />
+            <Text style={[styles.audioBtnText, isUser && { color: '#000' }]}>
+              {isPlaying ? 'Playing...' : 'Play Audio'}
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* Message text */}
@@ -483,6 +523,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   actionBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  audioBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 14,
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: '#000',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  audioBtnUser: {
+    backgroundColor: '#fff',
+  },
+  audioBtnText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',

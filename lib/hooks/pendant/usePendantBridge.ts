@@ -71,6 +71,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                 id: `pendant-${Date.now()}`,
                 role: 'user',
                 text: '[Pendant] Voice message',
+                audio: audioPath,
                 timestamp: new Date(),
                 source: 'pendant',
               });
@@ -91,8 +92,32 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
 
               console.log('[PendantBridge] Using native audio brain:', brain.name);
               responseText = await brain.audio(prompt, audioPath);
+            } else if (audioPath) {
+              // Transcribe the audio using iOS/Android native STT fallback
+              console.log('[PendantBridge] Brain lacks native audio, transcribing via voiceService...');
+              const { transcribeAudioFile } = require('../../services/ai/voiceService');
+              const transcript = await transcribeAudioFile(audioPath);
+              console.log('[PendantBridge] Transcript:', transcript);
+
+              if (!transcript && !framePath) {
+                throw new Error('Could not hear anything and no photo was captured.');
+              }
+
+              const prompt = [
+                transcript ? `The user tapped their pendant and said: "${transcript}"` : 'The user tapped their pendant but no speech was clearly heard.',
+                framePath && brain.supportsVision ? 'A photo was also captured, consider it in your response.' : '',
+                'Respond naturally, warmly, and concisely (1-2 sentences).',
+              ].filter(Boolean).join(' ');
+
+              if (framePath && brain.supportsVision) {
+                console.log('[PendantBridge] Using vision + transcribed text:', brain.name);
+                responseText = await brain.vision(prompt, [framePath]);
+              } else {
+                console.log('[PendantBridge] Using text-only brain:', brain.name);
+                responseText = await brain.text(prompt);
+              }
             } else if (framePath && brain.supportsVision) {
-              // Vision-only fallback (no audio understanding available)
+              // Vision-only fallback (no audio at all)
               const prompt = [
                 'The user tapped their Mittens pendant.',
                 'A photo was captured -- describe what you see and provide helpful context.',
@@ -103,8 +128,8 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               responseText = await brain.vision(prompt, [framePath]);
             } else {
               // Text-only fallback
-              responseText = 'I received your pendant capture but need an on-device brain to process audio. Check your brain settings in Profile.';
-              console.log('[PendantBridge] No audio/vision brain available');
+              responseText = 'I received your pendant capture but my current brain lacks vision and audio capabilities.';
+              console.log('[PendantBridge] No audio/vision capabilities');
             }
 
             console.log('[PendantBridge] Response:', responseText?.slice(0, 80));

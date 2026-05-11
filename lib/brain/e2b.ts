@@ -22,15 +22,33 @@
 import { Brain, BrainOptions } from './types';
 
 export class E2BBrain implements Brain {
-  readonly name = 'E2B (on-device)';
+  readonly name: string;
   readonly contextWindow = 8192;
   readonly supportsVision = true;
   readonly supportsAudio = true;
   readonly isLocal = true;
+  private modelName: string;
+
+  constructor(modelId: string = 'gemma-e2b') {
+    this.name = modelId === 'gemma-e4b' ? 'E4B (on-device)' : 'E2B (on-device)';
+    this.modelName = modelId === 'gemma-e4b' ? 'gemma-local-e4b' : 'gemma-local';
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    const { LocalInferenceService } = require('../services/ai/localInference');
+    if (!LocalInferenceService.isModelLoaded()) {
+      console.log(`[E2B] Model not loaded. Loading ${this.modelName}...`);
+      // Validate model exists, if not, throw clear error so UI prompts download
+      const exists = await LocalInferenceService.isModelDownloaded(this.modelName);
+      if (!exists) throw new Error('Model file not downloaded. Please download it first.');
+      await LocalInferenceService.loadModel(this.modelName, 'cpu');
+    }
+  }
 
   async text(prompt: string, _opts?: BrainOptions): Promise<string> {
     console.log('[E2B] text() prompt:', prompt.slice(0, 80) + '...');
     const { LocalInferenceService } = require('../services/ai/localInference');
+    await this.ensureLoaded();
     const result = await LocalInferenceService.generateLocalResponse(prompt);
     console.log('[E2B] text() result:', result?.slice(0, 100));
     return result;
@@ -73,6 +91,7 @@ export class E2BBrain implements Brain {
     console.log('[E2B] Resized image:', resized.slice(-40), '| size:', fileSizeBytes, 'bytes');
 
     console.log('[E2B] Calling generateWithImage, prompt:', prompt.length, 'chars');
+    await this.ensureLoaded();
     const result = await LocalInferenceService.generateWithImage(prompt, resized);
     console.log('[E2B] vision() result:', result?.slice(0, 100));
     return result;
@@ -81,6 +100,7 @@ export class E2BBrain implements Brain {
   async audio(prompt: string, audioPath: string, _opts?: BrainOptions): Promise<string> {
     console.log('[E2B] audio() path:', audioPath.slice(-40), 'prompt:', prompt.slice(0, 80) + '...');
     const { LocalInferenceService } = require('../services/ai/localInference');
+    await this.ensureLoaded();
     const result = await LocalInferenceService.generateWithAudio(prompt, audioPath);
     console.log('[E2B] audio() result:', result?.slice(0, 100));
     return result;

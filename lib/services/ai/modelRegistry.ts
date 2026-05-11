@@ -46,76 +46,6 @@ const HF = 'https://huggingface.co';
 const GEMMA3_1B = `${HF}/google/gemma-3-1b-it-qat-q4_0-gguf/resolve/main`;
 
 export const LOCAL_MODELS: LocalModel[] = [
-  // ─── SmolVLM2 256M via llama.rn (smallest VLM, runs on anything) ───
-  // HuggingFace's ultra-compact VLM. Vision + text in ~175MB.
-  // Ideal for iPhone SE 3 and other low-RAM devices.
-  {
-    id: 'smolvlm2-256m',
-    name: 'SmolVLM2 256M',
-    role: 'multimodal',
-    runtime: 'llama.rn',
-    ramMB: 350,
-    quality: 5,
-    minRAM_GB: 3,
-    files: [
-      {
-        name: 'smolvlm2-256m-video-instruct-q8_0.gguf',
-        url: `${HF}/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF/resolve/main/SmolVLM2-256M-Video-Instruct-Q8_0.gguf`,
-        sizeBytes: 175_056_352,
-      },
-      {
-        name: 'mmproj-smolvlm2-256m-video-instruct-q8_0.gguf',
-        url: `${HF}/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-256M-Video-Instruct-Q8_0.gguf`,
-        sizeBytes: 103_771_680,
-      },
-    ],
-  },
-
-  // ─── FastVLM 0.5B via CoreML (Apple's official, best iPhone perf) ───
-  // Apple Research CVPR 2025. CoreML + ANE optimized. 85x faster TTFT than LLaVA.
-  // Official iOS demo app at github.com/apple/ml-fastvlm
-  {
-    id: 'fastvlm-0.5b',
-    name: 'FastVLM 0.5B',
-    role: 'multimodal',
-    runtime: 'coreml',
-    ramMB: 600,
-    quality: 7,
-    minRAM_GB: 3,
-    files: [
-      {
-        name: 'fastvlm-0.5b-stage3.zip',
-        url: 'https://ml-site.cdn-apple.com/datasets/fastvlm/llava-fastvithd_0.5b_stage3_llm.fp16.zip',
-        sizeBytes: 440_000_000,
-      },
-    ],
-  },
-
-  // ─── Moondream 2 via llama.rn (compact VQA, community iOS builds) ───
-  // 1.9B params, proven llama.cpp GGUF support. Good object recognition.
-  // Needs separate vision projector file (mmproj).
-  {
-    id: 'moondream2',
-    name: 'Moondream 2',
-    role: 'multimodal',
-    runtime: 'llama.rn',
-    ramMB: 1300,
-    quality: 7,
-    minRAM_GB: 4,
-    files: [
-      {
-        name: 'moondream2-q4_k_m.gguf',
-        url: `${HF}/vikhyatk/moondream2/resolve/main/moondream2-text-model-f16.gguf`,
-        sizeBytes: 1_300_000_000,
-      },
-      {
-        name: 'mmproj-moondream2.gguf',
-        url: `${HF}/vikhyatk/moondream2/resolve/main/moondream2-mmproj-f16.gguf`,
-        sizeBytes: 200_000_000,
-      },
-    ],
-  },
-
   // ─── Full tier: Gemma E2B via LiteRT-LM (text + vision + audio) ───
   // Best quality on-device model. Requires 6GB+ RAM.
   // Crashes on iPhone SE 3 (4GB) due to iOS Jetsam memory limits.
@@ -136,22 +66,21 @@ export const LOCAL_MODELS: LocalModel[] = [
     ],
   },
 
-  // ─── Standard tier: Gemma 3 1B QAT Q4 via llama.rn (text-only) ───
-  // Clean instruction following, no thinking/CoT artifacts.
-  // Uses json_schema grammar for guaranteed structured JSON output.
+  // ─── Ultra tier: Gemma E4B via LiteRT-LM (text + vision + audio) ───
+  // Higher quality on-device model. Requires 8GB+ RAM.
   {
-    id: 'gemma3-1b-q4',
-    name: 'Gemma 3 1B',
-    role: 'reasoning',
-    runtime: 'llama.rn',
-    ramMB: 800,
-    quality: 7,
-    minRAM_GB: 3,
+    id: 'gemma-e4b',
+    name: 'Gemma 4 E4B',
+    role: 'multimodal',
+    runtime: 'litert',
+    ramMB: 2500,
+    quality: 10,
+    minRAM_GB: 8,
     files: [
       {
-        name: 'gemma-3-1b-it-qat-q4_0.gguf',
-        url: `${GEMMA3_1B}/gemma-3-1b-it-qat-q4_0.gguf`,
-        sizeBytes: 760_000_000,
+        name: 'gemma-local-e4b.litertlm',
+        url: `${HF}/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm`,
+        sizeBytes: 4_583_085_056,
       },
     ],
   },

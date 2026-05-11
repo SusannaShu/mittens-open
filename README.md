@@ -61,7 +61,7 @@ Pendant frames and audio enter the same pipelines as manual input. Motion frames
 
 Brains are dumb text-in/text-out wrappers. Pipelines own all intelligence: prompt construction, response parsing, phase sequencing. Every phase checks `brain.contextWindow` and adapts -- compact format (short JSON keys) for E2B, verbose for large models. Swap brains in Profile without changing any pipeline code.
 
-The pendant works with any brain. On-device Gemma processes audio natively (no transcription step). Self-hosted Ollama receives the same. No pendant-specific code in any brain implementation.
+The pendant works with any brain. On-device Gemma processes 16kHz PCM audio natively (no transcription step needed). If you use a brain that lacks native audio support (like self-hosted Ollama), the pendant bridge automatically falls back to your phone's native iOS/Android Speech-to-Text engine to transcribe the audio locally before sending the text prompt. No pendant-specific code in any brain implementation.
 
 ### Data
 

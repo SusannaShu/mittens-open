@@ -271,6 +271,15 @@ function handleSignificantLocationChange(location: Location.LocationObject) {
     loggedAt: now,
   });
 
+  // Trigger pendant capture if in GPS-synced active mode
+  try {
+    const { getCaptureGate } = require('../ambient/captureGate');
+    const gate = getCaptureGate();
+    if (gate.isActiveMode()) {
+      gate.triggerGpsCapture(latitude, longitude);
+    }
+  } catch { /* captureGate not loaded yet */ }
+
   // Trigger dwell detection check (lazy import to avoid circular deps)
   try {
     const { checkDwell } = require('./placeInference');
@@ -367,6 +376,13 @@ async function confirmMotionStart(motionType: string, anchor: { lat: number; lon
     activeTrailMotion = motionType;
     stationaryAnchor = null;
     clearPendingMotionStart();
+
+    // Switch pendant to GPS-synced active capture mode
+    try {
+      const { getCaptureGate } = require('../ambient/captureGate');
+      getCaptureGate().onMotionStart();
+    } catch { /* captureGate not loaded yet */ }
+
     notifyListeners();
     return;
   }
@@ -439,6 +455,12 @@ function handleMotionStateChange(motionType: string) {
       pullAndLogMotionPoint('stationary').then((loc) => {
         if (loc) stationaryAnchor = loc;
         activeTrailMotion = null;
+
+        // Switch pendant back to IMU-driven passive capture mode
+        try {
+          const { getCaptureGate } = require('../ambient/captureGate');
+          getCaptureGate().onMotionStop();
+        } catch { /* captureGate not loaded yet */ }
       }).catch(() => {});
     }, STATIONARY_SETTLE_MS);
     return;

@@ -52,9 +52,20 @@ class PendantServerCallbacks : public BLEServerCallbacks {
   }
 };
 
+// Forward declarations for capture mode control
+extern volatile uint8_t g_captureMode;    // 0=PASSIVE (default), 1=ACTIVE
+extern volatile bool g_captureRequested;   // one-shot capture flag from phone
+
+#define CAPTURE_MODE_PASSIVE 0
+#define CAPTURE_MODE_ACTIVE  1
+
 /**
  * Command handler: phone writes commands here.
- * Supported: "wifi:SSID:PASSWORD:IP"
+ * Supported:
+ *   "wifi:SSID:PASSWORD:IP"   -- save WiFi credentials
+ *   "mode:active"             -- switch to phone-driven capture (transit)
+ *   "mode:passive"            -- switch to IMU-driven capture (stationary)
+ *   "capture"                 -- take one photo now (used in ACTIVE mode)
  */
 class PendantCommandCallback : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *characteristic) override {
@@ -73,6 +84,22 @@ class PendantCommandCallback : public BLECharacteristicCallbacks {
         wifiSavePhoneIP(ip);
         Serial.printf("[BLE] WiFi saved: %s -> %s\n", ssid.c_str(), ip.c_str());
       }
+    }
+    // Capture mode: "mode:active" or "mode:passive"
+    else if (value.startsWith("mode:")) {
+      String mode = value.substring(5);
+      if (mode == "active") {
+        g_captureMode = CAPTURE_MODE_ACTIVE;
+        Serial.println("[BLE] Capture mode -> ACTIVE (phone-driven)");
+      } else if (mode == "passive") {
+        g_captureMode = CAPTURE_MODE_PASSIVE;
+        Serial.println("[BLE] Capture mode -> PASSIVE (IMU-driven)");
+      }
+    }
+    // One-shot capture: "capture"
+    else if (value == "capture") {
+      g_captureRequested = true;
+      Serial.println("[BLE] Capture requested by phone");
     }
   }
 };

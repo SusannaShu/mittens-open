@@ -112,6 +112,16 @@ class SceneStreamManager {
       `${classification.sceneType}/${classification.subPhase} (conf: ${classification.confidence})`,
     );
 
+    // 2.5. Consume GPS tag if this was a phone-triggered capture
+    try {
+      const { getCaptureGate } = require('./captureGate');
+      const gate = getCaptureGate();
+      const gpsTag = gate.consumeGpsTag();
+      if (gpsTag) {
+        gate.tagFrameInLocationLog(framePath, gpsTag.lat, gpsTag.lon);
+      }
+    } catch { /* captureGate not loaded */ }
+
     console.log(
       `[SceneStream] Frame classified: ${classification.sceneType}` +
       `/${classification.subPhase} conf=${classification.confidence}` +

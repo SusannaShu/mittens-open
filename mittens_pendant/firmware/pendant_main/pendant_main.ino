@@ -280,6 +280,12 @@ volatile bool g_int2Fired = false;
 void IRAM_ATTR onINT1() { g_int1Fired = true; }
 void IRAM_ATTR onINT2() { g_int2Fired = true; }
 
+// Capture mode: phone controls via BLE "mode:active" / "mode:passive" commands
+// PASSIVE (0) = IMU-driven captures (default, stationary)
+// ACTIVE  (1) = phone-driven captures (transit, GPS-synced)
+volatile uint8_t g_captureMode = 0;      // CAPTURE_MODE_PASSIVE
+volatile bool g_captureRequested = false; // one-shot flag from phone
+
 // --- Arduino Entry Points ---
 
 void setup() {
@@ -402,7 +408,18 @@ void loop() {
     }
   }
 
-  // --- IMU interrupt handling (motion only) ---
+  // --- Phone-requested capture (ACTIVE mode GPS trigger) ---
+  if (g_captureRequested) {
+    g_captureRequested = false;
+    if (millis() - lastEventTime >= EVENT_COOLDOWN_MS) {
+      Serial.println("[CMD] Phone-requested capture");
+      handleMotion();
+      lastEventTime = millis();
+      resetIdleTimer();
+    }
+  }
+
+  // --- IMU interrupt handling (PASSIVE mode only) ---
   if (g_int1Fired || g_int2Fired) {
     // Cooldown check
     if (millis() - lastEventTime < EVENT_COOLDOWN_MS) {
@@ -422,7 +439,12 @@ void loop() {
 
     Serial.printf("[IMU] Motion! TAP_SRC=0x%02X WAKE_UP_SRC=0x%02X\n", tapSrc, wuSrc);
 
-    handleMotion();
+    // In ACTIVE mode, skip IMU-triggered captures (phone drives captures)
+    if (g_captureMode == 1) {
+      Serial.println("[IMU] ACTIVE mode -- skipping IMU capture (phone controls)");
+    } else {
+      handleMotion();
+    }
     lastEventTime = millis();
     resetIdleTimer();
 

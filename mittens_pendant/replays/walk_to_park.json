@@ -1,0 +1,9 @@
+[
+  { "time": 0, "framePath": "__MOCK__/indoor_hallway.jpg", "description": "Indoor hallway, about to leave" },
+  { "time": 5000, "framePath": "__MOCK__/front_door.jpg", "description": "Opening front door" },
+  { "time": 15000, "framePath": "__MOCK__/sidewalk.jpg", "description": "Walking on sidewalk (motion detected)", "gps": { "lat": 40.7128, "lon": -74.0060 } },
+  { "time": 25000, "framePath": "__MOCK__/intersection.jpg", "description": "Crossing intersection", "gps": { "lat": 40.7130, "lon": -74.0058 } },
+  { "time": 40000, "framePath": "__MOCK__/park_entrance.jpg", "description": "Park entrance visible", "gps": { "lat": 40.7135, "lon": -74.0050 } },
+  { "time": 60000, "framePath": "__MOCK__/park_bench.jpg", "description": "Sitting on park bench (motion stops)", "gps": { "lat": 40.7140, "lon": -74.0045 } },
+  { "time": 90000, "framePath": "__MOCK__/park_reading.jpg", "description": "Reading on bench, stationary", "gps": { "lat": 40.7140, "lon": -74.0045 } }
+]

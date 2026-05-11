@@ -1,0 +1,9 @@
+[
+  { "time": 0, "framePath": "__MOCK__/desk_laptop_open.jpg", "description": "Laptop open, typing at desk" },
+  { "time": 300000, "framePath": "__MOCK__/desk_typing.jpg", "description": "Still typing at desk, 5 min in" },
+  { "time": 600000, "framePath": "__MOCK__/desk_same_pose.jpg", "description": "Same desk pose, 10 min" },
+  { "time": 1200000, "framePath": "__MOCK__/desk_still_typing.jpg", "description": "20 min, no movement" },
+  { "time": 1800000, "framePath": "__MOCK__/desk_30min.jpg", "description": "30 min, still at desk" },
+  { "time": 2700000, "framePath": "__MOCK__/desk_45min.jpg", "description": "45 min -- sedentary nudge should fire" },
+  { "time": 3000000, "framePath": "__MOCK__/desk_50min.jpg", "description": "50 min -- confirm nudge was delivered" }
+]

@@ -1,0 +1,10 @@
+[
+  { "time": 0, "framePath": "__MOCK__/kitchen_yogurt_machine.jpg", "description": "Opening fridge, yogurt machine visible" },
+  { "time": 5000, "framePath": "__MOCK__/pouring_white_liquid.jpg", "description": "Pouring white liquid from yogurt machine to glass jar" },
+  { "time": 12000, "framePath": "__MOCK__/glass_jar_kefir.jpg", "description": "Glass jar with white liquid (kefir), close-up" },
+  { "time": 20000, "framePath": "__MOCK__/open_nut_jar.jpg", "description": "Opening a jar of mixed nuts on counter" },
+  { "time": 28000, "framePath": "__MOCK__/three_almonds.jpg", "description": "Hand placing 3 almonds next to jar" },
+  { "time": 35000, "framePath": "__MOCK__/sunflower_seeds.jpg", "description": "Hand scooping sunflower seeds from bag" },
+  { "time": 45000, "framePath": "__MOCK__/bowl_assembled.jpg", "description": "Bowl with kefir, almonds, and sunflower seeds" },
+  { "time": 60000, "framePath": "__MOCK__/eating_at_table.jpg", "description": "User sitting at table eating from bowl" }
+]

@@ -299,18 +299,20 @@ class SceneStreamManager {
       const elapsed = Date.now() - scene.openedAt;
 
       if (elapsed >= intervalMs) {
-        console.log(
-          `[SceneStream] Sedentary alert: ${Math.round(elapsed / 60000)}min at desk`,
-        );
-        // Will be handled by nudge system in Step 6
+        try {
+          const { nudgeSedentary } = require('./nudgeComposer');
+          nudgeSedentary(Math.round(elapsed / 60000));
+        } catch { /* nudgeComposer not loaded */ }
       }
     } catch {}
   }
 
   private checkCookTimer(scene: Scene, _logger: PipelineLogger): void {
     if (scene.food?.cookFinishAt && Date.now() >= scene.food.cookFinishAt) {
-      console.log('[SceneStream] Cook timer expired for', scene.food.method);
-      // Will be handled by nudge system in Step 7
+      try {
+        const { nudgeCookDone } = require('./nudgeComposer');
+        nudgeCookDone(scene.food.method || 'cooking');
+      } catch { /* nudgeComposer not loaded */ }
     }
   }
 
@@ -394,7 +396,14 @@ class SceneStreamManager {
     if (scene.pantryDeltas.length > 0) {
       try {
         const { applyPantryDeltas } = require('./smartPantry');
-        applyPantryDeltas(scene.pantryDeltas);
+        const runningLow = applyPantryDeltas(scene.pantryDeltas);
+        // Nudge about first running-low item
+        if (runningLow.length > 0) {
+          try {
+            const { nudgeLowPantry } = require('./nudgeComposer');
+            nudgeLowPantry(runningLow[0].name);
+          } catch { /* nudgeComposer not loaded */ }
+        }
       } catch { /* smartPantry not loaded */ }
     }
 

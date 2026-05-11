@@ -1,0 +1,10 @@
+[
+  { "time": 0, "framePath": "__MOCK__/cooking_stove.jpg", "description": "Standing at stove, pan on burner" },
+  { "time": 10000, "framePath": "__MOCK__/seasoning_beef.jpg", "description": "Adding seasoning to beef in pan" },
+  { "time": 25000, "framePath": "__MOCK__/cover_pan.jpg", "description": "Covering pan with lid" },
+  { "time": 40000, "framePath": "__MOCK__/walk_to_desk.jpg", "description": "Walking toward desk (scene transition)" },
+  { "time": 60000, "framePath": "__MOCK__/desk_working.jpg", "description": "At desk typing while beef cooks" },
+  { "time": 120000, "framePath": "__MOCK__/desk_working_2.jpg", "description": "Still at desk" },
+  { "time": 300000, "framePath": "__MOCK__/desk_timer_expired.jpg", "description": "Beef should be done, cook timer should fire" },
+  { "time": 310000, "framePath": "__MOCK__/kitchen_check_beef.jpg", "description": "Back in kitchen checking beef" }
+]

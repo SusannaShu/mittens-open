@@ -208,6 +208,12 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         unsubMotion = service.onMotionFrame(async (framePath: string) => {
           console.log('[PendantBridge] Motion frame:', framePath.slice(-30));
 
+          // Update wear detector
+          try {
+            const { onFrameReceived } = require('../../services/ambient/wearDetector');
+            onFrameReceived();
+          } catch { /* wearDetector not loaded */ }
+
           // Save to pendant store for UI display
           pendantStore.addCapture({
             type: 'MOTION' as const,

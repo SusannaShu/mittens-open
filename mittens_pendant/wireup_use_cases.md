@@ -30,16 +30,41 @@ Scene {
   aeiou: { ... }                              // populated incrementally
   environment: indoor/outdoor/...             // populated incrementally
   food?: {
-    ingredients[], method, cookStartAt, cookFinishAt, plateAt
+    ingredients[], method, cookStartAt, cookFinishAt, plateAt,
+    methodRecommendation?: { method, score, reason }  // see Cook phase
   }
   eatingContext?: { pace, distraction, ... }  // populated when subPhase=eat
   pantryDeltas[]: { name, qtyChange, reason } // accumulated during prep
 }
 ```
 
-A scene opens on the first qualifying frame (kitchen → meal_prep, desk → work, etc.), sub-phase transitions extend the scene, and the scene closes on place exit or N minutes of no confirming frames. Reflect renders the same scene as one block (possibly split visually by sub-phase for prep + eat), no schema change.
+A scene opens on the first qualifying frame (kitchen → meal_prep, desk → work, etc.). Reflect renders the same scene as one block (possibly split visually by sub-phase for prep + eat), no schema change.
 
-The salmon-burning case lives here naturally: `food.cookFinishAt` is set when method is identified; one-shot timer fires at that timestamp. If user has left the kitchen at that moment → "your salmon is gonna burn." If user is still in kitchen → "your salmon is done."
+**Cook phase (uses existing `lib/data/retentionFactors.ts`).** When ingredients are identified during meal_prep:
+
+```
+score(food, method) = Σ over nutrients (
+  baseValue[nutrient] × retentionFactor[food][method][nutrient] × userPriority[nutrient]
+)
+recommend = argmax(score) across valid methods (raw excluded if food.requires_cooking)
+```
+
+`userPriority` defaults to 1 for all nutrients but **gets weighted up for current gaps**: if vitamin C is low this week, raw / quick-steam wins for vitamin-C-rich foods. Same data, personalized recommendation.
+
+Foods missing from retention table → fall back to E2B prompt, **cache result in `cooking_method_cache` keyed by (food, method)**. First time = brain call; subsequent = SQL.
+
+Memory interplay: if user's memory says "prefers fried," the recommender returns BOTH the nutrient-optimal method and the user-preferred method. Mittens phrases it as "you usually fry, but baking keeps more B12 — your call." Informs without overriding.
+
+**Scene close — multi-signal, not idle-timeout.** Triggered on new evidence, not on a clock:
+
+- **Geofence exit** → hard close, any scene.
+- **meal_prep → eat pivot** when next frame shows: food plated, utensil in hand, person near mouth, OR user moved from stove area to dining/desk within the same place.
+- **eat close** when: plate empty for 2 consecutive frames, OR user stands and walks to sink, OR utensils placed down and 5min of no eating motion (5min tolerance checked when the NEXT frame arrives — not a poll).
+- **cook → plate pivot** when `cookFinishAt` timer fires AND user is in kitchen.
+- **work close** when: laptop not visible in frame, OR user moved >5m from desk area, OR place exit.
+- **Safety net**: 30min no qualifying frame → close with `closeReason: 'timeout'`, marked low-confidence. Not the primary path.
+
+The salmon-burning case: `food.cookFinishAt` is set when method is identified, one-shot timer fires at that timestamp. If user has left the kitchen → "your salmon is gonna burn." If user is still in kitchen → "your salmon is done."
 
 ### 3. Pantry management (new — doesn't exist today)
 

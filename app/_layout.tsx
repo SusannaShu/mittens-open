@@ -53,8 +53,13 @@ export default function RootLayout() {
 
         // 3. Initialize Location & Motion Tracking
         const { initLocationServices, startActivityRecognition } = require('../lib/services/location/locationService');
-        const { getKnownPlaces } = require('../lib/services/location/knownPlaceApi');
-        const places = await getKnownPlaces();
+        const { getDb } = require('../lib/database');
+        const db = getDb();
+        const rows = db.getAllSync('SELECT * FROM known_places ORDER BY name ASC');
+        const places = rows.map((r: any) => ({
+          id: r.id, name: r.name, latitude: r.latitude, longitude: r.longitude,
+          radius: r.radius_m || 100, placeType: r.place_type || 'other', icon: r.icon,
+        }));
         await initLocationServices(places);
         await startActivityRecognition();
         

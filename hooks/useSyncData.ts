@@ -84,7 +84,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
   // Location sessions
   const { data: locationSessions, refetch: locationRefetch } = useGetLocationSessionsQuery(
     selectedDate,
-    { skip: viewMode !== 'day' }
+    { skip: viewMode !== 'day', pollingInterval: 10000 }
   );
   const { data: knownPlaces = [] } = useGetKnownPlacesQuery();
 

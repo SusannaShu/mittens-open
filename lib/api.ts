@@ -40,8 +40,11 @@ function getProfileRow(): any {
   let row = db.getFirstSync('SELECT * FROM nutrition_profile WHERE id = 1');
   if (!row) {
     db.runSync(
-      `INSERT OR IGNORE INTO nutrition_profile (id, name, ai_model) VALUES (1, 'Local User', 'gemma-local')`
+      `INSERT OR IGNORE INTO nutrition_profile (id, name, ai_model, home_latitude, home_longitude, schedule_enabled) VALUES (1, 'Local User', 'gemma-local', 37.7749, -122.4194, 1)`
     );
+    row = db.getFirstSync('SELECT * FROM nutrition_profile WHERE id = 1');
+  } else if (row.home_latitude == null || row.home_longitude == null) {
+    db.runSync(`UPDATE nutrition_profile SET home_latitude = 37.7749, home_longitude = -122.4194, schedule_enabled = 1 WHERE id = 1`);
     row = db.getFirstSync('SELECT * FROM nutrition_profile WHERE id = 1');
   }
   return row;

@@ -505,6 +505,14 @@ export async function initLocationServices(
     currentLocation = { lat: loc.coords.latitude, lon: loc.coords.longitude };
     lastLocationTime = Date.now();
 
+    logToLocal({
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+      eventType: 'app_start',
+      motionType: 'stationary',
+      loggedAt: new Date().toISOString(),
+    });
+
     // Check if already inside a known place (geofence won't fire if already inside)
     if (!currentPlace && knownPlaces.length > 0) {
       const match = knownPlaces.find((p) =>

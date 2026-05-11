@@ -6,6 +6,109 @@ Everything below names exact files in this repo so each item is concretely actio
 
 ---
 
+## Design v2 (current direction)
+
+Several design simplifications after walking through real scenarios. These supersede the per-use-case "what to build" suggestions further down — the use cases are still valid as *scenarios*, but the architecture below is the unified version.
+
+### 1. No polling — event-driven progress only
+
+Every in-progress scene log carries `openedAt`, `lastActiveAt`, and a list of `triggers`. Triggers are checked **only when new evidence arrives** (pendant frame, GPS update, transcript) — not on an interval.
+
+- Work scene opened at 14:00. New frame at 14:46 still classifies as work → after-frame handler checks `now - openedAt >= 45min` → fires break nudge.
+- Cook scene: when method "baking salmon" is identified, set `cookFinishAt = now + 20min` as a *single* `expo-notifications` scheduled local notification (survives backgrounding). Not a poll, one fire.
+- The only true scheduled triggers in the system are these one-shots: cook timers, pre-meal nudges, bedtime nudges. Everything else is reactive on new evidence.
+
+### 2. Unified `SceneStream` (no separate Meal/Activity streams)
+
+One `Scene` per continuous engagement. Subsumes both the old MealStream and ActivityStream ideas.
+
+```
+Scene {
+  id, openedAt, lastActiveAt, closedAt?
+  type: "lunch" | "work" | "commute" | "meal_prep" | ...   // coarse
+  subPhase: "prep" | "cook" | "eat" | "cleanup" | "active" // fine
+  aeiou: { ... }                              // populated incrementally
+  environment: indoor/outdoor/...             // populated incrementally
+  food?: {
+    ingredients[], method, cookStartAt, cookFinishAt, plateAt
+  }
+  eatingContext?: { pace, distraction, ... }  // populated when subPhase=eat
+  pantryDeltas[]: { name, qtyChange, reason } // accumulated during prep
+}
+```
+
+A scene opens on the first qualifying frame (kitchen → meal_prep, desk → work, etc.), sub-phase transitions extend the scene, and the scene closes on place exit or N minutes of no confirming frames. Reflect renders the same scene as one block (possibly split visually by sub-phase for prep + eat), no schema change.
+
+The salmon-burning case lives here naturally: `food.cookFinishAt` is set when method is identified; one-shot timer fires at that timestamp. If user has left the kitchen at that moment → "your salmon is gonna burn." If user is still in kitchen → "your salmon is done."
+
+### 3. Pantry management (new — doesn't exist today)
+
+Per ingredient identified during meal_prep:
+
+- **In pantry** → `pantry[name].qty -= usedQty`. Below buffer (default 0.5× last add) → mark `running_low`, surface in next grocery nudge.
+- **Not in pantry** → user clearly has it. Add new entry. Total estimate priority:
+  1. Visible container/package quantity from the frame (identify phase already returns `quantity`).
+  2. Fallback: `max(usedQty * 2, sensibleMinimum)`. Mark `confidence: 'low'` so the pantry UI shows a "guess" badge and lets the user correct.
+
+Special "inventory glance" trigger: when a fridge-open or shelf-open frame is detected, identify all visible items in one shot and reconcile against pantry. Cheap because identify already returns a multi-item list.
+
+### 4. Pre-meal nudges, before the meal time, for all three meals
+
+Replace the "you forgot dinner" post-meal pattern with scheduled pre-meal nudges. For each of `breakfast`, `lunch`, `dinner` from `materializeSchedule()`:
+
+- Check overlapping calendar events.
+  - **Calendar event covers meal time** → user will be away → meal must be portable → fire at `event.start - travelMins - prepMins - buffer`.
+  - **No overlap** → user eats at home → fire at `mealTime - prepMins - buffer`.
+- `prepMins` is a profile setting with per-meal override (defaults: breakfast 10, lunch 25, dinner 30).
+- Scheduled via `expo-notifications` at app boot for the rest of the day. Re-evaluated on calendar change. No polling.
+
+### 5. Memory retrieval — three-tier, mostly free
+
+E2B context is small, so we can't dump memory. But always-retrieve is wasteful. Most kitchen frames are unambiguous (banana = banana). Design:
+
+**Tier 1 — Free, deterministic (SQL only, always runs):**
+Hardcoded scenario→recency-bucket lookups:
+- Yogurt machine in frame → fetch `food.machine_setup` notes from last 48h
+- Fridge open at home → fetch current pantry state
+- Cooking detected → fetch `routines.cooking_methods`
+- Eating in kitchen → fetch `preferences` notes
+Zero brain calls, zero context cost. Handles the "what was in the yogurt machine yesterday" case automatically because the system knows yogurt-machine scenarios need 48h context.
+
+**Tier 2 — One tiny brain call: "do we need to retrieve?"**
+For ambiguous scenes, run a small retrieval-decide call with the memory *index* (1-line summaries, not full notes):
+
+```
+1. preferences: "always picks kefir over yogurt" (2026-04-15)
+2. routines: "cooks chicken on Sundays in batches" (2026-03-22)
+3. health: "low on vitamin K, eats natto twice weekly" (2026-05-01)
+...
+```
+
+Input: index + a one-sentence scene descriptor. Output: `{ useIds: [1], reason: "kefir vs yogurt ambiguity" }` or `{ useIds: [], reason: "unambiguous" }`. Index of 30 entries ≈ 800 tokens — fits in E2B budget.
+
+**Tier 3 — Identify with retrieved notes:**
+Final identify call gets `tier1_notes + tier2_notes + scene`, max ~3 notes injected as a short "relevant preferences" preamble. Stays inside E2B budget.
+
+**Cache:** First time a scene descriptor like `white-fluid-yogurt-machine-home-morning` passes through tier 2 with a non-empty result, cache the descriptor-hash → memory-IDs mapping. Next time the same scene class appears, skip tier 2. Cache invalidates when memory changes.
+
+**Container-reading vs memory.** Both run, fused at the end:
+- Identify phase always attempts OCR/label-read on visible packaging.
+- Memory tiers feed in.
+- Precedence: high-confidence container label wins. Otherwise memory + visual gestalt decide.
+- Yogurt-machine case: container reads "yogurt maker," contents not visible → memory tier 1 retrieves "yesterday: kefir grains + milk in the machine" → classified as kefir.
+
+### 6. Where the old "what to build" items land
+
+- "MealStream" + "ActivityStream" → **`SceneStream`** (this section)
+- "sedentaryWatcher" → **trigger-on-evidence in the work scene** (no longer a polling watcher)
+- "scheduleMealReminders" → **pre-meal nudges** above, three meals not just dinner
+- "pantryReconcile" / "pantryDecrement" → **pantry management** above
+- "mittensAsk auto-listen" → **mittensAsk button-press** (already updated in cross-cutting section)
+- "memory write-back" → unchanged, still needed
+- "phantom ingredient detector" → folded into pantry management's "not in pantry" branch
+
+---
+
 ## Implemented in this session
 
 - **`motionService.ts`** rewritten to read the real `{ events: ActivityChangeEvent[] }` payload from `react-native-motion-activity-tracker`. Previously read a non-existent `event.state` field — the throw was swallowed, AR pipeline was a silent no-op for the whole app's life. Now picks the highest-confidence ENTER transition and preserves real confidence.

@@ -18,10 +18,6 @@
 
 import { getDb } from '../../database';
 
-// Minimum gap between sessions (seconds). If a new point arrives
-// more than this after the last, force-close the old session.
-const SESSION_GAP_SECONDS = 10 * 60; // 10 minutes
-
 // Minimum distance (meters) between trail points to avoid clutter
 const MIN_TRAIL_POINT_DISTANCE_M = 15;
 
@@ -65,19 +61,6 @@ export function recordLocationPoint(entry: {
     try {
       trail = activeSession.trail ? JSON.parse(activeSession.trail) : [];
     } catch { trail = []; }
-
-    // Check for time gap: if more than SESSION_GAP_SECONDS since last update,
-    // close the old session and start fresh
-    const lastTime = new Date(activeSession.started_at).getTime();
-    const currentTime = new Date(now).getTime();
-    const gapSeconds = (currentTime - lastTime) / 1000;
-
-    if (gapSeconds > SESSION_GAP_SECONDS && trail.length === 0) {
-      console.log(`[sessionBuilder] Time gap ${gapSeconds.toFixed(0)}s, breaking session ${activeSession.id}`);
-      closeSession(db, activeSession.id, now);
-      startNewSession(db, entry.latitude, entry.longitude, motionType, now);
-      return;
-    }
 
     // Check distance from last known position in this session
     const lastLat = activeSession.end_lat ?? activeSession.start_lat;

@@ -39,9 +39,9 @@ let exitGraceTimer: ReturnType<typeof setTimeout> | null = null;
 // Recent location history for pattern analysis (last 15 points)
 const locationHistory: Array<{ lat: number; lon: number; time: number; motionType: string | null }> = [];
 
-const TRAIL_POINT_DISTANCE_M = 10;
-const MOTION_START_CONFIRM_DISTANCE_M = 10;
-const STATIONARY_SETTLE_MS = 3 * 60 * 1000;
+const TRAIL_POINT_DISTANCE_M = 15;
+const MOTION_START_CONFIRM_DISTANCE_M = 50;
+const STATIONARY_SETTLE_MS = 5 * 60 * 1000;
 const MOTION_RECHECK_MS = 30 * 1000;
 
 let stationaryAnchor: { lat: number; lon: number } | null = null;

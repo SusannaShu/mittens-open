@@ -35,8 +35,14 @@ export const locationSessionApi = baseApi.injectEndpoints({
         try {
           const db = getDb();
           const rows = db.getAllSync(
-            "SELECT * FROM location_sessions WHERE date(started_at, 'localtime') = ? OR date(started_at) = ? ORDER BY started_at ASC",
-            [date, date]
+            `SELECT * FROM location_sessions 
+             WHERE date(started_at, 'localtime') = ? 
+                OR date(started_at) = ? 
+                OR date(ended_at, 'localtime') = ? 
+                OR date(ended_at) = ? 
+                OR ended_at IS NULL 
+             ORDER BY started_at ASC`,
+            [date, date, date, date]
           ) as any[];
           return { data: rows.map(rowToSession) };
         } catch (e: any) {

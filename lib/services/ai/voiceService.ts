@@ -9,6 +9,7 @@
 
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
 
 /** Request mic + speech recognition permissions. Returns true if granted. */
 export async function requestVoicePermissions(): Promise<boolean> {
@@ -162,17 +163,38 @@ function stripMarkdown(text: string): string {
 }
 
 /** Speak text via TTS. Strips markdown for natural speech. */
+let audioConfigured = false;
+async function configureAudioForSpeech() {
+  if (audioConfigured) return;
+  try {
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      interruptionModeIOS: 1, // DoNotMix
+      playThroughEarpieceAndroid: false,
+    });
+    audioConfigured = true;
+  } catch (err) {
+    console.warn('[VoiceService] Failed to set audio mode:', err);
+  }
+}
+
 export function speak(text: string, onDone?: () => void) {
   const clean = stripMarkdown(text);
   if (!clean) return;
 
-  Speech.speak(clean, {
-    language: 'en-US',
-    rate: 1.0,
-    pitch: 1.0,
-    onDone,
-    onStopped: onDone,
-    onError: onDone,
+  configureAudioForSpeech().then(() => {
+    const { Platform } = require('react-native');
+    Speech.speak(clean, {
+      language: 'en-US',
+      // Explicitly request the Siri Female compact voice on iOS to sound less robotic
+      voice: Platform.OS === 'ios' ? 'com.apple.ttsbundle.siri_female_en-US_compact' : undefined,
+      rate: 1.05,  // slightly faster than the robotic default
+      pitch: 1.1,  // slightly higher pitch for a lighter tone
+      onDone,
+      onStopped: onDone,
+      onError: onDone,
+    });
   });
 }
 

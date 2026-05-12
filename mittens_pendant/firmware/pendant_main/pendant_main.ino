@@ -380,6 +380,9 @@ void loop() {
       resetIdleTimer();
       // Wait for button release before continuing
       while (digitalRead(BUTTON_PIN) == LOW) delay(10);
+      
+      // Drop any motion that occurred during the button press to prioritize voice
+      g_int1Fired = false;
       return;
     }
   }

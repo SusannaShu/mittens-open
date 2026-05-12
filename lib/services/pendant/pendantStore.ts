@@ -18,6 +18,7 @@ export interface PendantCapture {
   audioPath?: string;
   brainResponse?: string;
   transcript?: string;
+  pipelineLog?: any;
   processed: boolean;
 }
 
@@ -133,7 +134,7 @@ export function addCapture(
 /** Update an existing capture by ID. */
 export function updateCapture(
   id: string,
-  updates: Partial<Pick<PendantCapture, 'brainResponse' | 'transcript' | 'processed'>>
+  updates: Partial<Pick<PendantCapture, 'brainResponse' | 'transcript' | 'pipelineLog' | 'processed'>>
 ): void {
   const idx = captures.findIndex((c) => c.id === id);
   if (idx === -1) return;

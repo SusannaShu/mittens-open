@@ -27,7 +27,7 @@ import {
   persistScene,
 } from './scene';
 import { classifyFrame } from './sceneClassifier';
-import { PipelineLogger, summarizeResult } from '../../pipelines/logger';
+import { PipelineLogger, summarizeResult, PipelineLog } from '../../pipelines/logger';
 
 // ═══════════════════════════════════════
 // SINGLETON
@@ -66,26 +66,36 @@ class SceneStreamManager {
    * Main entry point: a new pendant frame arrived.
    * Called from usePendantBridge.ts on each motion frame.
    */
-  async onPendantFrame(framePath: string, timestamp: number): Promise<void> {
+  async onPendantFrame(framePath: string, timestamp: number): Promise<{ summary: string, log?: PipelineLog } | null> {
     // Queue if already processing
     if (this.processing) {
       this.pendingFrames.push({ framePath, timestamp });
       console.log('[SceneStream] Frame queued (processing in progress)');
-      return;
+      return { summary: 'Queued for processing...' };
     }
 
     this.processing = true;
+    let result: { summary: string, log?: PipelineLog } = { summary: '' };
     try {
-      await this.processFrame(framePath, timestamp);
-
-      // Drain any queued frames
-      while (this.pendingFrames.length > 0) {
-        const next = this.pendingFrames.shift()!;
-        await this.processFrame(next.framePath, next.timestamp);
-      }
-    } finally {
-      this.processing = false;
+      result = await this.processFrame(framePath, timestamp);
+    } catch (err) {
+      console.error('[SceneStream] Processing error:', err);
+      result = { summary: 'Error during processing' };
     }
+
+    // Drain queued frames in background
+    (async () => {
+      try {
+        while (this.pendingFrames.length > 0) {
+          const next = this.pendingFrames.shift()!;
+          await this.processFrame(next.framePath, next.timestamp);
+        }
+      } finally {
+        this.processing = false;
+      }
+    })();
+
+    return result;
   }
 
   /** Get all currently open scenes (for UI / debug) */
@@ -98,7 +108,7 @@ class SceneStreamManager {
   private async processFrame(
     framePath: string,
     timestamp: number,
-  ): Promise<void> {
+  ): Promise<{ summary: string, log: PipelineLog }> {
     const logger = new PipelineLogger();
 
     // 1. Build context from phone state
@@ -140,6 +150,8 @@ class SceneStreamManager {
     // 4. Try to match against open scenes
     const matched = this.findMatchingScene(classification);
 
+    let result = '';
+
     if (matched) {
       // Extend existing scene
       const extendIdx = logger.startPhase('scene', 'extend');
@@ -152,6 +164,7 @@ class SceneStreamManager {
 
       // Check after-frame triggers
       this.checkAfterFrameTriggers(matched, classification, logger);
+      result = `[${matched.type}] Extracted ${classification.items.length} items (${classification.subPhase})`;
     } else {
       // No match -- close stale scenes and open new one
       this.handleNonMatches(classification, logger);
@@ -163,13 +176,17 @@ class SceneStreamManager {
           openIdx,
           `Opened ${newScene.type}/${newScene.subPhase} at ${newScene.place || 'unknown place'}`,
         );
+        result = `[${newScene.type}] Scene started (${classification.subPhase})`;
+      } else {
+        result = `Low confidence frame skipped (${classification.sceneType})`;
       }
     }
 
     // 5. Timeout check on all open scenes
     this.checkTimeouts(timestamp, logger);
 
-    logger.finalize();
+    const log = logger.finalize();
+    return { summary: result, log };
   }
 
   // ─── Context Building ─────────────────

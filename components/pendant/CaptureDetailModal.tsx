@@ -20,6 +20,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
 import { PendantCapture } from '../../lib/services/pendant/pendantStore';
+import PipelineLogBubble from '../chat/PipelineLogBubble';
 
 interface Props {
   capture: PendantCapture | null;
@@ -263,13 +264,20 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
             </View>
           )}
 
+          {/* Pipeline Log (Visual Debugging) */}
+          {capture.pipelineLog && (
+            <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.lg }}>
+              <PipelineLogBubble log={capture.pipelineLog} />
+            </View>
+          )}
+
           {/* Metadata */}
           <View style={styles.metaSection}>
             <Text style={styles.sectionLabel}>Details</Text>
             <View style={styles.metaRow}>
               <Text style={styles.metaKey}>Type</Text>
               <Text style={styles.metaValue}>
-                {isAudio ? 'Double Tap (voice + photo)' : 'Motion (photo only)'}
+                {isAudio ? 'Button Press (voice + photo)' : 'Motion (photo only)'}
               </Text>
             </View>
             {hasFrame && (

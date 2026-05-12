@@ -208,6 +208,12 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         unsubMotion = service.onMotionFrame(async (framePath: string) => {
           console.log('[PendantBridge] Motion frame:', framePath.slice(-30));
 
+          // Prioritize voice: Drop motion frames if we are actively processing a button press
+          if (processingRef.current) {
+            console.log('[PendantBridge] Dropping motion frame to prioritize active voice command');
+            return;
+          }
+
           // Update wear detector
           try {
             const { onFrameReceived } = require('../../services/ambient/wearDetector');
@@ -215,7 +221,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           } catch { /* wearDetector not loaded */ }
 
           // Save to pendant store for UI display
-          pendantStore.addCapture({
+          const captureId = pendantStore.addCapture({
             type: 'MOTION' as const,
             timestamp: Date.now(),
             framePath,
@@ -225,9 +231,21 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           try {
             const { getSceneStreamManager } = require('../../services/ambient/sceneStreamManager');
             const manager = getSceneStreamManager();
-            manager.onPendantFrame(framePath, Date.now());
+            const result = await manager.onPendantFrame(framePath, Date.now());
+            
+            if (result) {
+              pendantStore.updateCapture(captureId, {
+                processed: true,
+                brainResponse: result.summary,
+                pipelineLog: result.log,
+              });
+            }
           } catch (err: any) {
             console.warn('[PendantBridge] Ambient pipeline error (non-blocking):', err?.message);
+            pendantStore.updateCapture(captureId, {
+              processed: true,
+              brainResponse: `Pipeline Error: ${err?.message}`,
+            });
           }
         });
 

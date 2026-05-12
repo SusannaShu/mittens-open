@@ -47,19 +47,7 @@ export function PendantSection({ collapsed, onToggle, onOpenFeed }: Props) {
     }
   }, []);
 
-  // Show WiFi setup modal when pendant connects but no WiFi configured
-  useEffect(() => {
-    if (isConnected && !wifiSSID) {
-      setShowWifiModal(true);
-    }
-  }, [isConnected, wifiSSID]);
-
-  // Auto-pop modal when pendant reports WiFi failure
-  useEffect(() => {
-    if (wifiFailed && isConnected) {
-      setShowWifiModal(true);
-    }
-  }, [wifiFailed, isConnected]);
+  // Wi-Fi is not currently used; disabled auto-popups for Wi-Fi setup.
 
   const handleDismissModal = () => {
     setShowWifiModal(false);

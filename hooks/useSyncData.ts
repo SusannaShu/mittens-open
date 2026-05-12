@@ -14,6 +14,7 @@ import { Meal } from '../lib/types';
 import { CalendarEvent } from '../components/reflect/CalendarDayView';
 import { useGetLocationSessionsQuery, LocationSession } from '../lib/services/location/locationSessionApi';
 import { useGetKnownPlacesQuery } from '../lib/services/location/knownPlaceApi';
+import { consolidateLocationSessions } from './consolidateLocationSessions';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -285,15 +286,11 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       driving: 'Transit', unknown: 'Location',
     };
 
-    console.log(`[useSyncData] locationSessions count: ${(locationSessions || []).length}`);
-    (locationSessions || []).forEach((s: LocationSession, i: number) => {
-      console.log(`  [session ${i}] motionType=${s.motionType} startedAt=${s.startedAt} endedAt=${s.endedAt} placeName=${s.placeName} pathLength=${s.path?.length ?? 0} placeId=${s.placeId}`);
-      if (s.path && s.path.length > 0) {
-        console.log(`    path[0]=[${s.path[0]}] path[last]=[${s.path[s.path.length - 1]}]`);
-      }
-    });
+    // Consolidate fragmented sessions (absorb short unknown gaps, merge
+    // adjacent stationary sessions at the same location)
+    const merged = consolidateLocationSessions(locationSessions || []);
 
-    const locationEvents: CalendarEvent[] = (locationSessions || []).map((s: LocationSession, i: number) => {
+    const locationEvents: CalendarEvent[] = merged.map((s: LocationSession, i: number) => {
       const actualStart = new Date(s.startedAt);
       const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
       const dayStart = new Date(selectedDate + 'T00:00:00');
@@ -327,11 +324,6 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         type: 'location' as const,
         sourceData: s,
       };
-    });
-
-    console.log(`[useSyncData] location CalendarEvents (${locationEvents.length}):`);
-    locationEvents.forEach((e, i) => {
-      console.log(`  [evt ${i}] id=${e.id} title="${e.title}" motion=${e.sourceData?.motionType} dur=${e.duration_min}min loggedAt=${e.loggedAt}`);
     });
 
     return [...actEvents, ...mealEvents, ...syncedEvents, ...sleepEvents, ...plannedEvents, ...solarEvents, ...locationEvents].sort(

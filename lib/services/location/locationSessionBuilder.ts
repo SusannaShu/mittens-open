@@ -81,9 +81,38 @@ export function recordLocationPoint(entry: {
     // Check for motion type change
     const currentMotion = activeSession.motion_type || 'unknown';
     if (motionType !== currentMotion && motionType !== 'unknown') {
-      closeSession(db, activeSession.id, now);
-      startNewSession(db, entry.latitude, entry.longitude, motionType, now);
-      return;
+      // If the active session is "unknown", upgrade it in-place rather than
+      // fragmenting. This prevents the alternating unknown(1min)/stationary
+      // pattern that occurs after each background wake.
+      if (currentMotion === 'unknown') {
+        const sessionAge = (currentTime - lastTime) / 1000;
+        if (sessionAge < 120) {
+          // Upgrade the short unknown session to the real type
+          let placeName: string | null = null;
+          if (motionType === 'stationary') {
+            const place = db.getFirstSync(
+              `SELECT name FROM known_places
+               WHERE ABS(latitude - ?) < 0.001 AND ABS(longitude - ?) < 0.001
+               LIMIT 1`,
+              [entry.latitude, entry.longitude]
+            ) as any;
+            if (place) placeName = place.name;
+          }
+          db.runSync(
+            `UPDATE location_sessions SET motion_type = ?, place_name = COALESCE(?, place_name) WHERE id = ?`,
+            [motionType, placeName, activeSession.id]
+          );
+          // Fall through to extend the session normally
+        } else {
+          closeSession(db, activeSession.id, now);
+          startNewSession(db, entry.latitude, entry.longitude, motionType, now);
+          return;
+        }
+      } else {
+        closeSession(db, activeSession.id, now);
+        startNewSession(db, entry.latitude, entry.longitude, motionType, now);
+        return;
+      }
     }
 
     // Same motion type -- extend the session

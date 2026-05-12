@@ -312,13 +312,6 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
         {/* Location side-rail */}
         {(() => {
           const locationEvts = events.filter(e => e.type === 'location');
-          console.log(`[CalendarDayView] location rail events: ${locationEvts.length}`);
-          locationEvts.forEach((evt, i) => {
-            const { top, height } = getBlockPosition(evt);
-            const mt = evt.sourceData?.motionType || 'unknown';
-            const endedAt = evt.sourceData?.endedAt;
-            console.log(`  [rail ${i}] mt=${mt} title="${evt.title}" top=${top.toFixed(1)} h=${height.toFixed(1)} dur=${evt.duration_min}min ended=${endedAt}`);
-          });
           const RAIL_COLORS: Record<string, string> = {
             stationary: '#000000', walking: '#757575', running: '#757575',
             cycling: '#757575', driving: '#757575', unknown: '#757575',

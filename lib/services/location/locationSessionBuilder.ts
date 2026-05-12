@@ -10,6 +10,10 @@
  * - When stationary, accumulates dwell time at a single point
  * - When moving, builds a trail (path) of [lat, lon] coordinates
  * - Updates place_name from coordinate matching against known_places
+ *
+ * Trail lifecycle:
+ *   stationary(A) -> GPS change detected -> movement session -> stationary(B)
+ *   The movement session IS the trail connecting dots A and B.
  */
 
 import { getDb } from '../../database';
@@ -20,6 +24,12 @@ const SESSION_GAP_SECONDS = 10 * 60; // 10 minutes
 
 // Minimum distance (meters) between trail points to avoid clutter
 const MIN_TRAIL_POINT_DISTANCE_M = 15;
+
+// Distance (meters) that constitutes a significant location jump.
+// When a stationary session sees a point this far away, it means
+// the user traveled while the app was backgrounded. We bridge with
+// a transit session rather than discarding the movement.
+const DISTANCE_JUMP_M = 200;
 
 /**
  * Record a location point and update the active session.
@@ -37,16 +47,24 @@ export function recordLocationPoint(entry: {
     const now = entry.loggedAt;
     const motionType = entry.motionType || 'unknown';
 
+    console.log(`[sessionBuilder] recordPoint: motion=${motionType} speed=${entry.speed} at=${now}`);
+
     // Find the currently active (open) session
     const activeSession = db.getFirstSync(
       'SELECT * FROM location_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1'
     ) as any;
 
     if (!activeSession) {
-      // No active session -- start a new one
+      console.log('[sessionBuilder] No active session, starting new one');
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
+
+    // Parse existing trail
+    let trail: [number, number][] = [];
+    try {
+      trail = activeSession.trail ? JSON.parse(activeSession.trail) : [];
+    } catch { trail = []; }
 
     // Check for time gap: if more than SESSION_GAP_SECONDS since last update,
     // close the old session and start fresh
@@ -54,26 +72,35 @@ export function recordLocationPoint(entry: {
     const currentTime = new Date(now).getTime();
     const gapSeconds = (currentTime - lastTime) / 1000;
 
-    // Also check trail for the most recent point time
-    let trail: [number, number][] = [];
-    try {
-      trail = activeSession.trail ? JSON.parse(activeSession.trail) : [];
-    } catch { trail = []; }
-
     if (gapSeconds > SESSION_GAP_SECONDS && trail.length === 0) {
+      console.log(`[sessionBuilder] Time gap ${gapSeconds.toFixed(0)}s, breaking session ${activeSession.id}`);
       closeSession(db, activeSession.id, now);
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
 
-    // Check for distance jump (untracked transit while app was suspended)
-    let lastLat = activeSession.end_lat ?? activeSession.start_lat;
-    let lastLon = activeSession.end_lon ?? activeSession.start_lon;
+    // Check distance from last known position in this session
+    const lastLat = activeSession.end_lat ?? activeSession.start_lat;
+    const lastLon = activeSession.end_lon ?? activeSession.start_lon;
     const distFromLast = haversineMeters(lastLat, lastLon, entry.latitude, entry.longitude);
-    
-    if (distFromLast > 200) {
-      // Significant jump without tracking. Break session so it resolves the new place correctly.
+
+    if (distFromLast > DISTANCE_JUMP_M) {
+      // The user has moved significantly. Instead of discarding the movement,
+      // close the current session and create a bridge transit session that
+      // connects the old position to the new one, then start a new session
+      // at the destination.
+      const transitMotion = resolveTransitMotion(motionType, distFromLast);
+      console.log(`[sessionBuilder] Distance jump ${distFromLast.toFixed(0)}m: bridging with '${transitMotion}' session`);
+
       closeSession(db, activeSession.id, now);
+
+      // Create a bridge session with a 2-point trail from old position to new
+      createBridgeSession(
+        db, lastLat, lastLon, entry.latitude, entry.longitude,
+        transitMotion, distFromLast, now
+      );
+
+      // Start a new session at the destination
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
@@ -81,18 +108,17 @@ export function recordLocationPoint(entry: {
     // Check for motion type change
     const currentMotion = activeSession.motion_type || 'unknown';
     if (motionType !== currentMotion && motionType !== 'unknown') {
+      console.log(`[sessionBuilder] Motion change: '${currentMotion}' -> '${motionType}', trail=${trail.length}pts`);
       closeSession(db, activeSession.id, now);
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
 
     // Same motion type -- extend the session
-    // Add point to trail if far enough from last point
-    const shouldAddToTrail = trail.length === 0 ||
-      haversineMeters(
-        trail[trail.length - 1][0], trail[trail.length - 1][1],
-        entry.latitude, entry.longitude
-      ) >= MIN_TRAIL_POINT_DISTANCE_M;
+    const trailDist = trail.length > 0
+      ? haversineMeters(trail[trail.length - 1][0], trail[trail.length - 1][1], entry.latitude, entry.longitude)
+      : Infinity;
+    const shouldAddToTrail = trail.length === 0 || trailDist >= MIN_TRAIL_POINT_DISTANCE_M;
 
     if (shouldAddToTrail) {
       trail.push([entry.latitude, entry.longitude]);
@@ -140,6 +166,10 @@ export function closeActiveSession(): void {
   }
 }
 
+// ──────────────────────────────────────────
+// Internal helpers
+// ──────────────────────────────────────────
+
 function startNewSession(
   db: any,
   lat: number,
@@ -167,6 +197,61 @@ function startNewSession(
      VALUES (?, ?, ?, ?, ?, ?)`,
     [startedAt, lat, lon, motionType, trail, placeName]
   );
+  console.log(`[sessionBuilder] NEW SESSION: motion=${motionType} place=${placeName || '-'}`);
+}
+
+/**
+ * Create a bridge session that connects two points with a 2-point trail.
+ * This represents movement that happened while the app was backgrounded
+ * and GPS was batched. The session is immediately closed (has both
+ * started_at and ended_at).
+ */
+function createBridgeSession(
+  db: any,
+  fromLat: number, fromLon: number,
+  toLat: number, toLon: number,
+  motionType: string,
+  distanceM: number,
+  timestamp: string
+): void {
+  // Estimate duration from distance and motion type:
+  //   walking ~5km/h, cycling ~15km/h, driving ~30km/h
+  const speedEstimates: Record<string, number> = {
+    walking: 1.4, running: 2.8, cycling: 4.2, driving: 8.3, unknown: 2.0,
+  };
+  const speedMs = speedEstimates[motionType] || 2.0;
+  const estimatedSeconds = Math.round(distanceM / speedMs);
+
+  const startTime = new Date(new Date(timestamp).getTime() - estimatedSeconds * 1000);
+  const startedAt = startTime.toISOString();
+
+  const trail = JSON.stringify([[fromLat, fromLon], [toLat, toLon]]);
+
+  db.runSync(
+    `INSERT INTO location_sessions
+     (started_at, ended_at, start_lat, start_lon, end_lat, end_lon,
+      motion_type, trail, distance_m, place_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    [startedAt, timestamp, fromLat, fromLon, toLat, toLon,
+     motionType, trail, distanceM]
+  );
+  console.log(`[sessionBuilder] BRIDGE SESSION: motion=${motionType} dist=${distanceM.toFixed(0)}m est=${estimatedSeconds}s`);
+}
+
+/**
+ * Infer what motion type a distance jump likely represents.
+ * If the incoming classifier already has a real type, use it.
+ * Otherwise, estimate from distance.
+ */
+function resolveTransitMotion(incomingMotion: string, distanceM: number): string {
+  // If the classifier already determined a real type, trust it
+  if (incomingMotion !== 'unknown' && incomingMotion !== 'stationary') {
+    return incomingMotion;
+  }
+  // Heuristic: short jumps are likely walking, long ones are transit
+  if (distanceM < 500) return 'walking';
+  if (distanceM < 2000) return 'walking';
+  return 'driving';
 }
 
 function closeSession(db: any, sessionId: number, endedAt: string): void {

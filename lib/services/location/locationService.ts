@@ -120,7 +120,8 @@ function logToLocal(entry: {
     );
 
     // Feed into the session builder to populate location_sessions
-    if (entry.latitude != null && entry.longitude != null) {
+    // ONLY IF IT'S A REAL GPS EVENT, NOT A GEOFENCE EVENT
+    if (entry.latitude != null && entry.longitude != null && entry.eventType !== 'enter' && entry.eventType !== 'exit') {
       recordLocationPoint({
         latitude: entry.latitude,
         longitude: entry.longitude,

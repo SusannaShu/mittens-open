@@ -17,6 +17,7 @@ import { ProfileConnectionsSection } from '../../components/profile/ProfileConne
 import { ActivityTypeEditor } from '../../components/profile/ActivityTypeEditor';
 import { PeopleSection } from '../../components/profile/PeopleSection';
 import { profileStyles as styles } from '../../components/profile/profileStyles';
+import { VoicePickerSection } from '../../components/profile/VoicePickerSection';
 import SyncProgressOverlay from '../../components/reflect/SyncProgressOverlay';
 import { syncLocalToCloud, SyncProgress } from '../../lib/services/syncEngine';
 
@@ -37,7 +38,7 @@ export default function ProfileScreen() {
     mittens: true, health: true, lifeDesign: true, connections: true, settings: true,
   });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    bio: true, pendant: true, memory: true, odyssey: true, team: true, activities: true, integrations: true, notifications: true,
+    bio: true, pendant: true, brain: true, voice: true, memory: true, odyssey: true, team: true, activities: true, integrations: true, notifications: true,
   });
 
   // Sync state
@@ -180,6 +181,11 @@ export default function ProfileScreen() {
                 profileContext={profileContext}
                 collapsed={collapsed.brain}
                 onToggle={() => toggleSection('brain')}
+              />
+
+              <VoicePickerSection
+                collapsed={collapsed.voice}
+                onToggle={() => toggleSection('voice')}
               />
 
               

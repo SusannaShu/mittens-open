@@ -114,6 +114,16 @@ export async function initKokoro(): Promise<boolean> {
   try {
     console.log('[KokoroVoice] Initializing Kokoro TTS model...');
 
+    // Restore saved voice preference
+    try {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const savedVoice = await AsyncStorage.getItem('@mittens_voice_id');
+      if (savedVoice && KOKORO_VOICES.some((v) => v.id === savedVoice)) {
+        currentVoice = savedVoice as KokoroVoiceId;
+        console.log(`[KokoroVoice] Restored voice: ${savedVoice}`);
+      }
+    } catch { /* ignore storage errors */ }
+
     // Lazy-import to avoid crash if the native module is not linked
     const { useTextToSpeech } = require('react-native-executorch');
     const { AudioContext } = require('react-native-audio-api');

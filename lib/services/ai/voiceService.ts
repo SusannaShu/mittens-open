@@ -180,6 +180,96 @@ async function configureAudioForSpeech() {
   }
 }
 
+// ─── Background Audio Keepalive ───
+//
+// iOS suspends audio sessions when the app moves to background. expo-speech
+// (AVSpeechSynthesizer) is NOT treated as a media playback source, so iOS
+// kills TTS as soon as the screen turns off.
+//
+// Fix: keep a silent Audio.Sound playing in a loop via expo-av. This forces
+// the AVAudioSession category to "playback" with staysActiveInBackground,
+// which prevents iOS from suspending the audio pipeline. When Mittens needs
+// to speak (via Kokoro or native TTS), it plays over this active session.
+
+let keepaliveSound: Audio.Sound | null = null;
+let keepaliveRunning = false;
+
+async function startBackgroundKeepalive() {
+  if (keepaliveRunning) return;
+  try {
+    await configureAudioForSpeech();
+
+    // Generate a ~1 second silent WAV in-memory and load it
+    const { Sound } = Audio;
+    const sound = new Sound();
+
+    // Use a tiny silent audio source -- 0.5s of silence at 24kHz mono 16-bit
+    // Encoded as base64 WAV
+    const sampleRate = 24000;
+    const durationSec = 0.5;
+    const numSamples = sampleRate * durationSec;
+    const dataSize = numSamples * 2; // 16-bit = 2 bytes per sample
+    const fileSize = 44 + dataSize;
+
+    // Build WAV header
+    const header = new ArrayBuffer(44);
+    const view = new DataView(header);
+    // RIFF
+    view.setUint32(0, 0x52494646, false); // "RIFF"
+    view.setUint32(4, fileSize - 8, true);
+    view.setUint32(8, 0x57415645, false); // "WAVE"
+    // fmt
+    view.setUint32(12, 0x666D7420, false); // "fmt "
+    view.setUint32(16, 16, true); // chunk size
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // byte rate
+    view.setUint16(32, 2, true); // block align
+    view.setUint16(34, 16, true); // bits per sample
+    // data
+    view.setUint32(36, 0x64617461, false); // "data"
+    view.setUint32(40, dataSize, true);
+
+    // Combine header + silent samples into a single Uint8Array
+    const wav = new Uint8Array(fileSize);
+    wav.set(new Uint8Array(header), 0);
+    // Samples are all zeros (silence) -- Uint8Array is zero-initialized
+
+    // Write to a temp file so expo-av can load it
+    const FileSystem = require('expo-file-system/legacy');
+    const base64js = require('base64-js');
+    const silentPath = FileSystem.cacheDirectory + 'silence_keepalive.wav';
+    const b64 = base64js.fromByteArray(wav);
+    await FileSystem.writeAsStringAsync(silentPath, b64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    await sound.loadAsync({ uri: silentPath }, {
+      isLooping: true,
+      volume: 0.01, // Nearly inaudible
+      shouldPlay: true,
+    });
+
+    keepaliveSound = sound;
+    keepaliveRunning = true;
+    console.log('[VoiceService] Background audio keepalive started.');
+  } catch (err: any) {
+    console.warn('[VoiceService] Keepalive start failed:', err?.message);
+  }
+}
+
+async function stopBackgroundKeepalive() {
+  if (!keepaliveRunning || !keepaliveSound) return;
+  try {
+    await keepaliveSound.stopAsync();
+    await keepaliveSound.unloadAsync();
+  } catch { /* best effort */ }
+  keepaliveSound = null;
+  keepaliveRunning = false;
+  console.log('[VoiceService] Background audio keepalive stopped.');
+}
+
 // ─── Kokoro Integration ───
 
 let kokoroModule: typeof import('./kokoroVoice') | null = null;
@@ -187,6 +277,21 @@ let kokoroModule: typeof import('./kokoroVoice') | null = null;
 /** Initialize the voice system. Call once at app boot. */
 export async function initVoice(): Promise<void> {
   await configureAudioForSpeech();
+
+  // Start background keepalive for screen-off TTS
+  startBackgroundKeepalive();
+
+  // Listen for app state changes to manage keepalive
+  try {
+    const { AppState } = require('react-native');
+    AppState.addEventListener('change', (state: string) => {
+      if (state === 'active') {
+        // Re-ensure keepalive when returning to foreground
+        if (!keepaliveRunning) startBackgroundKeepalive();
+      }
+    });
+  } catch { /* AppState listener is best-effort */ }
+
   try {
     kokoroModule = require('./kokoroVoice');
     const ready = await kokoroModule!.initKokoro();

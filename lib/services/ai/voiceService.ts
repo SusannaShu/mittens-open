@@ -162,7 +162,8 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-/** Speak text via TTS. Strips markdown for natural speech. */
+// ─── Audio Configuration (for native TTS fallback + background playback) ───
+
 let audioConfigured = false;
 async function configureAudioForSpeech() {
   if (audioConfigured) return;
@@ -179,18 +180,54 @@ async function configureAudioForSpeech() {
   }
 }
 
+// ─── Kokoro Integration ───
+
+let kokoroModule: typeof import('./kokoroVoice') | null = null;
+
+/** Initialize the voice system. Call once at app boot. */
+export async function initVoice(): Promise<void> {
+  await configureAudioForSpeech();
+  try {
+    kokoroModule = require('./kokoroVoice');
+    const ready = await kokoroModule!.initKokoro();
+    if (ready) {
+      console.log('[VoiceService] Kokoro neural voice ready.');
+    } else {
+      console.log('[VoiceService] Kokoro unavailable, using native TTS fallback.');
+      kokoroModule = null;
+    }
+  } catch (err: any) {
+    console.warn('[VoiceService] Kokoro module failed to load:', err?.message);
+    kokoroModule = null;
+  }
+}
+
+// ─── Speak ───
+
+/**
+ * Speak text. Tries Kokoro on-device neural voice first.
+ * Falls back to native iOS/Android TTS if Kokoro is unavailable.
+ */
 export function speak(text: string, onDone?: () => void) {
   const clean = stripMarkdown(text);
   if (!clean) return;
 
-  configureAudioForSpeech().then(() => {
-    const { Platform } = require('react-native');
+  configureAudioForSpeech().then(async () => {
+    // Try Kokoro neural voice first
+    if (kokoroModule && kokoroModule.isKokoroReady()) {
+      try {
+        const success = await kokoroModule.speakKokoro(clean, onDone);
+        if (success) return;
+      } catch (err: any) {
+        console.warn('[VoiceService] Kokoro speak failed, falling back:', err?.message);
+      }
+    }
+
+    // Fallback: native iOS/Android TTS
     Speech.speak(clean, {
       language: 'en-US',
-      // Explicitly request the Siri Female compact voice on iOS to sound less robotic
-      voice: Platform.OS === 'ios' ? 'com.apple.ttsbundle.siri_female_en-US_compact' : undefined,
-      rate: 1.05,  // slightly faster than the robotic default
-      pitch: 1.1,  // slightly higher pitch for a lighter tone
+      rate: 1.05,
+      pitch: 1.05,
       onDone,
       onStopped: onDone,
       onError: onDone,
@@ -200,6 +237,11 @@ export function speak(text: string, onDone?: () => void) {
 
 /** Stop any currently playing TTS. */
 export function stopSpeaking() {
+  // Stop Kokoro audio
+  try {
+    kokoroModule?.stopKokoro();
+  } catch { /* best effort */ }
+  // Stop native TTS
   Speech.stop();
 }
 
@@ -210,3 +252,4 @@ export async function isSpeaking(): Promise<boolean> {
 
 // Re-export the event hook for components to use directly
 export { useSpeechRecognitionEvent };
+

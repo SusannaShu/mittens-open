@@ -109,7 +109,9 @@
           "forceCxx20": true
         }
       ],
-      "react-native-motion-activity-tracker"
+      "react-native-motion-activity-tracker",
+      "react-native-executorch",
+      "react-native-audio-api"
     ]
   }
 }

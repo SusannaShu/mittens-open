@@ -47,6 +47,12 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         const pendantStore = require('../../services/pendant/pendantStore');
         await pendantStore.initPendantStore();
 
+        // Initialize Kokoro neural voice (non-blocking -- falls back to native TTS)
+        try {
+          const { initVoice } = require('../../services/ai/voiceService');
+          initVoice();
+        } catch { /* voice init is best-effort */ }
+
         // ─── Double Tap: Audio + optional frame -> Brain -> TTS ───
         unsubDoubleTap = service.onDoubleTap(async (audioPath: string, framePath?: string) => {
           if (processingRef.current) {
@@ -100,10 +106,10 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             if (brain.supportsAudio && audioPath) {
               // Gemini 4 E2B / E4B -- native audio understanding, no STT needed
               const prompt = [
-                'The user tapped their Mittens pendant and spoke this voice message.',
-                'Listen to the audio and respond naturally and concisely.',
-                'Be helpful, warm, and direct. Keep your response short (1-2 sentences).',
-                framePath ? 'A photo was also captured -- consider what you see.' : '',
+                'The user pressed the button and spoke this voice message.',
+                'Listen to the audio and respond naturally.',
+                'You are an embodied AI companion. Be highly conversational, natural, and use 1 short sentence maximum.',
+                framePath ? 'Use your vision to observe your surroundings and consider it.' : '',
               ].filter(Boolean).join(' ');
 
               console.log('[PendantBridge] Using native audio brain:', brain.name);
@@ -120,9 +126,9 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               }
 
               const prompt = [
-                transcript ? `The user tapped their pendant and said: "${transcript}"` : 'The user tapped their pendant but no speech was clearly heard.',
-                framePath && brain.supportsVision ? 'A photo was also captured, consider it in your response.' : '',
-                'Respond naturally, warmly, and concisely (1-2 sentences).',
+                transcript ? `The user spoke: "${transcript}"` : 'The user pressed the button but no speech was clearly heard.',
+                framePath && brain.supportsVision ? 'Use your vision to observe your surroundings and consider it.' : '',
+                'You are an embodied AI companion. Be highly conversational, natural, and use 1 short sentence maximum.',
               ].filter(Boolean).join(' ');
 
               if (framePath && brain.supportsVision) {
@@ -135,9 +141,9 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             } else if (framePath && brain.supportsVision) {
               // Vision-only fallback (no audio at all)
               const prompt = [
-                'The user tapped their Mittens pendant.',
-                'A photo was captured -- describe what you see and provide helpful context.',
-                'Be warm and concise (1-2 sentences).',
+                'The user pressed the button on your body.',
+                'Use your vision to observe your surroundings and describe what you see.',
+                'You are an embodied AI companion. Be highly conversational, natural, and use 1 short sentence maximum.',
               ].join(' ');
 
               console.log('[PendantBridge] Using vision-only brain:', brain.name);
@@ -208,9 +214,10 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         unsubMotion = service.onMotionFrame(async (framePath: string) => {
           console.log('[PendantBridge] Motion frame:', framePath.slice(-30));
 
-          // Prioritize voice: Drop motion frames if we are actively processing a button press
+          // If we are actively processing a button press (voice), drop ambient vision frames
+          // so they don't interrupt or conflict with the voice interaction.
           if (processingRef.current) {
-            console.log('[PendantBridge] Dropping motion frame to prioritize active voice command');
+            console.log('[PendantBridge] Voice interaction active. Dropping motion frame to prioritize voice.');
             return;
           }
 

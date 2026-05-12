@@ -309,14 +309,17 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             <View style={s.nowBar} />
           </View>
         )}
-        {/* Location side-rail */}
+        {/* Location side-rail -- continuous trail */}
         {(() => {
-          const locationEvts = events.filter(e => e.type === 'location');
+          const locationEvts = events
+            .filter(e => e.type === 'location')
+            .sort((a, b) => new Date(a.loggedAt).getTime() - new Date(b.loggedAt).getTime());
+          if (locationEvts.length === 0) return null;
+
           const RAIL_COLORS: Record<string, string> = {
             stationary: '#000000', walking: '#757575', running: '#757575',
             cycling: '#757575', driving: '#757575', unknown: '#757575',
           };
-          // Differentiate motion types by line style, not color
           const RAIL_LINE: Record<string, { style: 'solid' | 'dashed' | 'dotted'; width: number }> = {
             stationary: { style: 'solid', width: 2 },
             walking:    { style: 'solid', width: 2 },
@@ -325,43 +328,101 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             driving:    { style: 'dotted', width: 2 },
             unknown:    { style: 'solid', width: 1 },
           };
-          return locationEvts.map((evt) => {
+
+          // Compute positions for all location events
+          const positioned = locationEvts.map((evt) => {
             const { top, height } = getBlockPosition(evt);
             const mt = evt.sourceData?.motionType || 'unknown';
+            return { evt, top, height: Math.max(height, 8), mt };
+          });
+
+          // Continuous backbone: spans from top of first session to bottom of last
+          const firstTop = positioned[0].top;
+          const lastItem = positioned[positioned.length - 1];
+          const lastBottom = lastItem.top + lastItem.height;
+
+          const elements: React.ReactNode[] = [];
+
+          // Draw the continuous backbone line connecting all sessions
+          elements.push(
+            <View
+              key="loc-backbone"
+              style={[s.locationRail, { top: firstTop, height: lastBottom - firstTop }]}
+              pointerEvents="none"
+            >
+              <View style={[
+                s.locationRailLine,
+                { borderColor: '#D0D0D0', borderStyle: 'solid', borderLeftWidth: 1 }
+              ]} />
+            </View>
+          );
+
+          // Overlay per-session styled segments + dots
+          for (let i = 0; i < positioned.length; i++) {
+            const { evt, top, height, mt } = positioned[i];
             const color = RAIL_COLORS[mt] || '#757575';
             const line = RAIL_LINE[mt] || { style: 'solid' as const, width: 2 };
             const isOngoing = evt.sourceData?.endedAt === null;
-            return (
-                <TouchableOpacity
-                  key={`loc-${evt.id}`}
-                  style={[s.locationRail, { top, height: Math.max(height, 8) }]}
-                  onPress={() => onEdit(evt)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open location details for ${evt.title}`}
-                >
-                  <View style={[
-                    s.locationRailLine,
-                    { borderColor: color, borderStyle: line.style, borderLeftWidth: line.width }
-                  ]} />
-                  {mt === 'stationary' && (
-                    <View style={[s.locationRailDot, { top: 0 }]}>
-                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-                    </View>
-                  )}
-                  {mt === 'stationary' && !isOngoing && (
-                    <View style={[s.locationRailDot, { bottom: 0 }]}>
-                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-                    </View>
-                  )}
-                  {isOngoing && (
-                    <View style={[s.locationRailDot, { bottom: -4 }]}>
-                      <OngoingDot color={color} />
-                    </View>
-                  )}
-                </TouchableOpacity>
+            const isLast = i === positioned.length - 1;
+
+            // Per-session styled line segment
+            elements.push(
+              <TouchableOpacity
+                key={`loc-${evt.id}`}
+                style={[s.locationRail, { top, height }]}
+                onPress={() => onEdit(evt)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Open location details for ${evt.title}`}
+              >
+                <View style={[
+                  s.locationRailLine,
+                  { borderColor: color, borderStyle: line.style, borderLeftWidth: line.width }
+                ]} />
+                {/* Dot at start of stationary sessions */}
+                {mt === 'stationary' && (
+                  <View style={[s.locationRailDot, { top: 0 }]}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+                  </View>
+                )}
+                {/* Dot at end of completed stationary sessions */}
+                {mt === 'stationary' && !isOngoing && (
+                  <View style={[s.locationRailDot, { bottom: 0 }]}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+                  </View>
+                )}
+                {/* Pulsing dot for ongoing session */}
+                {isOngoing && (
+                  <View style={[s.locationRailDot, { bottom: -4 }]}>
+                    <OngoingDot color={color} />
+                  </View>
+                )}
+              </TouchableOpacity>
             );
-          });
+
+            // Draw gap connector between this session and next session
+            if (!isLast) {
+              const next = positioned[i + 1];
+              const gapTop = top + height;
+              const gapHeight = next.top - gapTop;
+              if (gapHeight > 0) {
+                elements.push(
+                  <View
+                    key={`loc-gap-${evt.id}`}
+                    style={[s.locationRail, { top: gapTop, height: gapHeight }]}
+                    pointerEvents="none"
+                  >
+                    <View style={[
+                      s.locationRailLine,
+                      { borderColor: '#A0A0A0', borderStyle: 'solid', borderLeftWidth: 1 }
+                    ]} />
+                  </View>
+                );
+              }
+            }
+          }
+
+          return elements;
         })()}
 
         {/* Event blocks */}

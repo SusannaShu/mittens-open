@@ -14,7 +14,6 @@ import { Meal } from '../lib/types';
 import { CalendarEvent } from '../components/reflect/CalendarDayView';
 import { useGetLocationSessionsQuery, LocationSession } from '../lib/services/location/locationSessionApi';
 import { useGetKnownPlacesQuery } from '../lib/services/location/knownPlaceApi';
-import { consolidateLocationSessions } from './consolidateLocationSessions';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -286,11 +285,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       driving: 'Transit', unknown: 'Location',
     };
 
-    // Consolidate fragmented sessions (absorb short unknown gaps, merge
-    // adjacent stationary sessions at the same location)
-    const merged = consolidateLocationSessions(locationSessions || []);
-
-    const locationEvents: CalendarEvent[] = merged.map((s: LocationSession, i: number) => {
+    const locationEvents: CalendarEvent[] = (locationSessions || []).map((s: LocationSession, i: number) => {
       const actualStart = new Date(s.startedAt);
       const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
       const dayStart = new Date(selectedDate + 'T00:00:00');

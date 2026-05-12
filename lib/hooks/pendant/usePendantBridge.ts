@@ -125,6 +125,50 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                 throw new Error('Could not hear anything and no photo was captured.');
               }
 
+              // ─── Face Introduction Detection ───
+              // If the user says "this is [Name]", register the face
+              if (transcript && framePath) {
+                try {
+                  const { parseIntroduction } = require('../../services/faceRecognition/introductionDetector');
+                  const intro = parseIntroduction(transcript);
+                  if (intro) {
+                    console.log(`[PendantBridge] Introduction detected: "${intro.name}" (${intro.pattern})`);
+                    const { introducePerson } = require('../../services/faceRecognition/faceRecognitionService');
+                    const result = await introducePerson(intro.name, framePath);
+
+                    if (result) {
+                      responseText = result.isNew
+                        ? `Nice to meet you ${result.name}! I have learned your face and will remember you.`
+                        : `Got it, I have strengthened my memory of ${result.name}. I now have ${result.embeddingsSaved} sightings saved.`;
+                    } else {
+                      responseText = `I heard you say this is ${intro.name}, but I could not detect a face in the photo. Could you try again?`;
+                    }
+
+                    // Skip normal brain processing -- jump to response handling
+                    console.log('[PendantBridge] Face intro response:', responseText);
+                    pendantStore.updateCapture(captureId, {
+                      brainResponse: responseText,
+                      processed: true,
+                    });
+                    if (options?.addMessage) {
+                      options.addMessage({
+                        id: `m-${Date.now()}`,
+                        role: 'mittens',
+                        text: responseText,
+                        timestamp: new Date(),
+                        source: 'pendant',
+                      });
+                      options.scrollToEnd?.();
+                    }
+                    speak(responseText);
+                    processingRef.current = false;
+                    return;
+                  }
+                } catch (introErr: any) {
+                  console.warn('[PendantBridge] Face intro check failed (non-blocking):', introErr?.message);
+                }
+              }
+
               const prompt = [
                 transcript ? `The user spoke: "${transcript}"` : 'The user pressed the button but no speech was clearly heard.',
                 framePath && brain.supportsVision ? 'Use your vision to observe your surroundings and consider it.' : '',

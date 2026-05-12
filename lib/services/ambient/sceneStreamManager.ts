@@ -182,7 +182,20 @@ class SceneStreamManager {
       }
     }
 
-    // 5. Timeout check on all open scenes
+    // 5. Ambient face recognition (non-blocking)
+    // Run on social scenes, or periodically on any frame
+    if (
+      classification.sceneType === 'social' ||
+      (matched && matched.type === 'social')
+    ) {
+      try {
+        await this.checkFaceRecognition(framePath, logger);
+      } catch (err: any) {
+        console.warn('[SceneStream] Face recognition error:', err?.message);
+      }
+    }
+
+    // 6. Timeout check on all open scenes
     this.checkTimeouts(timestamp, logger);
 
     const log = logger.finalize();
@@ -285,81 +298,21 @@ class SceneStreamManager {
     classification: SceneClassification,
     logger: PipelineLogger,
   ): void {
-    // Sedentary check for work scenes
-    if (scene.type === 'work') {
-      this.checkSedentary(scene, logger);
-    }
-
-    // Cook timer detection for meal scenes
-    if (scene.type === 'meal_prep' && scene.food?.method) {
-      this.checkCookTimer(scene, logger);
-    }
-
-    // Ask about ambiguous food items
-    if (
-      (scene.type === 'meal_prep' || scene.type === 'eating') &&
-      classification.items.length > 0
-    ) {
-      this.checkAmbiguousItems(classification, logger);
-    }
+    const { checkAfterFrameTriggers: check } = require('./sceneTriggers');
+    check(scene, classification, logger);
   }
 
-  private checkSedentary(scene: Scene, _logger: PipelineLogger): void {
-    try {
-      const { getDb } = require('../../database');
-      const db = getDb();
-      const profile = db.getFirstSync(
-        'SELECT work_interval_mins FROM nutrition_profile WHERE id = 1',
-      ) as any;
-
-      const intervalMs = (profile?.work_interval_mins || 45) * 60 * 1000;
-      const elapsed = Date.now() - scene.openedAt;
-
-      if (elapsed >= intervalMs) {
-        try {
-          const { nudgeSedentary } = require('./nudgeComposer');
-          nudgeSedentary(Math.round(elapsed / 60000));
-        } catch { /* nudgeComposer not loaded */ }
-      }
-    } catch {}
-  }
-
-  private checkCookTimer(scene: Scene, _logger: PipelineLogger): void {
-    if (scene.food?.cookFinishAt && Date.now() >= scene.food.cookFinishAt) {
-      try {
-        const { nudgeCookDone } = require('./nudgeComposer');
-        nudgeCookDone(scene.food.method || 'cooking');
-      } catch { /* nudgeComposer not loaded */ }
-    }
-  }
+  // ─── Face Recognition ─────────────────
 
   /**
-   * Check for ambiguous food items and ask the user for clarification.
-   * Fires mittensAsk when an item's confidence is below 0.7.
+   * Delegate face recognition to the extracted module.
    */
-  private checkAmbiguousItems(
-    classification: SceneClassification,
-    _logger: PipelineLogger,
-  ): void {
-    const ambiguous = classification.items.filter((i) => i.confidence < 0.7);
-    if (ambiguous.length === 0) return;
-
-    // Only ask about the first ambiguous item (don't spam)
-    const item = ambiguous[0];
-    const question = `Is that ${item.name}?`;
-
-    // Fire and forget -- mittensAsk is async with timeout
-    try {
-      const { mittensAsk } = require('./mittensAsk');
-      const { learnFromResponse } = require('./memoryUpsert');
-
-      mittensAsk(question).then((answer: string | null) => {
-        if (answer) {
-          learnFromResponse(question, answer);
-          console.log(`[SceneStream] Learned from ask: "${answer}"`);
-        }
-      }).catch(() => {});
-    } catch { /* modules not loaded */ }
+  private async checkFaceRecognition(
+    framePath: string,
+    logger: PipelineLogger,
+  ): Promise<void> {
+    const { checkFaceRecognition: check } = require('./sceneFaceRecognition');
+    await check(framePath, logger);
   }
 
   // ─── Timeout / Cleanup ────────────────
@@ -425,95 +378,8 @@ class SceneStreamManager {
     }
 
     // Route to existing pipelines for actual log creation
-    this.routeToLogPipeline(scene);
-  }
-
-  /**
-   * On scene close, write to nutrition_logs or activity_logs.
-   * Reuses existing API functions so the UI picks up entries automatically.
-   */
-  private routeToLogPipeline(scene: Scene): void {
-    try {
-      if (scene.type === 'meal_prep' || scene.type === 'eating') {
-        this.writeNutritionLog(scene);
-      } else if (
-        scene.type === 'work' ||
-        scene.type === 'exercise' ||
-        scene.type === 'social' ||
-        scene.type === 'commute'
-      ) {
-        this.writeActivityLog(scene);
-      }
-    } catch (err: any) {
-      console.error('[SceneStream] Failed to route log:', err?.message || err);
-    }
-  }
-
-  private writeNutritionLog(scene: Scene): void {
-    const { getDb } = require('../../database');
-    const db = getDb();
-
-    const mealType = guessMealType(scene.openedAt);
-    const items = scene.food?.ingredients || [];
-    const logName = items.length > 0
-      ? items.map((i) => i.name).join(', ')
-      : `${mealType} (pendant)`;
-
-    db.runSync(
-      `INSERT INTO nutrition_logs (
-        logged_at, meal_type, log_name, items,
-        source, image_uris, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'pendant', ?, datetime('now'), datetime('now'))`,
-      [
-        new Date(scene.openedAt).toISOString(),
-        mealType,
-        logName,
-        JSON.stringify(items),
-        scene.framePaths.length > 0
-          ? JSON.stringify(scene.framePaths)
-          : null,
-      ],
-    );
-    console.log(`[SceneStream] Wrote nutrition_log: ${logName}`);
-  }
-
-  private writeActivityLog(scene: Scene): void {
-    const { getDb } = require('../../database');
-    const db = getDb();
-
-    const durationMin = scene.closedAt
-      ? Math.round((scene.closedAt - scene.openedAt) / 60000)
-      : 0;
-    const logName = `${scene.type} (pendant)`;
-
-    db.runSync(
-      `INSERT INTO activity_logs (
-        logged_at, log_name, activity_type, duration_min,
-        source, location, image_uris, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
-      [
-        new Date(scene.openedAt).toISOString(),
-        logName,
-        scene.type,
-        durationMin,
-        scene.place || null,
-        scene.framePaths.length > 0
-          ? JSON.stringify(scene.framePaths)
-          : null,
-      ],
-    );
-    console.log(`[SceneStream] Wrote activity_log: ${logName} (${durationMin}min)`);
+    const { routeToLogPipeline } = require('./sceneLogWriter');
+    routeToLogPipeline(scene);
   }
 }
 
-// ─── Helpers ────────────────────────────
-
-function guessMealType(
-  timestampMs: number,
-): 'breakfast' | 'lunch' | 'dinner' | 'snack' {
-  const hour = new Date(timestampMs).getHours();
-  if (hour >= 5 && hour < 11) return 'breakfast';
-  if (hour >= 11 && hour < 15) return 'lunch';
-  if (hour >= 17 && hour < 21) return 'dinner';
-  return 'snack';
-}

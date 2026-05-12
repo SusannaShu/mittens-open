@@ -21,11 +21,24 @@ import { getDb } from '../../database';
 // Minimum distance (meters) between trail points to avoid clutter
 const MIN_TRAIL_POINT_DISTANCE_M = 15;
 
+// GPS jitter suppression radius for stationary sessions (meters).
+// Points within this radius of a stationary session's start are silently dropped.
+const STATIONARY_SUPPRESSION_M = 50;
+
+// Minimum dwell time (ms) before we split a moving session into a stationary one.
+// If the user stops for less than this, the stationary points stay in the trail.
+const MIN_STATIONARY_DWELL_MS = 3 * 60 * 1000;
+
 // Distance (meters) that constitutes a significant location jump.
 // When a stationary session sees a point this far away, it means
 // the user traveled while the app was backgrounded. We bridge with
 // a transit session rather than discarding the movement.
 const DISTANCE_JUMP_M = 200;
+
+// Track when the classifier first reported "stationary" during a moving session.
+// We keep adding points to the trail until this exceeds MIN_STATIONARY_DWELL_MS,
+// at which point we close the moving session and create a stationary one.
+let stationarySince: { time: number; lat: number; lon: number } | null = null;
 
 /**
  * Record a location point and update the active session.
@@ -41,6 +54,7 @@ export function recordLocationPoint(entry: {
   try {
     const db = getDb();
     const now = entry.loggedAt;
+    const nowMs = new Date(now).getTime();
     const motionType = entry.motionType || 'unknown';
 
     console.log(`[sessionBuilder] recordPoint: motion=${motionType} speed=${entry.speed} at=${now}`);
@@ -51,6 +65,24 @@ export function recordLocationPoint(entry: {
     ) as any;
 
     if (!activeSession) {
+      // No active session — only start one for actual movement.
+      // If stationary, begin tracking dwell time but don't create a session yet.
+      if (motionType === 'stationary') {
+        if (!stationarySince) {
+          stationarySince = { time: nowMs, lat: entry.latitude, lon: entry.longitude };
+          console.log('[sessionBuilder] Tracking stationary dwell (no active session)');
+        }
+        const dwellMs = nowMs - stationarySince.time;
+        if (dwellMs >= MIN_STATIONARY_DWELL_MS) {
+          // Real dwell — create the stationary session with the original start time
+          console.log(`[sessionBuilder] Dwell confirmed (${Math.round(dwellMs / 60000)}min), creating stationary session`);
+          startNewSession(db, stationarySince.lat, stationarySince.lon, 'stationary', new Date(stationarySince.time).toISOString());
+          stationarySince = null;
+        }
+        return;
+      }
+      // Non-stationary: clear any pending dwell and start a moving session
+      stationarySince = null;
       console.log('[sessionBuilder] No active session, starting new one');
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
@@ -68,36 +100,83 @@ export function recordLocationPoint(entry: {
     const distFromLast = haversineMeters(lastLat, lastLon, entry.latitude, entry.longitude);
 
     if (distFromLast > DISTANCE_JUMP_M) {
-      // The user has moved significantly. Instead of discarding the movement,
-      // close the current session and create a bridge transit session that
-      // connects the old position to the new one, then start a new session
-      // at the destination.
       const transitMotion = resolveTransitMotion(motionType, distFromLast);
       console.log(`[sessionBuilder] Distance jump ${distFromLast.toFixed(0)}m: bridging with '${transitMotion}' session`);
 
       closeSession(db, activeSession.id, now);
-
-      // Create a bridge session with a 2-point trail from old position to new
       createBridgeSession(
         db, lastLat, lastLon, entry.latitude, entry.longitude,
         transitMotion, distFromLast, now
       );
 
-      // Start a new session at the destination
+      if (motionType === 'stationary') {
+        stationarySince = { time: nowMs, lat: entry.latitude, lon: entry.longitude };
+        return;
+      }
+      stationarySince = null;
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
 
-    // Check for motion type change
     const currentMotion = activeSession.motion_type || 'unknown';
-    if (motionType !== currentMotion && motionType !== 'unknown') {
+
+    // ── Stationary dwell tracking ──
+    // When a moving session gets a "stationary" point, don't split immediately.
+    // Track when stationary started and keep adding points to the trail.
+    // Only split after 5 continuous minutes of stationary.
+    if (motionType === 'stationary' && currentMotion !== 'stationary') {
+      if (!stationarySince) {
+        stationarySince = { time: nowMs, lat: entry.latitude, lon: entry.longitude };
+        console.log(`[sessionBuilder] Stationary detected during '${currentMotion}' session, tracking dwell...`);
+      }
+
+      const dwellMs = nowMs - stationarySince.time;
+      if (dwellMs >= MIN_STATIONARY_DWELL_MS) {
+        // User has been still for 5+ min — close the moving session at the
+        // time stationary started, and create a stationary session.
+        const splitTime = new Date(stationarySince.time).toISOString();
+        console.log(`[sessionBuilder] Dwell confirmed (${Math.round(dwellMs / 60000)}min), splitting session`);
+        closeSession(db, activeSession.id, splitTime);
+        startNewSession(db, stationarySince.lat, stationarySince.lon, 'stationary', splitTime);
+        stationarySince = null;
+        return;
+      }
+
+      // < 5 min: keep the point in the trail, don't split
+      // (fall through to extend the session below)
+    } else if (motionType !== 'stationary') {
+      // Motion resumed — clear the dwell tracker
+      if (stationarySince) {
+        console.log(`[sessionBuilder] Motion resumed as '${motionType}', dwell cancelled`);
+        stationarySince = null;
+      }
+    }
+
+    // Stationary suppression: when the session IS stationary, GPS drift can be
+    // 20-50m indoors. Suppress any point within the suppression radius.
+    if (currentMotion === 'stationary' && motionType === 'stationary') {
+      const startDist = haversineMeters(activeSession.start_lat, activeSession.start_lon, entry.latitude, entry.longitude);
+      if (startDist < STATIONARY_SUPPRESSION_M) return;
+    }
+
+    // Motion type change for non-stationary transitions (e.g. walking → cycling)
+    if (motionType !== 'stationary' && motionType !== currentMotion && motionType !== 'unknown' && currentMotion !== 'stationary') {
       console.log(`[sessionBuilder] Motion change: '${currentMotion}' -> '${motionType}', trail=${trail.length}pts`);
       closeSession(db, activeSession.id, now);
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
 
-    // Same motion type -- extend the session
+    // Stationary → moving: close the stationary session and start moving
+    if (currentMotion === 'stationary' && motionType !== 'stationary' && motionType !== 'unknown') {
+      console.log(`[sessionBuilder] Motion started: '${currentMotion}' -> '${motionType}'`);
+      closeSession(db, activeSession.id, now);
+      startNewSession(db, entry.latitude, entry.longitude, motionType, now);
+      stationarySince = null;
+      return;
+    }
+
+    // Same motion type (or stationary within dwell window) — extend the session
     const trailDist = trail.length > 0
       ? haversineMeters(trail[trail.length - 1][0], trail[trail.length - 1][1], entry.latitude, entry.longitude)
       : Infinity;
@@ -153,6 +232,18 @@ export function closeActiveSession(): void {
 // Internal helpers
 // ──────────────────────────────────────────
 
+function resolveStationaryPlaceName(db: any, lat: number, lon: number): string | null {
+  try {
+    const place = db.getFirstSync(
+      `SELECT name FROM known_places
+       WHERE ABS(latitude - ?) < 0.001 AND ABS(longitude - ?) < 0.001
+       LIMIT 1`,
+      [lat, lon]
+    ) as any;
+    return place?.name ?? null;
+  } catch { return null; }
+}
+
 function startNewSession(
   db: any,
   lat: number,
@@ -162,17 +253,9 @@ function startNewSession(
 ): void {
   const trail = JSON.stringify([[lat, lon]]);
 
-  // Resolve place name from known_places
-  let placeName: string | null = null;
-  if (motionType === 'stationary') {
-    const place = db.getFirstSync(
-      `SELECT name FROM known_places
-       WHERE ABS(latitude - ?) < 0.001 AND ABS(longitude - ?) < 0.001
-       LIMIT 1`,
-      [lat, lon]
-    ) as any;
-    if (place) placeName = place.name;
-  }
+  const placeName = motionType === 'stationary'
+    ? resolveStationaryPlaceName(db, lat, lon)
+    : null;
 
   db.runSync(
     `INSERT INTO location_sessions

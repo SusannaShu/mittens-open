@@ -309,7 +309,7 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             <View style={s.nowBar} />
           </View>
         )}
-        {/* Location side-rail */}
+        {/* Location side-rail with trail connectors */}
         {(() => {
           const locationEvts = events.filter(e => e.type === 'location');
           const RAIL_COLORS: Record<string, string> = {
@@ -325,8 +325,32 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             driving:    { style: 'dotted', width: 2 },
             unknown:    { style: 'solid', width: 1 },
           };
-          return locationEvts.map((evt) => {
-            const { top, height } = getBlockPosition(evt);
+
+          // Pre-compute positions for connector lines between sessions
+          const positions = locationEvts.map(evt => getBlockPosition(evt));
+          const connectors: React.ReactNode[] = [];
+          for (let i = 0; i < locationEvts.length - 1; i++) {
+            const currBottom = positions[i].top + Math.max(positions[i].height, 8);
+            const nextTop = positions[i + 1].top;
+            const gapHeight = nextTop - currBottom;
+            if (gapHeight > 0) {
+              connectors.push(
+                <View
+                  key={`loc-conn-${i}`}
+                  style={[s.locationRail, { top: currBottom, height: gapHeight }]}
+                  pointerEvents="none"
+                >
+                  <View style={[
+                    s.locationRailLine,
+                    { borderColor: '#C0C0C0', borderStyle: 'solid', borderLeftWidth: 1 }
+                  ]} />
+                </View>
+              );
+            }
+          }
+
+          const segments = locationEvts.map((evt, idx) => {
+            const { top, height } = positions[idx];
             const mt = evt.sourceData?.motionType || 'unknown';
             const color = RAIL_COLORS[mt] || '#757575';
             const line = RAIL_LINE[mt] || { style: 'solid' as const, width: 2 };
@@ -362,6 +386,7 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
                 </TouchableOpacity>
             );
           });
+          return [...connectors, ...segments];
         })()}
 
         {/* Event blocks */}

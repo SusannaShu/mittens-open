@@ -207,37 +207,6 @@ export default function PlacesScreen() {
             return null;
           })}
 
-          {/* Trail connectors: draw lines between consecutive sessions */}
-          {sessions.map((session, idx) => {
-            if (idx === 0) return null;
-            const prev = sessions[idx - 1];
-            // Get the last coordinate of the previous session
-            const prevEnd = prev.path && prev.path.length > 0
-              ? prev.path[prev.path.length - 1]
-              : null;
-            // Get the first coordinate of the current session
-            const currStart = session.path && session.path.length > 0
-              ? session.path[0]
-              : null;
-            if (!prevEnd || !currStart) return null;
-            // Skip if same coordinate (already visually connected)
-            if (Math.abs(prevEnd[0] - currStart[0]) < 0.00001 &&
-                Math.abs(prevEnd[1] - currStart[1]) < 0.00001) return null;
-            return (
-              <Polyline
-                key={`trail-conn-${idx}`}
-                coordinates={[
-                  { latitude: prevEnd[0], longitude: prevEnd[1] },
-                  { latitude: currStart[0], longitude: currStart[1] },
-                ]}
-                strokeColor="#BDBDBD"
-                strokeWidth={3}
-                lineDashPattern={[6, 4]}
-                lineCap="round"
-              />
-            );
-          })}
-
           {places.map((p) => {
             const iconName = p.icon || 'map-pin';
             return (

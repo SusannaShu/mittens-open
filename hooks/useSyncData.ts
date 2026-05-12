@@ -285,6 +285,14 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       driving: 'Transit', unknown: 'Location',
     };
 
+    console.log(`[useSyncData] locationSessions count: ${(locationSessions || []).length}`);
+    (locationSessions || []).forEach((s: LocationSession, i: number) => {
+      console.log(`  [session ${i}] motionType=${s.motionType} startedAt=${s.startedAt} endedAt=${s.endedAt} placeName=${s.placeName} pathLength=${s.path?.length ?? 0} placeId=${s.placeId}`);
+      if (s.path && s.path.length > 0) {
+        console.log(`    path[0]=[${s.path[0]}] path[last]=[${s.path[s.path.length - 1]}]`);
+      }
+    });
+
     const locationEvents: CalendarEvent[] = (locationSessions || []).map((s: LocationSession, i: number) => {
       const actualStart = new Date(s.startedAt);
       const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
@@ -319,6 +327,11 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         type: 'location' as const,
         sourceData: s,
       };
+    });
+
+    console.log(`[useSyncData] location CalendarEvents (${locationEvents.length}):`);
+    locationEvents.forEach((e, i) => {
+      console.log(`  [evt ${i}] id=${e.id} title="${e.title}" motion=${e.sourceData?.motionType} dur=${e.duration_min}min loggedAt=${e.loggedAt}`);
     });
 
     return [...actEvents, ...mealEvents, ...syncedEvents, ...sleepEvents, ...plannedEvents, ...solarEvents, ...locationEvents].sort(

@@ -309,9 +309,16 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             <View style={s.nowBar} />
           </View>
         )}
-        {/* Location side-rail with trail connectors */}
+        {/* Location side-rail */}
         {(() => {
           const locationEvts = events.filter(e => e.type === 'location');
+          console.log(`[CalendarDayView] location rail events: ${locationEvts.length}`);
+          locationEvts.forEach((evt, i) => {
+            const { top, height } = getBlockPosition(evt);
+            const mt = evt.sourceData?.motionType || 'unknown';
+            const endedAt = evt.sourceData?.endedAt;
+            console.log(`  [rail ${i}] mt=${mt} title="${evt.title}" top=${top.toFixed(1)} h=${height.toFixed(1)} dur=${evt.duration_min}min ended=${endedAt}`);
+          });
           const RAIL_COLORS: Record<string, string> = {
             stationary: '#000000', walking: '#757575', running: '#757575',
             cycling: '#757575', driving: '#757575', unknown: '#757575',
@@ -325,32 +332,8 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             driving:    { style: 'dotted', width: 2 },
             unknown:    { style: 'solid', width: 1 },
           };
-
-          // Pre-compute positions for connector lines between sessions
-          const positions = locationEvts.map(evt => getBlockPosition(evt));
-          const connectors: React.ReactNode[] = [];
-          for (let i = 0; i < locationEvts.length - 1; i++) {
-            const currBottom = positions[i].top + Math.max(positions[i].height, 8);
-            const nextTop = positions[i + 1].top;
-            const gapHeight = nextTop - currBottom;
-            if (gapHeight > 0) {
-              connectors.push(
-                <View
-                  key={`loc-conn-${i}`}
-                  style={[s.locationRail, { top: currBottom, height: gapHeight }]}
-                  pointerEvents="none"
-                >
-                  <View style={[
-                    s.locationRailLine,
-                    { borderColor: '#C0C0C0', borderStyle: 'solid', borderLeftWidth: 1 }
-                  ]} />
-                </View>
-              );
-            }
-          }
-
-          const segments = locationEvts.map((evt, idx) => {
-            const { top, height } = positions[idx];
+          return locationEvts.map((evt) => {
+            const { top, height } = getBlockPosition(evt);
             const mt = evt.sourceData?.motionType || 'unknown';
             const color = RAIL_COLORS[mt] || '#757575';
             const line = RAIL_LINE[mt] || { style: 'solid' as const, width: 2 };
@@ -386,7 +369,6 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
                 </TouchableOpacity>
             );
           });
-          return [...connectors, ...segments];
         })()}
 
         {/* Event blocks */}

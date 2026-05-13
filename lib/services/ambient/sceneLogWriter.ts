@@ -137,8 +137,8 @@ async function writeActivityLog(scene: Scene): Promise<void> {
   db.runSync(
     `INSERT INTO activity_logs (
       logged_at, log_name, activity_type, duration_min, mets,
-      source, location, image_uris, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
+      source, location, image_uris, meta, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'pendant', ?, ?, ?, datetime('now'), datetime('now'))`,
     [
       new Date(scene.openedAt).toISOString(),
       logName,
@@ -148,6 +148,9 @@ async function writeActivityLog(scene: Scene): Promise<void> {
       scene.place || null,
       scene.framePaths.length > 0
         ? JSON.stringify(scene.framePaths)
+        : null,
+      (scene as any).aeiou_timeline && (scene as any).aeiou_timeline.length > 0
+        ? JSON.stringify({ aeiou_timeline: (scene as any).aeiou_timeline })
         : null,
     ],
   );

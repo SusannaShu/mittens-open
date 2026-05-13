@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, Pressable, TouchableOpacity,
-  TextInput, StyleSheet, ScrollView, Alert,
+  TextInput, StyleSheet, ScrollView, Alert, Image
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../../lib/theme';
@@ -17,6 +17,7 @@ import ActivityTimeInputs from './ActivityTimeInputs';
 import ActivityContextToggles from './ActivityContextToggles';
 import { activityEditStyles as s } from './activityEditStyles';
 import { ActivityTypeService } from '../../lib/services/activityTypeService';
+import AeiouPhaseModal from './AeiouPhaseModal';
 
 interface Props {
   visible: boolean;
@@ -78,6 +79,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
   // AEIOU fields
   const [aeiou, setAeiou] = useState<Record<string, string>>({});
+  const [selectedPhase, setSelectedPhase] = useState<any | null>(null);
 
   useEffect(() => {
     if (activity) {
@@ -201,6 +203,23 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                 <Feather name="x" size={20} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
+
+            {/* Vision Captures Trail */}
+            {activity.image && activity.image.length > 0 && (
+              <View style={{ marginBottom: spacing.md }}>
+                <Text style={s.label}>Vision Trail</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: 2 }}>
+                  {activity.image.map((img) => (
+                    <Image
+                      key={img.id}
+                      source={{ uri: `file://${img.url}` }}
+                      style={{ width: 100, height: 100, borderRadius: radius.md, backgroundColor: '#111' }}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             {/* Title */}
             <Text style={s.label}>Title</Text>
@@ -398,6 +417,33 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               </View>
             ))}
 
+            {/* AEIOU Provenance Timeline */}
+            {activity.meta?.aeiou_timeline && activity.meta.aeiou_timeline.length > 0 && (
+              <View style={{ marginTop: spacing.sm, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: spacing.sm }}>
+                  <Feather name="activity" size={12} /> PHASE DETECTIONS
+                </Text>
+                {activity.meta.aeiou_timeline.map((phase: any, idx: number) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: colors.border }}
+                    onPress={() => setSelectedPhase(phase)}
+                    activeOpacity={0.6}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>
+                        {phase.dimension} • {phase.value}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                        {(phase.confidence * 100).toFixed(0)}% confident • {new Date(phase.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={16} color={colors.textMuted} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             {/* Reflect with Mittens */}
             <TouchableOpacity
               style={{
@@ -465,6 +511,12 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
           </View>
         </View>
       </View>
+
+      <AeiouPhaseModal
+        visible={!!selectedPhase}
+        phase={selectedPhase}
+        onClose={() => setSelectedPhase(null)}
+      />
     </Modal>
   );
 }

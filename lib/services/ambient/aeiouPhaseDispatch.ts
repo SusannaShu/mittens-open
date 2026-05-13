@@ -33,6 +33,10 @@ export interface FrameDetections {
   nature?: boolean;
   /** Food items detected */
   foodItems?: string[];
+  /** Screen is visible and being looked at */
+  screenVisible?: boolean;
+  /** Multitasking (using multiple screens or doing multiple complex tasks) */
+  multitaskingDetected?: boolean;
   /** Raw description from classifier */
   description?: string;
 }
@@ -123,7 +127,7 @@ export function phasesToRun(
  */
 export async function extractDetections(
   framePath: string,
-  classifierResult: { sceneType: string; description?: string; items: any[] },
+  classifierResult: { sceneType: string; description?: string; items: any[]; detect?: any },
 ): Promise<FrameDetections> {
   const desc = (classifierResult.description || '').toLowerCase();
 
@@ -166,6 +170,10 @@ export async function extractDetections(
     .map((i: any) => i.name || i.n)
     .filter(Boolean);
 
+  // Screen and multitasking from LLM detect field
+  const screenVisible = !!(classifierResult.detect?.screen_time || classifierResult.detect?.scrolling);
+  const multitaskingDetected = !!(classifierResult.detect?.multitasking);
+
   return {
     sceneType: classifierResult.sceneType,
     environment,
@@ -173,6 +181,8 @@ export async function extractDetections(
     objects,
     nature,
     foodItems,
+    screenVisible,
+    multitaskingDetected,
     description: classifierResult.description,
   };
 }

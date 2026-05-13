@@ -17,7 +17,7 @@ import ActivityTimeInputs from './ActivityTimeInputs';
 import ActivityContextToggles from './ActivityContextToggles';
 import { activityEditStyles as s } from './activityEditStyles';
 import { ActivityTypeService } from '../../lib/services/activityTypeService';
-import AeiouPhaseModal from './AeiouPhaseModal';
+import AEIOUProcessModal from './AEIOUProcessModal';
 
 interface Props {
   visible: boolean;
@@ -79,7 +79,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
   // AEIOU fields
   const [aeiou, setAeiou] = useState<Record<string, string>>({});
-  const [selectedPhase, setSelectedPhase] = useState<any | null>(null);
+  const [selectedPhaseDimension, setSelectedPhaseDimension] = useState<string | null>(null);
 
   useEffect(() => {
     if (activity) {
@@ -220,6 +220,32 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                 </ScrollView>
               </View>
             )}
+
+            {/* Compact Metadata Chips */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md }}>
+              {metValue != null && metValue > 0 && (
+                <View style={{ backgroundColor: colors.accent + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
+                  <Text style={{ fontSize: 12, color: colors.accent, fontWeight: '600' }}>{metValue.toFixed(1)} MET</Text>
+                </View>
+              )}
+              {isBrainHygiene && (
+                <View style={{ backgroundColor: brainHygienePolarity === 'positive' ? '#E8F5E9' : '#FFEBEE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
+                  <Text style={{ fontSize: 12, color: brainHygienePolarity === 'positive' ? '#2E7D32' : '#C62828', fontWeight: '600' }}>
+                    Brain Hygiene {brainHygienePolarity === 'positive' ? '+' : '-'}
+                  </Text>
+                </View>
+              )}
+              {isOutdoors && (
+                <View style={{ backgroundColor: '#FFF3E0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
+                  <Text style={{ fontSize: 12, color: '#E65100', fontWeight: '600' }}>Outdoor</Text>
+                </View>
+              )}
+              {aeiou['interactions'] && (
+                <View style={{ backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
+                  <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: '600' }}>Social: {aeiou['interactions']}</Text>
+                </View>
+              )}
+            </View>
 
             {/* Title */}
             <Text style={s.label}>Title</Text>
@@ -400,7 +426,9 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
             {/* AEIOU -- editable */}
             <Text style={s.label}>AEIOU Reflection</Text>
-            {AEIOU_KEYS.map((key) => (
+            {AEIOU_KEYS.map((key) => {
+              const hasTimeline = activity.meta?.aeiou_timeline?.some((p: any) => p.dimension.toLowerCase() === key.toLowerCase());
+              return (
               <View key={key} style={s.aeiouRow}>
                 <Text style={s.aeiouKey}>{key.charAt(0).toUpperCase()}</Text>
                 <View style={s.aeiouInputWrap}>
@@ -414,35 +442,13 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                     multiline
                   />
                 </View>
-              </View>
-            ))}
-
-            {/* AEIOU Provenance Timeline */}
-            {activity.meta?.aeiou_timeline && activity.meta.aeiou_timeline.length > 0 && (
-              <View style={{ marginTop: spacing.sm, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: spacing.sm }}>
-                  <Feather name="activity" size={12} /> PHASE DETECTIONS
-                </Text>
-                {activity.meta.aeiou_timeline.map((phase: any, idx: number) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: colors.border }}
-                    onPress={() => setSelectedPhase(phase)}
-                    activeOpacity={0.6}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>
-                        {phase.dimension} • {phase.value}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
-                        {(phase.confidence * 100).toFixed(0)}% confident • {new Date(phase.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </View>
+                {hasTimeline && (
+                  <TouchableOpacity onPress={() => setSelectedPhaseDimension(key)} style={{ padding: 8 }}>
                     <Feather name="chevron-right" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
-                ))}
+                )}
               </View>
-            )}
+            )})}
 
             {/* Reflect with Mittens */}
             <TouchableOpacity
@@ -512,10 +518,11 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         </View>
       </View>
 
-      <AeiouPhaseModal
-        visible={!!selectedPhase}
-        phase={selectedPhase}
-        onClose={() => setSelectedPhase(null)}
+      <AEIOUProcessModal
+        visible={!!selectedPhaseDimension}
+        dimension={selectedPhaseDimension || ''}
+        timeline={activity.meta?.aeiou_timeline || []}
+        onClose={() => setSelectedPhaseDimension(null)}
       />
     </Modal>
   );

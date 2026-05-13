@@ -61,6 +61,13 @@ export function extendScene(
     scene.lastFramePath = framePath;
   }
 
+  // Track the distribution of scene types
+  if (!scene.sceneTypeCounts) {
+    scene.sceneTypeCounts = { [scene.type]: 1 };
+  }
+  const t = classification.sceneType;
+  scene.sceneTypeCounts[t] = (scene.sceneTypeCounts[t] || 0) + 1;
+
   // Update sub-phase if it progressed
   if (classification.subPhase !== scene.subPhase) {
     scene.subPhase = classification.subPhase;

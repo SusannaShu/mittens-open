@@ -179,10 +179,21 @@ class SceneStreamManager {
         } = require('./aeiouPhaseDispatch');
 
         const detections = await extractDetections(framePath, classification);
+
+        // Update brain hygiene metadata
+        matched.meta = matched.meta || {};
+        if (detections.screenVisible) {
+          // Assume 1 minute per frame interval for simplicity
+          matched.meta.scrolling_min = (matched.meta.scrolling_min || 0) + 1;
+        }
+        if (detections.multitaskingDetected) {
+          matched.meta.multitasking_detected = true;
+        }
+
         const changed = detectChangedDimensions(matched.id, detections);
         const phases = phasesToRun(changed);
 
-        if (phases.length > 0) {
+        if (phases.length > 0 || detections.screenVisible || detections.multitaskingDetected) {
           const aeiouIdx = logger.startPhase('aeiou', 'dispatch');
           for (const phase of phases) {
             const dim = phase[0].toUpperCase() as 'A' | 'E' | 'I' | 'O' | 'U';
@@ -199,6 +210,12 @@ class SceneStreamManager {
             aeiouIdx,
             `Ran ${phases.length} phases: ${phases.join(', ')}`,
           );
+
+          // Incremental DB update
+          if (matched.logId) {
+            const { updateLogIncremental } = require('./sceneLogWriter');
+            updateLogIncremental(matched.logId, matched);
+          }
         }
       } catch { /* aeiouPhaseDispatch not loaded */ }
 
@@ -347,6 +364,17 @@ class SceneStreamManager {
     this.openScenes.push(scene);
     this.nonMatchCounts.set(scene.id, 0);
 
+    // Create DB log entry immediately
+    try {
+      const { createLogOnDetect } = require('./sceneLogWriter');
+      const logId = createLogOnDetect(scene);
+      if (logId) {
+        scene.logId = logId;
+      }
+    } catch (err) {
+      console.warn('[SceneStream] Failed to create log on detect:', err);
+    }
+
     console.log(
       `[SceneStream] Opened scene ${scene.id}: ${scene.type}/${scene.subPhase}` +
       ` at ${scene.place || 'unknown'}`,
@@ -460,11 +488,15 @@ class SceneStreamManager {
       } catch { /* smartPantry not loaded */ }
     }
 
-    // Route to existing pipelines for actual log creation (async -- runs food pipeline)
-    const { routeToLogPipeline } = require('./sceneLogWriter');
-    routeToLogPipeline(scene).catch((err: any) => {
-      console.error('[SceneStream] Log pipeline error:', err?.message);
-    });
+    // Finalize the database log row (async -- runs food pipeline)
+    try {
+      if (scene.logId) {
+        const { finalizeLog } = require('./sceneLogWriter');
+        finalizeLog(scene).catch(console.error);
+      }
+    } catch (err: any) {
+      console.error('[SceneStream] Failed to finalize log:', err?.message || err);
+    }
   }
 }
 

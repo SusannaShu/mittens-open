@@ -19,11 +19,6 @@ export type SceneType =
   | 'social'       // conversation, gathering
   | 'rest'         // lounging, napping
   | 'errands'      // shopping, chores
-  | 'walk'
-  | 'run'
-  | 'bike'
-  | 'driving'
-  | 'transit'
   | 'unknown';
 
 /** Sub-phases within a scene -- tracks progression */
@@ -110,15 +105,6 @@ export interface Scene {
   frameCount: number;
   framePaths: string[];
   lastFramePath?: string;
-
-  /** ID of the associated activity_log or nutrition_log */
-  logId?: number;
-
-  /** Distribution of scene types detected across all frames in this scene */
-  sceneTypeCounts?: Record<string, number>;
-  
-  /** Blended life design weighting across the scene */
-  lifeCategories?: { work: number; health: number; play: number; love: number };
 }
 
 // ═══════════════════════════════════════

@@ -22,7 +22,6 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
     let unsubDoubleTap: (() => void) | undefined;
     let unsubSingleTap: (() => void) | undefined;
     let unsubMotion: (() => void) | undefined;
-    let unsubFreefall: (() => void) | undefined;
 
     // Fully lazy initialization -- all imports happen inside this async block
     const init = async () => {
@@ -301,22 +300,6 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           }
         });
 
-        // ─── Freefall Alert ───
-        unsubFreefall = service.onFreefall(async () => {
-          console.log('[PendantBridge] FREEFALL detected -- speaking alert');
-          try {
-            speak('Susanna! Falling alert! Are you okay?');
-          } catch (err: any) {
-            console.warn('[PendantBridge] Freefall voice alert failed:', err?.message);
-          }
-
-          // Log the freefall event to pendant store
-          pendantStore.addCapture({
-            type: 'FREEFALL' as any,
-            timestamp: Date.now(),
-          });
-        });
-
       } catch (err: any) {
         // If anything in pendant init fails, the app still works fine
         console.warn('[PendantBridge] Init failed (non-blocking):', err?.message || err);
@@ -329,7 +312,6 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
       unsubDoubleTap?.();
       unsubSingleTap?.();
       unsubMotion?.();
-      unsubFreefall?.();
     };
   }, []);
 }

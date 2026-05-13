@@ -1,57 +1,38 @@
 /**
- * ambient/sceneStreamManager.ts -- The ambient intelligence brain.
- *
- * Tracks all open scenes. On each new pendant frame:
- *   1. Classify frame via sceneClassifier
- *   2. Check against all open scenes -- does it match any?
- *   3. If match -> scene.extend() -> check after-frame triggers
- *   4. If no match -> close stale scenes, open new scene
- *   5. On scene close -> route to existing pipelines (food/activity)
- *
- * Event-driven: no polling. Logic triggers only on new evidence.
- * Multiple scenes can be open simultaneously at the same place.
+ * ambient/sceneStreamManager.ts -- Ambient intelligence brain.
+ * Per-frame: classify -> match scenes -> triage -> create/update logs.
  */
 
 import type {
   Scene,
   SceneClassification,
   ClassifierContext,
-  ScenePipelineResult,
 } from './types';
 import {
   openScene,
   extendScene,
-  closeScene,
-  matchesScene,
   matchesSceneType,
   matchesSceneVision,
   isTimedOut,
-  persistScene,
 } from './scene';
 import { classifyFrame } from './sceneClassifier';
-import { PipelineLogger, summarizeResult, PipelineLog } from '../../pipelines/logger';
+import { triageCapture } from './ambientTriage';
+import { executeLogDecision } from './sceneLogWriter';
+import {
+  checkAfterFrameTriggers as lifecycleAfterFrame,
+  checkFaceRecognition as lifecycleFaceRecog,
+  closeAndRoute as lifecycleClose,
+} from './sceneLifecycle';
+import { PipelineLogger, PipelineLog } from '../../pipelines/logger';
 
-// ═══════════════════════════════════════
-// SINGLETON
-// ═══════════════════════════════════════
-
+// Singleton
 let instance: SceneStreamManager | null = null;
-
 export function getSceneStreamManager(): SceneStreamManager {
-  if (!instance) {
-    instance = new SceneStreamManager();
-  }
+  if (!instance) instance = new SceneStreamManager();
   return instance;
 }
 
-// ═══════════════════════════════════════
-// MANAGER
-// ═══════════════════════════════════════
-
-/** Minimum confidence to open a new scene */
 const MIN_CONFIDENCE = 0.3;
-
-/** Consecutive non-matching frames before closing a scene */
 const NON_MATCH_CLOSE_THRESHOLD = 2;
 
 class SceneStreamManager {
@@ -63,6 +44,8 @@ class SceneStreamManager {
   private processing = false;
   /** Queue frames that arrive during processing */
   private pendingFrames: Array<{ framePath: string; timestamp: number }> = [];
+  /** Last vision dedup result (passed to triage for context) */
+  private lastVisionResult: { continuityScore: number; changes?: string } | null = null;
 
   /**
    * Main entry point: a new pendant frame arrived.
@@ -169,56 +152,6 @@ class SceneStreamManager {
         `Extended ${matched.type}, frame #${matched.frameCount}`,
       );
 
-      // AEIOU incremental phase dispatch -- only run changed dimensions
-      try {
-        const {
-          extractDetections,
-          detectChangedDimensions,
-          phasesToRun,
-          recordPhaseResult,
-        } = require('./aeiouPhaseDispatch');
-
-        const detections = await extractDetections(framePath, classification);
-
-        // Update brain hygiene metadata
-        matched.meta = matched.meta || {};
-        if (detections.screenVisible) {
-          // Assume 1 minute per frame interval for simplicity
-          matched.meta.scrolling_min = (matched.meta.scrolling_min || 0) + 1;
-        }
-        if (detections.multitaskingDetected) {
-          matched.meta.multitasking_detected = true;
-        }
-
-        const changed = detectChangedDimensions(matched.id, detections);
-        const phases = phasesToRun(changed);
-
-        if (phases.length > 0 || detections.screenVisible || detections.multitaskingDetected) {
-          const aeiouIdx = logger.startPhase('aeiou', 'dispatch');
-          for (const phase of phases) {
-            const dim = phase[0].toUpperCase() as 'A' | 'E' | 'I' | 'O' | 'U';
-            const value = this.getPhaseValue(phase, detections);
-            recordPhaseResult(matched, {
-              dimension: dim,
-              timestamp: Date.now(),
-              value,
-              confidence: classification.confidence,
-              framePath,
-            });
-          }
-          logger.completePhase(
-            aeiouIdx,
-            `Ran ${phases.length} phases: ${phases.join(', ')}`,
-          );
-
-          // Incremental DB update
-          if (matched.logId) {
-            const { updateLogIncremental } = require('./sceneLogWriter');
-            updateLogIncremental(matched.logId, matched);
-          }
-        }
-      } catch { /* aeiouPhaseDispatch not loaded */ }
-
       // Check after-frame triggers
       this.checkAfterFrameTriggers(matched, classification, logger);
       result = `[${matched.type}] Extracted ${classification.items.length} items (${classification.subPhase})`;
@@ -239,7 +172,48 @@ class SceneStreamManager {
       }
     }
 
-    // 5. Ambient face recognition (non-blocking)
+    // 5. Per-capture triage: decide what pipeline to run
+    const triageIdx = logger.startPhase('ambient', 'triage');
+    const dedupContext = matched ? {
+      continuityScore: 1.0,
+      isSameScene: true,
+      changes: undefined as string | undefined,
+    } : null;
+
+    // If vision match was attempted, use the result
+    if (matched && this.lastVisionResult) {
+      dedupContext!.continuityScore = this.lastVisionResult.continuityScore;
+      dedupContext!.changes = this.lastVisionResult.changes;
+    }
+
+    const triageDecision = triageCapture(classification, dedupContext);
+    logger.completePhase(
+      triageIdx,
+      `${triageDecision.pipeline}/${triageDecision.action}: ${triageDecision.reason}`,
+    );
+    logger.setTriageSummary(
+      `${triageDecision.pipeline}/${triageDecision.action} -> [${triageDecision.phases.join(', ')}]`,
+    );
+
+    // 6. Execute log create/update with gated phases
+    if (triageDecision.action !== 'skip') {
+      const logIdx = logger.startPhase('ambient', 'log');
+      try {
+        const { logId } = await executeLogDecision(
+          triageDecision, classification, framePath, matched || null, logger,
+        );
+        logger.completePhase(
+          logIdx,
+          logId != null
+            ? `${triageDecision.action} log #${logId}`
+            : 'No log created',
+        );
+      } catch (err: any) {
+        logger.failPhase(logIdx, err?.message);
+      }
+    }
+
+    // 7. Ambient face recognition (non-blocking)
     // Run on social scenes, or periodically on any frame
     if (
       classification.sceneType === 'social' ||
@@ -252,7 +226,7 @@ class SceneStreamManager {
       }
     }
 
-    // 6. Timeout check on all open scenes
+    // 8. Timeout check on all open scenes
     this.checkTimeouts(timestamp, logger);
 
     const log = logger.finalize();
@@ -301,6 +275,8 @@ class SceneStreamManager {
     framePath: string,
     logger: PipelineLogger,
   ): Promise<Scene | null> {
+    this.lastVisionResult = null;
+
     // Fast pass: find candidates by scene type (no API call)
     const candidates = this.openScenes.filter(
       (s) => matchesSceneType(s, classification),
@@ -312,6 +288,12 @@ class SceneStreamManager {
     for (const scene of candidates) {
       try {
         const result = await matchesSceneVision(scene, classification, framePath);
+        // Store for triage context
+        this.lastVisionResult = {
+          continuityScore: result.continuityScore ?? 1.0,
+          changes: result.changes,
+        };
+
         if (result.matches) {
           if (result.changes) {
             console.log(`[SceneStream] Vision match ${scene.id}: score=${result.continuityScore}, changes=${result.changes}`);
@@ -364,36 +346,11 @@ class SceneStreamManager {
     this.openScenes.push(scene);
     this.nonMatchCounts.set(scene.id, 0);
 
-    // Create DB log entry immediately
-    try {
-      const { createLogOnDetect } = require('./sceneLogWriter');
-      const logId = createLogOnDetect(scene);
-      if (logId) {
-        scene.logId = logId;
-      }
-    } catch (err) {
-      console.warn('[SceneStream] Failed to create log on detect:', err);
-    }
-
     console.log(
       `[SceneStream] Opened scene ${scene.id}: ${scene.type}/${scene.subPhase}` +
       ` at ${scene.place || 'unknown'}`,
     );
     return scene;
-  }
-  // ─── AEIOU Value Extraction ────────────
-
-  /** Extract the current value for a given AEIOU dimension from detections */
-  private getPhaseValue(phase: string, detections: any): string {
-    switch (phase) {
-      case 'activity': return detections.sceneType || 'unknown';
-      case 'environment':
-        return `${detections.environment || 'unknown'}${detections.nature ? ' (nature)' : ''}`;
-      case 'interaction': return `${detections.personCount || 0} people`;
-      case 'objects': return (detections.objects || []).join(', ') || 'none';
-      case 'user': return 'no change';
-      default: return 'unknown';
-    }
   }
 
   // ─── After-Frame Triggers ─────────────
@@ -403,21 +360,16 @@ class SceneStreamManager {
     classification: SceneClassification,
     logger: PipelineLogger,
   ): void {
-    const { checkAfterFrameTriggers: check } = require('./sceneTriggers');
-    check(scene, classification, logger);
+    lifecycleAfterFrame(scene, classification, logger);
   }
 
   // ─── Face Recognition ─────────────────
 
-  /**
-   * Delegate face recognition to the extracted module.
-   */
   private async checkFaceRecognition(
     framePath: string,
     logger: PipelineLogger,
   ): Promise<void> {
-    const { checkFaceRecognition: check } = require('./sceneFaceRecognition');
-    await check(framePath, logger);
+    await lifecycleFaceRecog(framePath, logger);
   }
 
   // ─── Timeout / Cleanup ────────────────
@@ -428,13 +380,9 @@ class SceneStreamManager {
   ): void {
     const now = Date.now();
     const toClose: Scene[] = [];
-
     for (const scene of this.openScenes) {
-      if (isTimedOut(scene, now)) {
-        toClose.push(scene);
-      }
+      if (isTimedOut(scene, now)) toClose.push(scene);
     }
-
     for (const scene of toClose) {
       this.closeAndRoute(scene, 'timeout', logger);
     }
@@ -447,56 +395,9 @@ class SceneStreamManager {
     reason: 'scene_change' | 'timeout' | 'geofence_exit' | 'user',
     logger: PipelineLogger,
   ): void {
-    const closeIdx = logger.startPhase('scene', 'close');
-    closeScene(scene, reason);
-
-    // Remove from open scenes
-    this.openScenes = this.openScenes.filter((s) => s.id !== scene.id);
-    this.nonMatchCounts.delete(scene.id);
-
-    // Clear AEIOU detection state for this scene
-    try {
-      const { clearSceneDetections } = require('./aeiouPhaseDispatch');
-      clearSceneDetections(scene.id);
-    } catch { /* aeiouPhaseDispatch not loaded */ }
-
-    logger.completePhase(
-      closeIdx,
-      `Closed: ${reason}, ${scene.frameCount} frames`,
+    this.openScenes = lifecycleClose(
+      scene, reason, this.openScenes, this.nonMatchCounts, logger,
     );
-
-    console.log(
-      `[SceneStream] Closed scene ${scene.id}: ${scene.type} ` +
-      `(${reason}, ${scene.frameCount} frames)`,
-    );
-
-    // Persist scene log
-    persistScene(scene, logger.finalize());
-
-    // Apply pantry deltas if any
-    if (scene.pantryDeltas.length > 0) {
-      try {
-        const { applyPantryDeltas } = require('./smartPantry');
-        const runningLow = applyPantryDeltas(scene.pantryDeltas);
-        // Nudge about first running-low item
-        if (runningLow.length > 0) {
-          try {
-            const { nudgeLowPantry } = require('./nudgeComposer');
-            nudgeLowPantry(runningLow[0].name);
-          } catch { /* nudgeComposer not loaded */ }
-        }
-      } catch { /* smartPantry not loaded */ }
-    }
-
-    // Finalize the database log row (async -- runs food pipeline)
-    try {
-      if (scene.logId) {
-        const { finalizeLog } = require('./sceneLogWriter');
-        finalizeLog(scene).catch(console.error);
-      }
-    } catch (err: any) {
-      console.error('[SceneStream] Failed to finalize log:', err?.message || err);
-    }
   }
 }
 

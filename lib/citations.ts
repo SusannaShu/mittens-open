@@ -169,18 +169,6 @@ export const CITATIONS: Record<string, Citation> = {
     journal: 'Biological Psychiatry',
     doi: '10.1016/S0006-3223(03)00465-7',
   },
-  multitasking_attention: {
-    claim: 'Media multitasking reduces cognitive control; task-switching costs up to 40% of productive time.',
-    source: 'Ophir, Nass & Wagner 2009',
-    journal: 'Proc. Natl. Acad. Sci. 106(37):15583-15587',
-    doi: '10.1073/pnas.0903620106',
-  },
-  attention_residue: {
-    claim: 'Switching tasks leaves attention residue, reducing performance on the next task.',
-    source: 'Leroy 2009',
-    journal: 'Organizational Behavior and Human Decision Processes 109(2):168-181',
-    doi: '10.1016/j.obhdp.2009.04.002',
-  },
 };
 
 export function getCitation(key: string | null | undefined): Citation | null {

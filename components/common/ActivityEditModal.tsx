@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, Pressable, TouchableOpacity,
-  TextInput, StyleSheet, ScrollView, Alert, Image
+  TextInput, StyleSheet, ScrollView, Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../../lib/theme';
@@ -17,7 +17,6 @@ import ActivityTimeInputs from './ActivityTimeInputs';
 import ActivityContextToggles from './ActivityContextToggles';
 import { activityEditStyles as s } from './activityEditStyles';
 import { ActivityTypeService } from '../../lib/services/activityTypeService';
-import AEIOUProcessModal from './AEIOUProcessModal';
 
 interface Props {
   visible: boolean;
@@ -63,12 +62,9 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   const [isOutdoors, setIsOutdoors] = useState(false);
   const [isNature, setIsNature] = useState(false);
 
-  // Movement + Brain Hygiene context
+  // Movement context
   const [isMovement, setIsMovement] = useState(false);
   const [metValue, setMetValue] = useState<number | null>(null);
-  const [isBrainHygiene, setIsBrainHygiene] = useState(false);
-  const [brainHygienePolarity, setBrainHygienePolarity] = useState<'positive' | 'negative' | null>(null);
-  const [scrollingMin, setScrollingMin] = useState('');
 
   // Sun exposure
   const [coveragePct, setCoveragePct] = useState(50);
@@ -79,7 +75,6 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
   // AEIOU fields
   const [aeiou, setAeiou] = useState<Record<string, string>>({});
-  const [selectedPhaseDimension, setSelectedPhaseDimension] = useState<string | null>(null);
 
   useEffect(() => {
     if (activity) {
@@ -110,7 +105,6 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
       // Movement + Brain Hygiene from activity type metadata
       setMetValue(activity.mets ?? null);
-      setScrollingMin(activity.meta?.scrolling_min != null ? String(activity.meta.scrolling_min) : '');
       loadActivityTypeMeta(activity.activityType);
     }
   }, [activity]);
@@ -120,12 +114,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
       const typeDef = await ActivityTypeService.getByKey(typeKey);
       if (!typeDef) return;
       const subs = typeDef.subCategories || [];
-      const hasMovement = subs.includes('movement');
-      const hasBH = subs.includes('brain_hygiene');
-      const hasBHNeg = subs.includes('brain_hygiene_neg');
-      setIsMovement(hasMovement);
-      setIsBrainHygiene(hasBH || hasBHNeg);
-      setBrainHygienePolarity(hasBH ? 'positive' : hasBHNeg ? 'negative' : null);
+      setIsMovement(subs.includes('movement'));
       if (metValue == null && typeDef.defaultMets) {
         setMetValue(typeDef.defaultMets);
       }
@@ -162,9 +151,6 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         lifeCategories: Object.keys(normalizedCats).length > 0 ? normalizedCats : undefined,
         ...(showSunSection ? { coverage_pct: coveragePct, sunscreen: hasSunscreen } : {}),
         ...(isMovement && metValue != null ? { mets: metValue } : {}),
-        ...(isBrainHygiene && brainHygienePolarity === 'negative' && scrollingMin
-          ? { meta: { ...activity.meta, scrolling_min: parseInt(scrollingMin, 10) || 0 } }
-          : {}),
       });
       onClose();
     } catch {
@@ -202,49 +188,6 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               <TouchableOpacity onPress={onClose} activeOpacity={0.6}>
                 <Feather name="x" size={20} color={colors.textMuted} />
               </TouchableOpacity>
-            </View>
-
-            {/* Vision Captures Trail */}
-            {activity.image && activity.image.length > 0 && (
-              <View style={{ marginBottom: spacing.md }}>
-                <Text style={s.label}>Vision Trail</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: 2 }}>
-                  {activity.image.map((img) => (
-                    <Image
-                      key={img.id}
-                      source={{ uri: `file://${img.url}` }}
-                      style={{ width: 100, height: 100, borderRadius: radius.md, backgroundColor: '#111' }}
-                      resizeMode="cover"
-                    />
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Compact Metadata Chips */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md }}>
-              {metValue != null && metValue > 0 && (
-                <View style={{ backgroundColor: colors.accent + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
-                  <Text style={{ fontSize: 12, color: colors.accent, fontWeight: '600' }}>{metValue.toFixed(1)} MET</Text>
-                </View>
-              )}
-              {isBrainHygiene && (
-                <View style={{ backgroundColor: brainHygienePolarity === 'positive' ? '#E8F5E9' : '#FFEBEE', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
-                  <Text style={{ fontSize: 12, color: brainHygienePolarity === 'positive' ? '#2E7D32' : '#C62828', fontWeight: '600' }}>
-                    Brain Hygiene {brainHygienePolarity === 'positive' ? '+' : '-'}
-                  </Text>
-                </View>
-              )}
-              {isOutdoors && (
-                <View style={{ backgroundColor: '#FFF3E0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
-                  <Text style={{ fontSize: 12, color: '#E65100', fontWeight: '600' }}>Outdoor</Text>
-                </View>
-              )}
-              {aeiou['interactions'] && (
-                <View style={{ backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm }}>
-                  <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: '600' }}>Social: {aeiou['interactions']}</Text>
-                </View>
-              )}
             </View>
 
             {/* Title */}
@@ -294,11 +237,6 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               metValue={metValue}
               setMetValue={setMetValue}
               durationMin={durationMin}
-              isBrainHygiene={isBrainHygiene}
-              setIsBrainHygiene={setIsBrainHygiene}
-              brainHygienePolarity={brainHygienePolarity}
-              scrollingMin={scrollingMin}
-              setScrollingMin={setScrollingMin}
             />
 
             {/* Sun Exposure -- coverage & sunscreen (only for sun/outdoor) */}
@@ -426,9 +364,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
             {/* AEIOU -- editable */}
             <Text style={s.label}>AEIOU Reflection</Text>
-            {AEIOU_KEYS.map((key) => {
-              const hasTimeline = activity.meta?.aeiou_timeline?.some((p: any) => p.dimension.toLowerCase() === key.toLowerCase());
-              return (
+            {AEIOU_KEYS.map((key) => (
               <View key={key} style={s.aeiouRow}>
                 <Text style={s.aeiouKey}>{key.charAt(0).toUpperCase()}</Text>
                 <View style={s.aeiouInputWrap}>
@@ -442,13 +378,8 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                     multiline
                   />
                 </View>
-                {hasTimeline && (
-                  <TouchableOpacity onPress={() => setSelectedPhaseDimension(key)} style={{ padding: 8 }}>
-                    <Feather name="chevron-right" size={16} color={colors.textMuted} />
-                  </TouchableOpacity>
-                )}
               </View>
-            )})}
+            ))}
 
             {/* Reflect with Mittens */}
             <TouchableOpacity
@@ -517,13 +448,6 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
           </View>
         </View>
       </View>
-
-      <AEIOUProcessModal
-        visible={!!selectedPhaseDimension}
-        dimension={selectedPhaseDimension || ''}
-        timeline={activity.meta?.aeiou_timeline || []}
-        onClose={() => setSelectedPhaseDimension(null)}
-      />
     </Modal>
   );
 }

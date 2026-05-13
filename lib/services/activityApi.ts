@@ -116,7 +116,6 @@ function rowToActivity(r: any): ActivityEntry {
     isNature: !!r.is_nature,
     isStrength: !!r.is_strength,
     meta: r.meta ? JSON.parse(r.meta) : undefined,
-    image: r.image_uris ? JSON.parse(r.image_uris).map((url: string, i: number) => ({ id: i, url })) : null,
     googleEventId: r.google_event_id,
   };
 }

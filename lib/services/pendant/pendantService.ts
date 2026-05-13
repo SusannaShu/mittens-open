@@ -33,7 +33,6 @@ const STORAGE_WIFI_SSID = '@pendant_wifi_ssid';
 type DoubleTapCallback = (audioPath: string, framePath?: string) => void;
 type SingleTapCallback = () => void;
 type MotionFrameCallback = (framePath: string) => void;
-type FreefallCallback = () => void;
 type DisconnectCallback = () => void;
 type ConnectionCallback = (connected: boolean) => void;
 type WifiFailCallback = () => void;
@@ -52,7 +51,6 @@ export class PendantService {
   private doubleTapCbs: DoubleTapCallback[] = [];
   private singleTapCbs: SingleTapCallback[] = [];
   private motionFrameCbs: MotionFrameCallback[] = [];
-  private freefallCbs: FreefallCallback[] = [];
   private disconnectCbs: DisconnectCallback[] = [];
   private connectionCbs: ConnectionCallback[] = [];
   private wifiFailCbs: WifiFailCallback[] = [];
@@ -366,12 +364,6 @@ export class PendantService {
         for (const cb of this.wifiFailCbs) cb();
       }
 
-      // FREEFALL: pendant detected freefall -- immediate safety alert
-      if (signal.type === 'FREEFALL') {
-        console.log('[Pendant] FREEFALL detected -- triggering safety alert');
-        for (const cb of this.freefallCbs) cb();
-      }
-
       // PROVISIONED: pendant successfully connected to WiFi
       if (signal.type === 'PROVISIONED') {
         console.log('[Pendant] Pendant WiFi provisioned successfully');
@@ -608,10 +600,6 @@ export class PendantService {
       case 'SINGLE_TAP':
         for (const cb of this.singleTapCbs) cb();
         break;
-
-      case 'FREEFALL':
-        for (const cb of this.freefallCbs) cb();
-        break;
     }
   }
 
@@ -634,11 +622,6 @@ export class PendantService {
   onMotionFrame(cb: MotionFrameCallback): () => void {
     this.motionFrameCbs.push(cb);
     return () => { this.motionFrameCbs = this.motionFrameCbs.filter(c => c !== cb); };
-  }
-
-  onFreefall(cb: FreefallCallback): () => void {
-    this.freefallCbs.push(cb);
-    return () => { this.freefallCbs = this.freefallCbs.filter(c => c !== cb); };
   }
 
   onDisconnect(cb: DisconnectCallback): () => void {

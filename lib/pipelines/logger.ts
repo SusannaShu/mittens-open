@@ -17,6 +17,10 @@ export interface PhaseLog {
   /** Short summary of what this phase produced */
   resultSummary?: string;
   error?: string;
+  /** Prompt / context sent to the brain (for debug trace) */
+  input?: string;
+  /** Raw response from the brain (for debug trace) */
+  output?: string;
 }
 
 export interface PipelineLog {
@@ -97,6 +101,14 @@ export class PipelineLogger {
     this.log.completedAt = Date.now();
     this.log.totalDurationMs = this.log.completedAt - this.log.startedAt;
     return this.log;
+  }
+
+  /** Record what was sent to and received from the brain */
+  logPhaseIO(index: number, input: string, output: string) {
+    const entry = this.log.phases[index];
+    if (!entry) return;
+    entry.input = input;
+    entry.output = output;
   }
 
   /** Get a snapshot of the current log (for live updates) */

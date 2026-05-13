@@ -16,6 +16,7 @@ import type {
   SubPhase,
 } from './types';
 
+/** Classify a pendant frame into a scene type */
 export async function classifyFrame(
   framePath: string,
   context: ClassifierContext,
@@ -34,18 +35,7 @@ export async function classifyFrame(
 
   try {
     const raw = await brain.vision(prompt, [framePath]);
-    const parsed = parseClassification(raw, fallback);
-    
-    // Override sceneType if actively moving on foot/bike
-    if (context.motionType && ['walking', 'running', 'biking'].includes(context.motionType)) {
-      if (context.motionType === 'running') parsed.sceneType = 'run' as any;
-      else if (context.motionType === 'biking') parsed.sceneType = 'bike' as any;
-      else parsed.sceneType = 'walk' as any;
-      parsed.subPhase = 'active';
-      parsed.confidence = 1.0;
-    }
-    
-    return parsed;
+    return parseClassification(raw, fallback);
   } catch (err: any) {
     console.error('[SceneClassifier] Vision failed:', err?.message || err);
     return fallback;
@@ -58,7 +48,7 @@ function buildPrompt(ctx: ClassifierContext): string {
   const parts: string[] = [
     'Classify this photo. Respond JSON only.',
     '{',
-    '  "t": scene type (meal_prep|eating|work|exercise|commute|social|rest|errands|driving|transit|unknown),',
+    '  "t": scene type (meal_prep|eating|work|exercise|commute|social|rest|errands|unknown),',
     '  "p": phase (prep|cook|plate|eat|cleanup|active|break|transit|idle),',
     '  "items": [{name, qty, unit, conf}] if food visible else [],',
     '  "conf": 0-1 confidence,',
@@ -123,7 +113,6 @@ function parseClassification(
       items,
       confidence: Number(parsed.conf || parsed.confidence || 0.5),
       description: parsed.desc || parsed.description || undefined,
-      detect: parsed.detect || undefined,
     };
   } catch (err) {
     console.warn('[SceneClassifier] Parse failed, using fallback');
@@ -135,7 +124,7 @@ function parseClassification(
 
 const VALID_SCENE_TYPES: Set<string> = new Set([
   'meal_prep', 'eating', 'work', 'exercise', 'commute',
-  'social', 'rest', 'errands', 'driving', 'transit', 'walk', 'run', 'bike', 'unknown',
+  'social', 'rest', 'errands', 'unknown',
 ]);
 
 const VALID_SUB_PHASES: Set<string> = new Set([

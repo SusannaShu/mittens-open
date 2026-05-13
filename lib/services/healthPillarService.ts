@@ -133,37 +133,14 @@ export class HealthPillarService {
   private static computeBrainHygiene(logs: DayLogs): PillarScore {
     let positiveMin = 0;
     let negativeMin = 0;
-    let multitaskingCount = 0;
 
     for (const act of logs.activities) {
       const type = act.activity_type;
-      let actPositive = 0;
-      let actNegative = 0;
-
       if (type === 'meditation' || type === 'journal') {
-        actPositive += act.duration_min || 0;
+        positiveMin += act.duration_min || 0;
       } else if (type === 'scrolling') {
-        actNegative += act.duration_min || 0;
+        negativeMin += act.duration_min || 0;
       }
-
-      // Check meta for ambient insights
-      if (act.meta) {
-        let metaObj: any = {};
-        try {
-          metaObj = typeof act.meta === 'string' ? JSON.parse(act.meta) : act.meta;
-        } catch { /* ignore */ }
-
-        if (metaObj.scrolling_min) {
-          actNegative += metaObj.scrolling_min;
-        }
-        if (metaObj.multitasking_detected) {
-          multitaskingCount += 1;
-          actNegative += 5; // Penalty for multitasking
-        }
-      }
-
-      positiveMin += actPositive;
-      negativeMin += actNegative;
     }
 
     // 10 min meditation = good baseline, scrolling subtracts
@@ -182,9 +159,8 @@ export class HealthPillarService {
       details: [
         { label: 'Mindfulness', val: `${Math.round(positiveMin)} min` },
         { label: 'Screen scroll', val: `${Math.round(negativeMin)} min` },
-        ...(multitaskingCount > 0 ? [{ label: 'Multitasking', val: `${multitaskingCount} events` }] : []),
       ],
-      whyText: 'Regular mindfulness practice reduces cortisol and improves focus. Multitasking and scrolling leave attention residue and increase anxiety.',
+      whyText: 'Regular mindfulness practice reduces cortisol and improves focus. Excessive scrolling increases anxiety.',
     };
   }
 

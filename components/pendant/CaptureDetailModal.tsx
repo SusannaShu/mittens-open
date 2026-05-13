@@ -21,6 +21,7 @@ import { Feather } from '@expo/vector-icons';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
 import { PendantCapture } from '../../lib/services/pendant/pendantStore';
 import PipelineLogBubble from '../chat/PipelineLogBubble';
+import PhaseDebugTrace from './PhaseDebugTrace';
 
 interface Props {
   capture: PendantCapture | null;
@@ -271,6 +272,11 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
             </View>
           )}
 
+          {/* Phase Debug Trace (expandable I/O per phase) */}
+          {capture.pipelineLog?.phases?.length > 0 && (
+            <PhaseDebugTrace log={capture.pipelineLog} />
+          )}
+
           {/* Metadata */}
           <View style={styles.metaSection}>
             <Text style={styles.sectionLabel}>Details</Text>
@@ -398,7 +404,7 @@ const styles = StyleSheet.create({
   waveBar: {
     width: 2,
     borderRadius: 1,
-    backgroundColor: colors.textDim || '#CCC',
+    backgroundColor: colors.textMuted,
   },
   responseSection: {
     marginBottom: spacing.md,

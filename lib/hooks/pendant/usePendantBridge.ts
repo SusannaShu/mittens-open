@@ -28,7 +28,6 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
       try {
         // Lazy imports to avoid crash on app boot
         const { getPendantService } = require('../../services/pendant/pendantService');
-        const { getBrain } = require('../../brain/selector');
         const { speak } = require('../../services/ai/voiceService');
 
         const service = getPendantService();
@@ -100,138 +99,29 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               options.scrollToEnd?.();
             }
 
-            const brain = await getBrain();
             let responseText: string;
 
-            if (brain.supportsAudio && audioPath) {
-              // Gemini 4 E2B / E4B -- native audio understanding, no STT needed
-              const prompt = [
-                'The user pressed the button and spoke this voice message.',
-                'Listen to the audio and respond naturally.',
-                'You are an embodied AI companion. Be highly conversational, natural, and use 1 short sentence maximum.',
-                framePath ? 'Use your vision to observe your surroundings and consider it.' : '',
-              ].filter(Boolean).join(' ');
-
-              console.log('[PendantBridge] Using native audio brain:', brain.name);
-              responseText = await brain.audio(prompt, audioPath);
-            } else if (audioPath) {
-              // Transcribe the audio using iOS/Android native STT fallback
-              console.log('[PendantBridge] Brain lacks native audio, transcribing via voiceService...');
-              const { transcribeAudioFile } = require('../../services/ai/voiceService');
-              const transcript = await transcribeAudioFile(audioPath);
-              console.log('[PendantBridge] Transcript:', transcript);
-
-              if (!transcript && !framePath) {
-                throw new Error('Could not hear anything and no photo was captured.');
+            // Transcribe audio if present (STT for non-native-audio brains)
+            let transcript: string | null = null;
+            if (audioPath) {
+              try {
+                const { transcribeAudioFile } = require('../../services/ai/voiceService');
+                transcript = await transcribeAudioFile(audioPath);
+                console.log('[PendantBridge] Transcript:', transcript);
+              } catch (sttErr: any) {
+                console.warn('[PendantBridge] STT failed:', sttErr?.message);
               }
-
-              // ─── Face Introduction Detection ───
-              // If the user says "this is [Name]", register the face
-              if (transcript && framePath) {
-                try {
-                  const { parseIntroduction } = require('../../services/faceRecognition/introductionDetector');
-                  const intro = parseIntroduction(transcript);
-                  if (intro) {
-                    console.log(`[PendantBridge] Introduction detected: "${intro.name}" (${intro.pattern})`);
-                    const { introducePerson } = require('../../services/faceRecognition/faceRecognitionService');
-                    const result = await introducePerson(intro.name, framePath);
-
-                    if (result) {
-                      responseText = result.isNew
-                        ? `Nice to meet you ${result.name}! I have learned your face and will remember you.`
-                        : `Got it, I have strengthened my memory of ${result.name}. I now have ${result.embeddingsSaved} sightings saved.`;
-                    } else {
-                      responseText = `I heard you say this is ${intro.name}, but I could not detect a face in the photo. Could you try again?`;
-                    }
-
-                    // Skip normal brain processing -- jump to response handling
-                    console.log('[PendantBridge] Face intro response:', responseText);
-                    pendantStore.updateCapture(captureId, {
-                      brainResponse: responseText,
-                      processed: true,
-                    });
-                    if (options?.addMessage) {
-                      options.addMessage({
-                        id: `m-${Date.now()}`,
-                        role: 'mittens',
-                        text: responseText,
-                        timestamp: new Date(),
-                        source: 'pendant',
-                      });
-                      options.scrollToEnd?.();
-                    }
-                    speak(responseText);
-                    processingRef.current = false;
-                    return;
-                  }
-                } catch (introErr: any) {
-                  console.warn('[PendantBridge] Face intro check failed (non-blocking):', introErr?.message);
-                }
-              }
-
-              // ─── Meal Command Detection ───
-              // If the user says "log two oranges" or "I had a banana", handle as meal
-              if (transcript) {
-                try {
-                  const { parseMealCommand, handleVoiceMealCommand } = require('../../services/ambient/voiceMealHandler');
-                  const foodText = parseMealCommand(transcript);
-                  if (foodText) {
-                    console.log(`[PendantBridge] Meal command detected: "${foodText}"`);
-                    const mealResult = await handleVoiceMealCommand(foodText, framePath);
-                    responseText = mealResult.response;
-
-                    // Skip normal brain processing
-                    pendantStore.updateCapture(captureId, {
-                      brainResponse: responseText,
-                      processed: true,
-                    });
-                    if (options?.addMessage) {
-                      options.addMessage({
-                        id: `m-${Date.now()}`,
-                        role: 'mittens',
-                        text: responseText,
-                        timestamp: new Date(),
-                        source: 'pendant',
-                      });
-                      options.scrollToEnd?.();
-                    }
-                    speak(responseText);
-                    processingRef.current = false;
-                    return;
-                  }
-                } catch (mealErr: any) {
-                  console.warn('[PendantBridge] Meal command check failed (non-blocking):', mealErr?.message);
-                }
-              }
-
-              const prompt = [
-                transcript ? `The user spoke: "${transcript}"` : 'The user pressed the button but no speech was clearly heard.',
-                framePath && brain.supportsVision ? 'Use your vision to observe your surroundings and consider it.' : '',
-                'You are an embodied AI companion. Be highly conversational, natural, and use 1 short sentence maximum.',
-              ].filter(Boolean).join(' ');
-
-              if (framePath && brain.supportsVision) {
-                console.log('[PendantBridge] Using vision + transcribed text:', brain.name);
-                responseText = await brain.vision(prompt, [framePath]);
-              } else {
-                console.log('[PendantBridge] Using text-only brain:', brain.name);
-                responseText = await brain.text(prompt);
-              }
-            } else if (framePath && brain.supportsVision) {
-              // Vision-only fallback (no audio at all)
-              const prompt = [
-                'The user pressed the button on your body.',
-                'Use your vision to observe your surroundings and describe what you see.',
-                'You are an embodied AI companion. Be highly conversational, natural, and use 1 short sentence maximum.',
-              ].join(' ');
-
-              console.log('[PendantBridge] Using vision-only brain:', brain.name);
-              responseText = await brain.vision(prompt, [framePath]);
-            } else {
-              // Text-only fallback
-              responseText = 'I received your pendant capture but my current brain lacks vision and audio capabilities.';
-              console.log('[PendantBridge] No audio/vision capabilities');
             }
+
+            if (!transcript && !framePath) {
+              throw new Error('Could not hear anything and no photo was captured.');
+            }
+
+            // Two-stage brain triage: classify intent, load context, execute
+            const { dispatchVoice } = require('../../services/ambient/pendantVoiceDispatch');
+            const result = await dispatchVoice(transcript, framePath, audioPath);
+            responseText = result.response;
+            console.log(`[PendantBridge] Dispatch: ${result.intent}/${result.action}`);
 
             console.log('[PendantBridge] Response:', responseText?.slice(0, 80));
 

@@ -169,6 +169,39 @@ class SceneStreamManager {
         `Extended ${matched.type}, frame #${matched.frameCount}`,
       );
 
+      // AEIOU incremental phase dispatch -- only run changed dimensions
+      try {
+        const {
+          extractDetections,
+          detectChangedDimensions,
+          phasesToRun,
+          recordPhaseResult,
+        } = require('./aeiouPhaseDispatch');
+
+        const detections = await extractDetections(framePath, classification);
+        const changed = detectChangedDimensions(matched.id, detections);
+        const phases = phasesToRun(changed);
+
+        if (phases.length > 0) {
+          const aeiouIdx = logger.startPhase('aeiou', 'dispatch');
+          for (const phase of phases) {
+            const dim = phase[0].toUpperCase() as 'A' | 'E' | 'I' | 'O' | 'U';
+            const value = this.getPhaseValue(phase, detections);
+            recordPhaseResult(matched, {
+              dimension: dim,
+              timestamp: Date.now(),
+              value,
+              confidence: classification.confidence,
+              framePath,
+            });
+          }
+          logger.completePhase(
+            aeiouIdx,
+            `Ran ${phases.length} phases: ${phases.join(', ')}`,
+          );
+        }
+      } catch { /* aeiouPhaseDispatch not loaded */ }
+
       // Check after-frame triggers
       this.checkAfterFrameTriggers(matched, classification, logger);
       result = `[${matched.type}] Extracted ${classification.items.length} items (${classification.subPhase})`;
@@ -320,6 +353,20 @@ class SceneStreamManager {
     );
     return scene;
   }
+  // ─── AEIOU Value Extraction ────────────
+
+  /** Extract the current value for a given AEIOU dimension from detections */
+  private getPhaseValue(phase: string, detections: any): string {
+    switch (phase) {
+      case 'activity': return detections.sceneType || 'unknown';
+      case 'environment':
+        return `${detections.environment || 'unknown'}${detections.nature ? ' (nature)' : ''}`;
+      case 'interaction': return `${detections.personCount || 0} people`;
+      case 'objects': return (detections.objects || []).join(', ') || 'none';
+      case 'user': return 'no change';
+      default: return 'unknown';
+    }
+  }
 
   // ─── After-Frame Triggers ─────────────
 
@@ -378,6 +425,12 @@ class SceneStreamManager {
     // Remove from open scenes
     this.openScenes = this.openScenes.filter((s) => s.id !== scene.id);
     this.nonMatchCounts.delete(scene.id);
+
+    // Clear AEIOU detection state for this scene
+    try {
+      const { clearSceneDetections } = require('./aeiouPhaseDispatch');
+      clearSceneDetections(scene.id);
+    } catch { /* aeiouPhaseDispatch not loaded */ }
 
     logger.completePhase(
       closeIdx,

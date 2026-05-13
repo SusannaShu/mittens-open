@@ -18,7 +18,7 @@ export const DATA_ACK_UUID = '6e400007-b5a3-f393-e0a9-e50e24dcca9e';
 
 // ─── Event Types ───
 
-export type PendantEventType = 'BUTTON_PRESS' | 'SINGLE_TAP' | 'TRIPLE_TAP' | 'MOTION';
+export type PendantEventType = 'BUTTON_PRESS' | 'SINGLE_TAP' | 'TRIPLE_TAP' | 'MOTION' | 'FREEFALL';
 
 export interface PendantEventMeta {
   type: PendantEventType;

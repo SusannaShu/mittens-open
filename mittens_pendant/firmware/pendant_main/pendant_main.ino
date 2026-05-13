@@ -167,6 +167,25 @@ bool handleMotion() {
   return ok;
 }
 
+bool handleFreefall() {
+  Serial.println("[FLOW] === FREEFALL DETECTED ===");
+  ledOn();
+
+  // Signal the phone immediately -- no photo or audio needed for fall alert
+  bleSignalEvent("FREEFALL");
+
+  // Rapid LED blink to indicate freefall detection (3 quick flashes)
+  for (int i = 0; i < 3; i++) {
+    ledOff();
+    delay(100);
+    ledOn();
+    delay(100);
+  }
+  ledOff();
+
+  return true;
+}
+
 // --- Deep Sleep (idle timeout) ---
 // Only sleep when nothing has happened for IDLE_SLEEP_MS.
 // Wake on: button press (D1/GPIO2, LOW) or IMU motion (D2/GPIO3, HIGH).
@@ -444,12 +463,16 @@ void loop() {
 
     uint8_t tapSrc = lsmRead(LSM6DS3_TAP_SRC);
     uint8_t wuSrc = lsmRead(LSM6DS3_WAKE_UP_SRC);
+    uint8_t ffSrc = lsmRead(LSM6DS3_FREE_FALL);
 
-    Serial.printf("[IMU] Motion! TAP_SRC=0x%02X WAKE_UP_SRC=0x%02X\n", tapSrc,
-                  wuSrc);
+    Serial.printf("[IMU] Motion! TAP_SRC=0x%02X WAKE_UP_SRC=0x%02X FF=0x%02X\n", tapSrc,
+                  wuSrc, ffSrc);
 
-    // In ACTIVE mode, skip IMU-triggered captures (phone drives captures)
-    if (g_captureMode == 1) {
+    // Check freefall first (highest priority safety event)
+    if (ffSrc & 0x20) {
+      handleFreefall();
+    } else if (g_captureMode == 1) {
+      // In ACTIVE mode, skip IMU-triggered captures (phone drives captures)
       Serial.println(
           "[IMU] ACTIVE mode -- skipping IMU capture (phone controls)");
     } else {
@@ -460,6 +483,7 @@ void loop() {
 
     lsmRead(LSM6DS3_TAP_SRC);
     lsmRead(LSM6DS3_WAKE_UP_SRC);
+    lsmRead(LSM6DS3_FREE_FALL);
     g_int1Fired = false;
     g_int2Fired = false;
   }

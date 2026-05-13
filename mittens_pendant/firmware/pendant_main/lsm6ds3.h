@@ -23,11 +23,13 @@
 #define LSM6DS3_CTRL3_C 0x12
 #define LSM6DS3_WAKE_UP_SRC 0x1B
 #define LSM6DS3_TAP_SRC 0x1C
+#define LSM6DS3_FREE_FALL 0x1D
 #define LSM6DS3_TAP_CFG 0x58
 #define LSM6DS3_TAP_THS_6D 0x59
 #define LSM6DS3_INT_DUR2 0x5A
 #define LSM6DS3_WAKE_UP_THS 0x5B
 #define LSM6DS3_WAKE_UP_DUR 0x5C
+#define LSM6DS3_FREE_FALL_CFG 0x5D
 #define LSM6DS3_MD1_CFG 0x5E
 #define LSM6DS3_MD2_CFG 0x5F
 
@@ -37,6 +39,7 @@ enum WakeReason {
   WAKE_MOTION,
   WAKE_SINGLE_TAP,
   WAKE_BUTTON_PRESS,
+  WAKE_FREEFALL,
 };
 
 // ─── I2C Helpers ───
@@ -95,6 +98,12 @@ WakeReason classifyWake() {
 
   Serial.printf("[IMU] INT1=%d, INT2=%d, TAP_SRC=0x%02X, WAKE_UP_SRC=0x%02X\n",
                 int1State, int2State, tapSrc, wuSrc);
+
+  // Freefall: FF_IA bit (bit 5) in FREE_FALL register
+  uint8_t ffSrc = lsmRead(LSM6DS3_FREE_FALL);
+  if (ffSrc & 0x20) {
+    return WAKE_FREEFALL;
+  }
 
   // Double-tap: INT2 high OR TAP_SRC double-tap bit (bit 4)
   if (int2State == HIGH || (tapSrc & 0x10)) {
@@ -155,6 +164,16 @@ void lsmConfigureWake() {
   // 0x08 = INT2_BUTTON_PRESS
   lsmWrite(LSM6DS3_MD2_CFG, 0x08);
 
+  // FREE_FALL_CFG (0x5D): Freefall threshold + duration
+  // Bits [2:0] = FF_THS (threshold): 0x03 = ~312mg (sensitive but not hair-trigger)
+  // Bits [7:3] = FF_DUR (duration): 0x03 = ~6 ODR samples at 416Hz = ~14ms
+  // Combined: 0x1B = duration 3 (bits 4:3) + threshold 3 (bits 2:0)
+  lsmWrite(LSM6DS3_FREE_FALL_CFG, 0x1B);
+
+  // Route freefall to INT1 as well (add to existing wake-up routing)
+  // MD1_CFG: bit 5 = INT1_WU, bit 4 = INT1_FF
+  lsmWrite(LSM6DS3_MD1_CFG, 0x30);  // 0x20 | 0x10 = wake-up + freefall on INT1
+
   // Wait for IMU output to stabilize after configuration change.
   // The original 100ms was too short -- residual vibration from the event
   // that triggered the wake would immediately fire INT1 after reconfiguration.
@@ -171,5 +190,11 @@ void lsmConfigureWake() {
     delay(10);
   }
 
-  Serial.println("[IMU] Dual-INT armed: INT1=motion(D2), INT2=tap(D3)");
+  Serial.println("[IMU] Dual-INT armed: INT1=motion+freefall(D2), INT2=tap(D3)");
+}
+
+/** Check if freefall was detected (call from loop for real-time check) */
+bool lsmIsFreefalling() {
+  uint8_t ffSrc = lsmRead(LSM6DS3_FREE_FALL);
+  return (ffSrc & 0x20) != 0;  // FF_IA bit
 }

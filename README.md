@@ -2,9 +2,7 @@
 
 Susanna's bot — brain, eyes, ears, and voice, in one project.
 
-Mittens runs on your phone. It tracks your nutrition, track your location to log your activities, reflects on your day through Stanford Life Design, helps you learn languages, watches the web for you, and talks to you about all of it. It sees what you eat, hears what you say, and remembers what matters to you.
-
-Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays on-device.
+Mittens runs on your phone. It tracks your nutrition from your meals, smart inventory of your pantry, recommends groceries from USDA FoodData and your personal nutrition gap calculation, track your location to log your walking/biking/running/transit activities to recommend what to eat more or less, logs your sleep and activity, reflects on each of them with scientific research and data visualizations, remembers your friends' and family's faces, socialize and help you reflect on your life and relationships through stanford's life design philosophy. It sees what you eat, hears what you say, and remembers what matters to you.
 
 <p align="center">
   <img src="screenshots/today-dashboard.png" width="180" alt="Today dashboard" />
@@ -13,6 +11,14 @@ Local model on your phone. Host your own model and port it in, or bring your own
   <img src="screenshots/reflect-calendar.png" width="180" alt="Calendar reflection" />
   <img src="screenshots/places-map.png" width="180" alt="Places map" />
 </p>
+
+Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays on-device.
+
+I am bothered by manually picture sending so I made a pendant to automate logging my meals and activities. And the data is extensive so I'm sending everything in cloud server in my private repo and the cloud version (including connecting models like Claude Opus) will be released later.
+
+I test every detail of the wearbale, app, and pipelines throughout my daily life and make sure even small models can do things right instead of dumping large models with lots of parameters. And as models keep getting better, I believe the future everyone will have their own mittens living on the edge right in their pocket or on their body.
+
+
 
 ## What Mittens does
 
@@ -53,7 +59,7 @@ You ask Mittens something       Pendant captures something
          +-->  people     ("this is [Name]" -> face embedding -> recognition)
 ```
 
-Pendant frames and audio enter the same pipelines as manual input. Motion frames auto-triage to food/activity/pantry/people based on what the brain sees. Double-tap audio goes through the chat pipeline -- with an intercept for face introductions ("this is [Name]"). Social scene frames are automatically checked against known face embeddings. No separate pendant pipeline -- same code path, different input source.
+Pendant frames and audio enter the same pipelines as manual input. Motion frames auto-triage to food/activity/pantry/people based on what the brain sees. Button-press to speak to mittens -> audio goes through the chat pipeline with an intercept for face introductions ("this is [Name]"). Social scene frames are automatically checked against known face embeddings. No separate pendant pipeline -> same code path, different input source.
 
 ### Brain (pick one)
 
@@ -199,7 +205,7 @@ See [mittens_pendant/firmware/pendant_main/SETUP.md](mittens_pendant/firmware/pe
 
 **Trading map.** Items marked "want to trade" flow from SUSU Closet to SUSU Map for local peer-to-peer trading.
 
-**Self-hosted brain.** M4 MacBook Pro running Gemma 4 26B via Ollama as the always-available home server brain. Phone connects over local network. Same pipeline code, just a different brain endpoint. 
+**Production level Pendant.** Customized PCB with alumninum case with upgraded components and design, smaller, lighter. If permits would like to log continuous video and audio instead of current trigger based log.
 
 ## Cost
 

@@ -19,8 +19,8 @@
 import ExpoModulesCore
 import Foundation
 import UIKit
-import Vision
-import CoreML
+@preconcurrency import Vision
+@preconcurrency import CoreML
 import CoreImage
 
 public class ExpoFaceRecognitionModule: Module {
@@ -126,19 +126,17 @@ public class ExpoFaceRecognitionModule: Module {
 
         guard let croppedCG = cgImage.cropping(to: expandedRect) else { continue }
 
-        // Step 3: Extract embedding
+        // Strict CoreML extraction only
         var embedding: [Float]? = nil
-
         if let model = self.faceNetModel {
-          embedding = try? self.extractEmbeddingCoreML(
+          embedding = try? await self.extractEmbeddingCoreML(
             faceCG: croppedCG,
             model: model
           )
         }
 
-        // Fallback: use a simple perceptual hash as a lightweight fingerprint
         if embedding == nil {
-          embedding = self.computePerceptualHash(faceCG: croppedCG)
+          NSLog("[FaceRecognition] Failed to extract CoreML embedding for face (model missing or inference failed)")
         }
 
         guard let emb = embedding else { continue }
@@ -222,7 +220,7 @@ public class ExpoFaceRecognitionModule: Module {
   private func extractEmbeddingCoreML(
     faceCG: CGImage,
     model: VNCoreMLModel
-  ) throws -> [Float] {
+  ) async throws -> [Float] {
     // Resize to 112x112 for MobileFaceNet input
     guard let resized = self.resizeCGImage(faceCG, to: CGSize(width: 112, height: 112)) else {
       throw NSError(
@@ -277,60 +275,7 @@ public class ExpoFaceRecognitionModule: Module {
     }
   }
 
-  // ═══════════════════════════════════════
-  // MARK: - Perceptual Hash Fallback
-  // ═══════════════════════════════════════
 
-  /**
-   * When no CoreML model is loaded, generate a lightweight 128-dim
-   * perceptual hash from the face crop. Less accurate than a trained
-   * model but still usable for basic recognition.
-   *
-   * Downscales face to 16x8 grayscale, yielding 128 values.
-   * L2-normalized so cosine similarity works.
-   */
-  private func computePerceptualHash(faceCG: CGImage) -> [Float]? {
-    guard let resized = self.resizeCGImage(faceCG, to: CGSize(width: 16, height: 8)) else {
-      return nil
-    }
-
-    let width = 16
-    let height = 8
-    let bytesPerPixel = 4
-    let bytesPerRow = width * bytesPerPixel
-    var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
-
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard let context = CGContext(
-      data: &pixelData,
-      width: width,
-      height: height,
-      bitsPerComponent: 8,
-      bytesPerRow: bytesPerRow,
-      space: colorSpace,
-      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { return nil }
-
-    context.draw(resized, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-    // Convert to grayscale floats
-    var embedding = [Float](repeating: 0, count: width * height)
-    for i in 0..<(width * height) {
-      let offset = i * bytesPerPixel
-      let r = Float(pixelData[offset]) / 255.0
-      let g = Float(pixelData[offset + 1]) / 255.0
-      let b = Float(pixelData[offset + 2]) / 255.0
-      embedding[i] = 0.299 * r + 0.587 * g + 0.114 * b
-    }
-
-    // L2 normalize
-    let norm = sqrt(embedding.reduce(0) { $0 + $1 * $1 })
-    if norm > 0 {
-      embedding = embedding.map { $0 / norm }
-    }
-
-    return embedding
-  }
 
   // ═══════════════════════════════════════
   // MARK: - Image Utilities

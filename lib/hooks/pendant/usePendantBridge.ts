@@ -169,6 +169,41 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                 }
               }
 
+              // ─── Meal Command Detection ───
+              // If the user says "log two oranges" or "I had a banana", handle as meal
+              if (transcript) {
+                try {
+                  const { parseMealCommand, handleVoiceMealCommand } = require('../../services/ambient/voiceMealHandler');
+                  const foodText = parseMealCommand(transcript);
+                  if (foodText) {
+                    console.log(`[PendantBridge] Meal command detected: "${foodText}"`);
+                    const mealResult = await handleVoiceMealCommand(foodText, framePath);
+                    responseText = mealResult.response;
+
+                    // Skip normal brain processing
+                    pendantStore.updateCapture(captureId, {
+                      brainResponse: responseText,
+                      processed: true,
+                    });
+                    if (options?.addMessage) {
+                      options.addMessage({
+                        id: `m-${Date.now()}`,
+                        role: 'mittens',
+                        text: responseText,
+                        timestamp: new Date(),
+                        source: 'pendant',
+                      });
+                      options.scrollToEnd?.();
+                    }
+                    speak(responseText);
+                    processingRef.current = false;
+                    return;
+                  }
+                } catch (mealErr: any) {
+                  console.warn('[PendantBridge] Meal command check failed (non-blocking):', mealErr?.message);
+                }
+              }
+
               const prompt = [
                 transcript ? `The user spoke: "${transcript}"` : 'The user pressed the button but no speech was clearly heard.',
                 framePath && brain.supportsVision ? 'Use your vision to observe your surroundings and consider it.' : '',

@@ -186,7 +186,14 @@ class SceneStreamManager {
       dedupContext!.changes = this.lastVisionResult.changes;
     }
 
-    const triageDecision = triageCapture(classification, dedupContext);
+    // Check for active trail (movement session with linked activity log)
+    let trailLogId: number | null = null;
+    try {
+      const { getActiveTrailLogId } = require('./trailActivityBridge');
+      trailLogId = getActiveTrailLogId();
+    } catch { /* trailActivityBridge not loaded */ }
+
+    const triageDecision = triageCapture(classification, dedupContext, trailLogId);
     logger.completePhase(
       triageIdx,
       `${triageDecision.pipeline}/${triageDecision.action}: ${triageDecision.reason}`,
@@ -379,16 +386,10 @@ class SceneStreamManager {
     logger: PipelineLogger,
   ): void {
     const now = Date.now();
-    const toClose: Scene[] = [];
     for (const scene of this.openScenes) {
-      if (isTimedOut(scene, now)) toClose.push(scene);
-    }
-    for (const scene of toClose) {
-      this.closeAndRoute(scene, 'timeout', logger);
+      if (isTimedOut(scene, now)) this.closeAndRoute(scene, 'timeout', logger);
     }
   }
-
-  // ─── Close & Route ────────────────────
 
   private closeAndRoute(
     scene: Scene,
@@ -400,4 +401,3 @@ class SceneStreamManager {
     );
   }
 }
-

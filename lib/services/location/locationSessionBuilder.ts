@@ -257,13 +257,22 @@ function startNewSession(
     ? resolveStationaryPlaceName(db, lat, lon)
     : null;
 
-  db.runSync(
+  const result = db.runSync(
     `INSERT INTO location_sessions
      (started_at, start_lat, start_lon, motion_type, trail, place_name)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [startedAt, lat, lon, motionType, trail, placeName]
   );
-  console.log(`[sessionBuilder] NEW SESSION: motion=${motionType} place=${placeName || '-'}`);
+  const sessionId = result?.lastInsertRowId;
+  console.log(`[sessionBuilder] NEW SESSION #${sessionId}: motion=${motionType} place=${placeName || '-'}`);
+
+  // Create linked activity log for movement sessions
+  if (motionType !== 'stationary' && sessionId) {
+    try {
+      const { onTrailStart } = require('../ambient/trailActivityBridge');
+      onTrailStart(sessionId, motionType, startedAt, lat, lon);
+    } catch { /* trailActivityBridge not loaded */ }
+  }
 }
 
 /**
@@ -280,8 +289,6 @@ function createBridgeSession(
   distanceM: number,
   timestamp: string
 ): void {
-  // Estimate duration from distance and motion type:
-  //   walking ~5km/h, cycling ~15km/h, driving ~30km/h
   const speedEstimates: Record<string, number> = {
     walking: 1.4, running: 2.8, cycling: 4.2, driving: 8.3, unknown: 2.0,
   };
@@ -293,7 +300,7 @@ function createBridgeSession(
 
   const trail = JSON.stringify([[fromLat, fromLon], [toLat, toLon]]);
 
-  db.runSync(
+  const result = db.runSync(
     `INSERT INTO location_sessions
      (started_at, ended_at, start_lat, start_lon, end_lat, end_lon,
       motion_type, trail, distance_m, place_name)
@@ -301,7 +308,16 @@ function createBridgeSession(
     [startedAt, timestamp, fromLat, fromLon, toLat, toLon,
      motionType, trail, distanceM]
   );
-  console.log(`[sessionBuilder] BRIDGE SESSION: motion=${motionType} dist=${distanceM.toFixed(0)}m est=${estimatedSeconds}s`);
+  const sessionId = result?.lastInsertRowId;
+  console.log(`[sessionBuilder] BRIDGE SESSION #${sessionId}: motion=${motionType} dist=${distanceM.toFixed(0)}m est=${estimatedSeconds}s`);
+
+  // Create and immediately close the linked activity log
+  if (sessionId && motionType !== 'stationary') {
+    try {
+      const { onBridgeSession } = require('../ambient/trailActivityBridge');
+      onBridgeSession(sessionId, motionType, startedAt, timestamp, fromLat, fromLon);
+    } catch { /* trailActivityBridge not loaded */ }
+  }
 }
 
 /**
@@ -321,10 +337,24 @@ function resolveTransitMotion(incomingMotion: string, distanceM: number): string
 }
 
 function closeSession(db: any, sessionId: number, endedAt: string): void {
+  // Get session info before closing to check if it's a movement session
+  const session = db.getFirstSync(
+    'SELECT motion_type FROM location_sessions WHERE id = ?',
+    [sessionId],
+  ) as any;
+
   db.runSync(
     'UPDATE location_sessions SET ended_at = ? WHERE id = ?',
     [endedAt, sessionId]
   );
+
+  // Close linked activity log for movement sessions
+  if (session?.motion_type && session.motion_type !== 'stationary') {
+    try {
+      const { onTrailEnd } = require('../ambient/trailActivityBridge');
+      onTrailEnd(sessionId, endedAt);
+    } catch { /* trailActivityBridge not loaded */ }
+  }
 }
 
 function haversineMeters(

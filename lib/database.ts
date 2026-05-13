@@ -404,6 +404,8 @@ export async function initializeDatabase(): Promise<void> {
     `ALTER TABLE location_logs ADD COLUMN frame_path TEXT`,
     `ALTER TABLE nutrition_logs ADD COLUMN pipeline_log TEXT`,
     `ALTER TABLE activity_logs ADD COLUMN pipeline_log TEXT`,
+    // Trail-to-activity bridge
+    `ALTER TABLE activity_logs ADD COLUMN location_session_id INTEGER`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

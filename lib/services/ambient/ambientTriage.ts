@@ -35,10 +35,12 @@ const DEDUP_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
  * Triage a classified frame into a pipeline decision.
+ * @param trailLogId -- If set, an active trail activity log exists
  */
 export function triageCapture(
   classification: SceneClassification,
   dedup: DedupContext | null,
+  trailLogId?: number | null,
 ): TriageDecision {
   const { sceneType, confidence } = classification;
 
@@ -51,13 +53,13 @@ export function triageCapture(
     return { pipeline: 'skip', action: 'skip', phases: [], reason: 'Unknown scene' };
   }
 
-  // Food scenes
+  // Food scenes: always create/update meal log (separate from trail activity)
   if (sceneType === 'eating' || sceneType === 'meal_prep') {
     return triageFood(classification, dedup);
   }
 
-  // Activity scenes
-  return triageActivity(classification, dedup);
+  // Activity scenes: route to trail log if active
+  return triageActivity(classification, dedup, trailLogId);
 }
 
 // ─── Food Triage ────
@@ -109,11 +111,23 @@ function triageFood(
 function triageActivity(
   classification: SceneClassification,
   dedup: DedupContext | null,
+  trailLogId?: number | null,
 ): TriageDecision {
-  const recentLog = findRecentLog('activity_logs', DEDUP_WINDOW_MS);
-
   // Determine which AEIOU phases have evidence
   const detectablePhases = getDetectablePhases(classification, dedup);
+
+  // Active trail: always route updates to the trail's activity log
+  if (trailLogId != null) {
+    return {
+      pipeline: 'activity',
+      action: 'update',
+      existingLogId: trailLogId,
+      phases: ['lifeDesign', ...detectablePhases],
+      reason: `Active trail log #${trailLogId}, updating AEIOU`,
+    };
+  }
+
+  const recentLog = findRecentLog('activity_logs', DEDUP_WINDOW_MS);
 
   if (!recentLog) {
     return {
@@ -126,7 +140,6 @@ function triageActivity(
 
   // Recent activity exists
   if (dedup && dedup.isSameScene) {
-    // Same scene -- only run phases where evidence changed
     return {
       pipeline: 'activity',
       action: 'update',
@@ -198,7 +211,7 @@ function findRecentLog(
     const cutoff = new Date(Date.now() - windowMs).toISOString();
     const row = db.getFirstSync(
       `SELECT id, logged_at FROM ${table}
-       WHERE source = 'pendant' AND logged_at >= ?
+       WHERE source IN ('pendant', 'trail') AND logged_at >= ?
        ORDER BY logged_at DESC LIMIT 1`,
       [cutoff],
     ) as RecentLogRow | null;

@@ -1,0 +1,171 @@
+/**
+ * ambient/trailActivityBridge.ts -- Links location trail sessions to activity logs.
+ *
+ * When a movement session starts (walking/biking/running), auto-creates an
+ * activity log. When the trail closes (stationary), updates the end time.
+ * During the trail, ambient captures route AEIOU updates to this log.
+ */
+
+import { getDb } from '../../database';
+
+// MET values for motion types (matches GPS motion classifier output)
+const MOTION_MET: Record<string, number> = {
+  walking: 3.5,
+  running: 8.0,
+  cycling: 7.5,
+  driving: 1.3,
+  transit: 1.3,
+  unknown: 2.0,
+};
+
+// Human-readable labels for motion types
+const MOTION_LABELS: Record<string, string> = {
+  walking: 'Walking',
+  running: 'Running',
+  cycling: 'Cycling',
+  driving: 'Driving',
+  transit: 'Transit',
+  unknown: 'Moving',
+};
+
+// Default log duration (minutes) -- will be updated on trail close
+const DEFAULT_DURATION_MIN = 30;
+
+/**
+ * Called when a new movement session starts.
+ * Creates an activity log linked to the location session.
+ */
+export function onTrailStart(
+  sessionId: number,
+  motionType: string,
+  startedAt: string,
+  lat: number,
+  lon: number,
+): number | null {
+  try {
+    const db = getDb();
+
+    // Don't create activity logs for stationary sessions
+    if (motionType === 'stationary') return null;
+
+    // Check if there's already an activity log for this session
+    const existing = db.getFirstSync(
+      'SELECT id FROM activity_logs WHERE location_session_id = ?',
+      [sessionId],
+    ) as any;
+    if (existing) return existing.id;
+
+    const label = MOTION_LABELS[motionType] || MOTION_LABELS.unknown;
+    const logName = `${label} (trail)`;
+    const metValue = MOTION_MET[motionType] ?? MOTION_MET.unknown;
+
+    // Resolve place name from known_places
+    let placeName: string | null = null;
+    try {
+      const place = db.getFirstSync(
+        `SELECT name FROM known_places
+         WHERE ABS(latitude - ?) < 0.002 AND ABS(longitude - ?) < 0.002
+         LIMIT 1`,
+        [lat, lon],
+      ) as any;
+      placeName = place?.name ?? null;
+    } catch { /* known_places may not exist */ }
+
+    const result = db.runSync(
+      `INSERT INTO activity_logs (
+        logged_at, log_name, activity_type, duration_min, mets,
+        location, source, location_session_id,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'trail', ?, datetime('now'), datetime('now'))`,
+      [
+        startedAt,
+        logName,
+        motionType,
+        DEFAULT_DURATION_MIN,
+        metValue,
+        placeName,
+        sessionId,
+      ],
+    );
+
+    const logId = result?.lastInsertRowId ?? null;
+    console.log(`[TrailBridge] Created activity log #${logId}: ${logName} (${metValue} MET)`);
+    return logId;
+  } catch (err: any) {
+    console.warn('[TrailBridge] Failed to create trail activity:', err?.message);
+    return null;
+  }
+}
+
+/**
+ * Called when a movement session ends (user becomes stationary).
+ * Updates the activity log duration to actual elapsed time.
+ */
+export function onTrailEnd(sessionId: number, endedAt: string): void {
+  try {
+    const db = getDb();
+
+    const log = db.getFirstSync(
+      'SELECT id, logged_at FROM activity_logs WHERE location_session_id = ?',
+      [sessionId],
+    ) as any;
+    if (!log) return;
+
+    const startMs = new Date(log.logged_at).getTime();
+    const endMs = new Date(endedAt).getTime();
+    const durationMin = Math.max(1, Math.round((endMs - startMs) / 60000));
+
+    db.runSync(
+      `UPDATE activity_logs SET
+        duration_min = ?, updated_at = datetime('now')
+      WHERE id = ?`,
+      [durationMin, log.id],
+    );
+
+    console.log(`[TrailBridge] Closed trail activity #${log.id}: ${durationMin}min`);
+  } catch (err: any) {
+    console.warn('[TrailBridge] Failed to close trail activity:', err?.message);
+  }
+}
+
+/**
+ * Returns the activity log ID for the currently active trail, if any.
+ * Used by the ambient triage engine to route capture updates.
+ */
+export function getActiveTrailLogId(): number | null {
+  try {
+    const db = getDb();
+
+    // Find the most recent open movement session
+    const session = db.getFirstSync(
+      `SELECT ls.id as session_id, al.id as log_id
+       FROM location_sessions ls
+       JOIN activity_logs al ON al.location_session_id = ls.id
+       WHERE ls.ended_at IS NULL
+         AND ls.motion_type != 'stationary'
+       ORDER BY ls.started_at DESC LIMIT 1`,
+    ) as any;
+
+    return session?.log_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * For bridge sessions (created for background GPS jumps), create and
+ * immediately close the activity log since the session is already ended.
+ */
+export function onBridgeSession(
+  sessionId: number,
+  motionType: string,
+  startedAt: string,
+  endedAt: string,
+  lat: number,
+  lon: number,
+): void {
+  const logId = onTrailStart(sessionId, motionType, startedAt, lat, lon);
+  if (logId != null) {
+    onTrailEnd(sessionId, endedAt);
+  }
+}

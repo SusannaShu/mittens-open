@@ -40,6 +40,7 @@ let exitGraceTimer: ReturnType<typeof setTimeout> | null = null;
 const locationHistory: Array<{ lat: number; lon: number; time: number; motionType: string | null }> = [];
 
 const TRAIL_POINT_DISTANCE_M = 15;
+const STATIONARY_SUPPRESSION_RADIUS_M = 50;
 const MOTION_START_CONFIRM_DISTANCE_M = 50;
 const STATIONARY_SETTLE_MS = 5 * 60 * 1000;
 const MOTION_RECHECK_MS = 30 * 1000;
@@ -261,6 +262,14 @@ function handleSignificantLocationChange(location: Location.LocationObject) {
   if (prevLat != null && prevLon != null) {
     const dist = haversineMeters(prevLat, prevLon, latitude, longitude);
     if (dist < TRAIL_POINT_DISTANCE_M) return;
+  }
+
+  // Stationary suppression: when we're at rest (or the classifier says stationary),
+  // suppress any point that's within the suppression radius of the stationary anchor.
+  // GPS drift at home/school can easily be 20-60m and creates messy trail clusters.
+  if (motionType === 'stationary' && stationaryAnchor) {
+    const anchorDist = haversineMeters(stationaryAnchor.lat, stationaryAnchor.lon, latitude, longitude);
+    if (anchorDist < STATIONARY_SUPPRESSION_RADIUS_M) return;
   }
 
   logLocationPoint({

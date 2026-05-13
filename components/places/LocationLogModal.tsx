@@ -273,13 +273,8 @@ export default function LocationLogModal({ visible, session, existingActivity, o
                       lineCap="round"
                       lineJoin="round"
                     />
-                    
-                    {/* Intermediate dots for Strava feel */}
-                    {path.map((p, i) => (
-                      <Marker key={`dot-${i}`} coordinate={{ latitude: p[0], longitude: p[1] }} tracksViewChanges={false}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: MOTION_COLORS[mt] || '#757575', borderWidth: 1, borderColor: '#FFF' }} />
-                      </Marker>
-                    ))}
+
+
 
                     {/* Start/End markers for trails */}
                     <Marker

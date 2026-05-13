@@ -230,7 +230,7 @@ public class ExpoFaceRecognitionModule: Module {
       )
     }
 
-    return try withCheckedThrowingContinuation { (continuation: CheckedContinuation<[Float], Error>) in
+    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[Float], Error>) in
       let request = VNCoreMLRequest(model: model) { request, error in
         if let error = error {
           continuation.resume(throwing: error)

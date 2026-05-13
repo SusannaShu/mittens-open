@@ -110,7 +110,6 @@
         }
       ],
       "react-native-motion-activity-tracker",
-      "react-native-executorch",
       "react-native-audio-api"
     ]
   }

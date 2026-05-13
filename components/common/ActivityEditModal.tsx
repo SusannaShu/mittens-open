@@ -14,7 +14,9 @@ import { colors, radius, spacing } from '../../lib/theme';
 import { ActivityEntry } from '../../lib/services/activityApi';
 import ImpactLedgerView from '../today/ImpactLedgerView';
 import ActivityTimeInputs from './ActivityTimeInputs';
+import ActivityContextToggles from './ActivityContextToggles';
 import { activityEditStyles as s } from './activityEditStyles';
+import { ActivityTypeService } from '../../lib/services/activityTypeService';
 
 interface Props {
   visible: boolean;
@@ -60,6 +62,13 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   const [isOutdoors, setIsOutdoors] = useState(false);
   const [isNature, setIsNature] = useState(false);
 
+  // Movement + Brain Hygiene context
+  const [isMovement, setIsMovement] = useState(false);
+  const [metValue, setMetValue] = useState<number | null>(null);
+  const [isBrainHygiene, setIsBrainHygiene] = useState(false);
+  const [brainHygienePolarity, setBrainHygienePolarity] = useState<'positive' | 'negative' | null>(null);
+  const [scrollingMin, setScrollingMin] = useState('');
+
   // Sun exposure
   const [coveragePct, setCoveragePct] = useState(50);
   const [hasSunscreen, setHasSunscreen] = useState(false);
@@ -96,8 +105,30 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
       // AEIOU
       setAeiou(activity.aeiou ? { ...activity.aeiou } : {});
+
+      // Movement + Brain Hygiene from activity type metadata
+      setMetValue(activity.mets ?? null);
+      setScrollingMin(activity.meta?.scrolling_min != null ? String(activity.meta.scrolling_min) : '');
+      loadActivityTypeMeta(activity.activityType);
     }
   }, [activity]);
+
+  const loadActivityTypeMeta = async (typeKey: string) => {
+    try {
+      const typeDef = await ActivityTypeService.getByKey(typeKey);
+      if (!typeDef) return;
+      const subs = typeDef.subCategories || [];
+      const hasMovement = subs.includes('movement');
+      const hasBH = subs.includes('brain_hygiene');
+      const hasBHNeg = subs.includes('brain_hygiene_neg');
+      setIsMovement(hasMovement);
+      setIsBrainHygiene(hasBH || hasBHNeg);
+      setBrainHygienePolarity(hasBH ? 'positive' : hasBHNeg ? 'negative' : null);
+      if (metValue == null && typeDef.defaultMets) {
+        setMetValue(typeDef.defaultMets);
+      }
+    } catch { /* type not found, use defaults */ }
+  };
 
   if (!activity) return null;
 
@@ -128,6 +159,10 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         aeiou: Object.keys(aeiou).length > 0 ? aeiou : undefined,
         lifeCategories: Object.keys(normalizedCats).length > 0 ? normalizedCats : undefined,
         ...(showSunSection ? { coverage_pct: coveragePct, sunscreen: hasSunscreen } : {}),
+        ...(isMovement && metValue != null ? { mets: metValue } : {}),
+        ...(isBrainHygiene && brainHygienePolarity === 'negative' && scrollingMin
+          ? { meta: { ...activity.meta, scrolling_min: parseInt(scrollingMin, 10) || 0 } }
+          : {}),
       });
       onClose();
     } catch {
@@ -185,7 +220,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               setDurationMin={setDurationMin}
             />
 
-            {/* Outdoors & Nature toggles (no label text) */}
+            {/* Context toggles row 1: Outdoors & Nature */}
             <View style={s.contextToggleRow}>
               <TouchableOpacity
                 style={[s.sunscreenToggle, isOutdoors && s.sunscreenToggleActive]}
@@ -206,6 +241,20 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {/* Context toggles row 2: Movement & Brain Hygiene */}
+            <ActivityContextToggles
+              isMovement={isMovement}
+              setIsMovement={setIsMovement}
+              metValue={metValue}
+              setMetValue={setMetValue}
+              durationMin={durationMin}
+              isBrainHygiene={isBrainHygiene}
+              setIsBrainHygiene={setIsBrainHygiene}
+              brainHygienePolarity={brainHygienePolarity}
+              scrollingMin={scrollingMin}
+              setScrollingMin={setScrollingMin}
+            />
 
             {/* Sun Exposure -- coverage & sunscreen (only for sun/outdoor) */}
             {showSunSection && (

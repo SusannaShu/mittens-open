@@ -255,8 +255,27 @@ export const activityEditStyles = StyleSheet.create({
     fontStyle: 'italic', lineHeight: 16,
   },
 
-  // Outdoor/Nature toggle row
+  // Outdoor/Nature/Movement/Brain toggle rows
   contextToggleRow: {
     flexDirection: 'row', gap: 8, marginTop: spacing.md,
+  },
+
+  // Brain hygiene -- negative polarity uses warm tint
+  brainHygieneNegToggle: {
+    backgroundColor: '#FFF3E0', borderColor: '#FFB74D',
+  },
+  brainHygieneNegText: {
+    color: '#E65100',
+  },
+  brainPolarityBadge: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.statusGood,
+    justifyContent: 'center' as const, alignItems: 'center' as const,
+  },
+  brainPolarityBadgeNeg: {
+    backgroundColor: '#FFB74D',
+  },
+  brainPolarityText: {
+    fontSize: 13, fontWeight: '700' as const, color: '#FFF',
   },
 });

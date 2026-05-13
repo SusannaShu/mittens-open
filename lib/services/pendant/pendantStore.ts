@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface PendantCapture {
   id: string;
-  type: 'MOTION' | 'DOUBLE_TAP';
+  type: 'MOTION' | 'BUTTON_PRESS';
   timestamp: number;
   framePath?: string;
   audioPath?: string;
@@ -166,7 +166,7 @@ export function getTodayStats(): {
   const today = getTodayCaptures();
   return {
     motionCount: today.filter((c) => c.type === 'MOTION').length,
-    audioCount: today.filter((c) => c.type === 'DOUBLE_TAP').length,
+    audioCount: today.filter((c) => c.type === 'BUTTON_PRESS').length,
     totalCount: today.length,
   };
 }

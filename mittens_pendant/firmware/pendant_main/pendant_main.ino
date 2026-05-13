@@ -7,7 +7,7 @@
  *   INT1 (D2) = motion wake -- deep sleep wake source
  *   INT2 (D3) = double-tap -- checked after wake to classify event
  *
- *   DOUBLE_TAP -> record 5s PDM audio + capture JPEG -> BLE transfer
+ *   BUTTON_PRESS -> record 5s PDM audio + capture JPEG -> BLE transfer
  *   MOTION     -> capture JPEG -> BLE transfer
  *
  * DATA TRANSFER:
@@ -30,20 +30,22 @@
 #include "esp_sleep.h"
 #include <Wire.h>
 
-#include "config.h"
-#include "lsm6ds3.h"
-#include "camera.h"
-#include "pdm_mic.h"
 #include "ble_signal.h"
 #include "ble_transfer.h"
+#include "camera.h"
+#include "config.h"
+#include "lsm6ds3.h"
+#include "pdm_mic.h"
 #include "wifi_post.h"
 
 // --- Persistent State (survives deep sleep) ---
 RTC_DATA_ATTR int wakeCount = 0;
 
 // --- LED ---
-void ledOn()  { digitalWrite(LED_PIN, HIGH); }  // Active high (external LED on D6)
-void ledOff() { digitalWrite(LED_PIN, LOW);  }
+void ledOn() {
+  digitalWrite(LED_PIN, HIGH);
+} // Active high (external LED on D6)
+void ledOff() { digitalWrite(LED_PIN, LOW); }
 
 // --- BLE Data Transfer Flow ---
 // Replaces WiFi POST. Captures data, stages it, and waits for phone to pull.
@@ -52,11 +54,8 @@ void ledOff() { digitalWrite(LED_PIN, LOW);  }
  * Stage data and wait for phone to pull it over BLE.
  * Returns true if phone successfully pulled the data.
  */
-bool bleTransferAndWait(
-  const char *eventType,
-  uint8_t *jpegBuf, size_t jpegLen,
-  uint8_t *audioBuf, size_t audioLen
-) {
+bool bleTransferAndWait(const char *eventType, uint8_t *jpegBuf, size_t jpegLen,
+                        uint8_t *audioBuf, size_t audioLen) {
   // Stage the data in PSRAM
   if (!bleTransferStage(eventType, jpegBuf, jpegLen, audioBuf, audioLen)) {
     return false;
@@ -79,7 +78,7 @@ bool bleTransferAndWait(
 
 // Stop-check for push-to-talk: returns true when button is released
 bool buttonReleased() {
-  return digitalRead(BUTTON_PIN) == HIGH;  // Button is active-low
+  return digitalRead(BUTTON_PIN) == HIGH; // Button is active-low
 }
 
 /**
@@ -94,7 +93,7 @@ bool handlePushToTalk() {
   bool micOk = micInit();
   size_t audioLen = 0;
   if (micOk) {
-    audioLen = micRecord(buttonReleased);  // Stops when button released
+    audioLen = micRecord(buttonReleased); // Stops when button released
     micDeinit();
   }
 
@@ -106,17 +105,17 @@ bool handlePushToTalk() {
   }
 
   // 3. Signal and transfer
-  bleSignalEvent("DOUBLE_TAP");  // Same event type as double-tap for app compatibility
+  bleSignalEvent(
+      "BUTTON_PRESS"); // Same event type as double-tap for app compatibility
   delay(200);
 
   bool ok = bleTransferAndWait(
-    "DOUBLE_TAP",
-    fb ? fb->buf : nullptr, fb ? fb->len : 0,
-    audioLen > 0 ? micGetBuffer() : nullptr, audioLen
-  );
+      "BUTTON_PRESS", fb ? fb->buf : nullptr, fb ? fb->len : 0,
+      audioLen > 0 ? micGetBuffer() : nullptr, audioLen);
 
   // 4. Cleanup
-  if (fb) esp_camera_fb_return(fb);
+  if (fb)
+    esp_camera_fb_return(fb);
   cameraDeinit();
   micFreeBuffer();
   ledOff();
@@ -126,7 +125,7 @@ bool handlePushToTalk() {
 
 bool handleDoubleTap() {
   // Double-tap now just calls push-to-talk with a fixed 3s recording
-  Serial.println("[FLOW] === DOUBLE TAP ===");
+  Serial.println("[FLOW] === Button Press ===");
   return handlePushToTalk();
 }
 
@@ -136,7 +135,7 @@ bool handleSingleTap() {
   bleSignalEvent("SINGLE_TAP");
   delay(500);
 
-  return true;  // No data to transfer
+  return true; // No data to transfer
 }
 
 bool handleMotion() {
@@ -158,11 +157,7 @@ bool handleMotion() {
   }
 
   // Transfer frame over BLE
-  bool ok = bleTransferAndWait(
-    "MOTION",
-    fb->buf, fb->len,
-    nullptr, 0
-  );
+  bool ok = bleTransferAndWait("MOTION", fb->buf, fb->len, nullptr, 0);
 
   // Cleanup
   esp_camera_fb_return(fb);
@@ -176,14 +171,12 @@ bool handleMotion() {
 // Only sleep when nothing has happened for IDLE_SLEEP_MS.
 // Wake on: button press (D1/GPIO2, LOW) or IMU motion (D2/GPIO3, HIGH).
 
-#define IDLE_SLEEP_MS  (5UL * 60UL * 1000UL)  // 5 minutes
+#define IDLE_SLEEP_MS (5UL * 60UL * 1000UL) // 5 minutes
 
 static unsigned long lastActivityTime = 0;
 static bool hasEverConnected = false;
 
-void resetIdleTimer() {
-  lastActivityTime = millis();
-}
+void resetIdleTimer() { lastActivityTime = millis(); }
 
 void enterDeepSleep() {
   Serial.println("[SLEEP] 5 min idle -- entering deep sleep");
@@ -199,7 +192,9 @@ void enterDeepSleep() {
 
   // Clear any pending interrupts
   int retries = 50;
-  while ((digitalRead(IMU_INT1_PIN) == HIGH || digitalRead(IMU_INT2_PIN) == HIGH) && retries > 0) {
+  while ((digitalRead(IMU_INT1_PIN) == HIGH ||
+          digitalRead(IMU_INT2_PIN) == HIGH) &&
+         retries > 0) {
     lsmRead(LSM6DS3_TAP_SRC);
     lsmRead(LSM6DS3_WAKE_UP_SRC);
     delay(10);
@@ -212,7 +207,8 @@ void enterDeepSleep() {
   rtc_gpio_pulldown_en((gpio_num_t)IMU_INT1_PIN);
 
   // Wake source 2: Button press (D1 / GPIO2 goes LOW)
-  esp_sleep_enable_ext1_wakeup(BIT64((gpio_num_t)BUTTON_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
+  esp_sleep_enable_ext1_wakeup(BIT64((gpio_num_t)BUTTON_PIN),
+                               ESP_EXT1_WAKEUP_ANY_LOW);
   rtc_gpio_pullup_en((gpio_num_t)BUTTON_PIN);
   rtc_gpio_pulldown_dis((gpio_num_t)BUTTON_PIN);
 
@@ -236,10 +232,14 @@ void enterProvisioningMode() {
 
   while (!provisioned) {
     // Blink LED: 2 quick blinks + pause = "needs setup"
-    ledOn();  delay(100);
-    ledOff(); delay(100);
-    ledOn();  delay(100);
-    ledOff(); delay(800);
+    ledOn();
+    delay(100);
+    ledOff();
+    delay(100);
+    ledOn();
+    delay(100);
+    ledOff();
+    delay(800);
 
     // Check if new WiFi credentials were received via BLE
     wifiLoadConfig();
@@ -283,7 +283,7 @@ void IRAM_ATTR onINT2() { g_int2Fired = true; }
 // Capture mode: phone controls via BLE "mode:active" / "mode:passive" commands
 // PASSIVE (0) = IMU-driven captures (default, stationary)
 // ACTIVE  (1) = phone-driven captures (transit, GPS-synced)
-volatile uint8_t g_captureMode = 0;      // CAPTURE_MODE_PASSIVE
+volatile uint8_t g_captureMode = 0;       // CAPTURE_MODE_PASSIVE
 volatile bool g_captureRequested = false; // one-shot flag from phone
 
 // --- Arduino Entry Points ---
@@ -292,7 +292,8 @@ void setup() {
   Serial.begin(115200);
   // Wait for USB CDC serial to be ready (up to 3s)
   unsigned long serialWait = millis();
-  while (!Serial && millis() - serialWait < 3000) delay(10);
+  while (!Serial && millis() - serialWait < 3000)
+    delay(10);
   delay(100);
 
   wakeCount++;
@@ -300,11 +301,15 @@ void setup() {
   // Check what woke us
   esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
   const char *wakeStr = "cold boot";
-  if (wakeReason == ESP_SLEEP_WAKEUP_EXT0) wakeStr = "MOTION (IMU INT1)";
-  else if (wakeReason == ESP_SLEEP_WAKEUP_EXT1) wakeStr = "BUTTON PRESS";
-  else if (wakeReason == ESP_SLEEP_WAKEUP_TIMER) wakeStr = "TIMER (30min fallback)";
+  if (wakeReason == ESP_SLEEP_WAKEUP_EXT0)
+    wakeStr = "MOTION (IMU INT1)";
+  else if (wakeReason == ESP_SLEEP_WAKEUP_EXT1)
+    wakeStr = "BUTTON PRESS";
+  else if (wakeReason == ESP_SLEEP_WAKEUP_TIMER)
+    wakeStr = "TIMER (30min fallback)";
 
-  Serial.printf("\n[BOOT] Mittens Pendant v3 -- boot #%d (%s)\n", wakeCount, wakeStr);
+  Serial.printf("\n[BOOT] Mittens Pendant v3 -- boot #%d (%s)\n", wakeCount,
+                wakeStr);
 
   // LED setup
   pinMode(LED_PIN, OUTPUT);
@@ -326,8 +331,10 @@ void setup() {
   // Check if IMU is present
   bool imuOk = lsmInit();
   if (!imuOk) {
-    Serial.println("[BOOT] IMU not found -- test mode (type 'd' or 'm' in serial)");
-    Serial.println("[BOOT] BLE is ON and advertising. Try connecting from phone.");
+    Serial.println(
+        "[BOOT] IMU not found -- test mode (type 'd' or 'm' in serial)");
+    Serial.println(
+        "[BOOT] BLE is ON and advertising. Try connecting from phone.");
     resetIdleTimer();
     return;
   }
@@ -349,9 +356,11 @@ void setup() {
 
   // If woken by button, handle the press immediately
   if (wakeReason == ESP_SLEEP_WAKEUP_EXT1) {
-    Serial.println("[BOOT] Woke from button -- waiting for release to start PTT...");
+    Serial.println(
+        "[BOOT] Woke from button -- waiting for release to start PTT...");
     // Wait for button release, then handle
-    while (digitalRead(BUTTON_PIN) == LOW) delay(10);
+    while (digitalRead(BUTTON_PIN) == LOW)
+      delay(10);
     // Small delay then check if they press again (they will for PTT)
   }
 
@@ -359,14 +368,13 @@ void setup() {
   Serial.println("[BOOT] Ready! BLE advertising, IMU armed.");
   Serial.println("[BOOT] BUTTON (D1): hold to talk | MOTION: auto-capture");
   Serial.printf("[BOOT] Sleep after %d min idle\n", IDLE_SLEEP_MS / 60000);
-  Serial.printf("[BOOT] INT1=%d INT2=%d BTN=%d\n",
-                digitalRead(IMU_INT1_PIN), digitalRead(IMU_INT2_PIN),
-                digitalRead(BUTTON_PIN));
+  Serial.printf("[BOOT] INT1=%d INT2=%d BTN=%d\n", digitalRead(IMU_INT1_PIN),
+                digitalRead(IMU_INT2_PIN), digitalRead(BUTTON_PIN));
 }
 
 // Cooldown to avoid rapid re-triggers
 static unsigned long lastEventTime = 0;
-static const unsigned long EVENT_COOLDOWN_MS = 3000;  // 3s between events
+static const unsigned long EVENT_COOLDOWN_MS = 3000; // 3s between events
 
 void loop() {
   // --- Push-to-talk button (highest priority) ---
@@ -379,7 +387,8 @@ void loop() {
       lastEventTime = millis();
       resetIdleTimer();
       // Wait for button release before continuing
-      while (digitalRead(BUTTON_PIN) == LOW) delay(10);
+      while (digitalRead(BUTTON_PIN) == LOW)
+        delay(10);
       return;
     }
   }
@@ -403,8 +412,7 @@ void loop() {
       }
       Serial.printf("[STATUS] BLE: %s | BTN=%d | idle=%lus | sleep in %lus\n",
                     bleIsConnected() ? "CONNECTED" : "advertising",
-                    digitalRead(BUTTON_PIN),
-                    idleSec, sleepIn);
+                    digitalRead(BUTTON_PIN), idleSec, sleepIn);
     }
   }
 
@@ -437,11 +445,13 @@ void loop() {
     uint8_t tapSrc = lsmRead(LSM6DS3_TAP_SRC);
     uint8_t wuSrc = lsmRead(LSM6DS3_WAKE_UP_SRC);
 
-    Serial.printf("[IMU] Motion! TAP_SRC=0x%02X WAKE_UP_SRC=0x%02X\n", tapSrc, wuSrc);
+    Serial.printf("[IMU] Motion! TAP_SRC=0x%02X WAKE_UP_SRC=0x%02X\n", tapSrc,
+                  wuSrc);
 
     // In ACTIVE mode, skip IMU-triggered captures (phone drives captures)
     if (g_captureMode == 1) {
-      Serial.println("[IMU] ACTIVE mode -- skipping IMU capture (phone controls)");
+      Serial.println(
+          "[IMU] ACTIVE mode -- skipping IMU capture (phone controls)");
     } else {
       handleMotion();
     }
@@ -460,17 +470,16 @@ void loop() {
       hasEverConnected = true;
       Serial.println("[BLE] Phone connected! Staying awake.");
     }
-    resetIdleTimer();  // Stay awake while phone is connected
+    resetIdleTimer(); // Stay awake while phone is connected
   }
 
   // --- Idle timeout → deep sleep ---
   if (millis() - lastActivityTime > IDLE_SLEEP_MS) {
-    Serial.printf("[SLEEP] Idle for %lu min, going to sleep...\n", IDLE_SLEEP_MS / 60000);
+    Serial.printf("[SLEEP] Idle for %lu min, going to sleep...\n",
+                  IDLE_SLEEP_MS / 60000);
     enterDeepSleep();
     // Never reaches here
   }
 
   delay(10);
 }
-
-

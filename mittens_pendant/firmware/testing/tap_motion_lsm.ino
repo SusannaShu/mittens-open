@@ -41,7 +41,7 @@ void configureLSM() {
   // INT_DUR2 (0x5A): DUR=4 (~330ms), QUIET=2, SHOCK=2
   writeReg(0x5A, 0x42);
 
-  // WAKE_UP_THS (0x5B): SINGLE_DOUBLE_TAP=1, wake threshold=2
+  // WAKE_UP_THS (0x5B): SINGLE_BUTTON_PRESS=1, wake threshold=2
   writeReg(0x5B, 0x82);
 
   // WAKE_UP_DUR (0x5C): wake needs ~7ms sustained motion
@@ -50,8 +50,8 @@ void configureLSM() {
   // MD1_CFG (0x5E): route ONLY WAKE_UP to INT1
   writeReg(0x5E, 0x20); // INT1_WU
 
-  // MD2_CFG (0x5F): route ONLY DOUBLE_TAP to INT2
-  writeReg(0x5F, 0x08); // INT2_DOUBLE_TAP
+  // MD2_CFG (0x5F): route ONLY BUTTON_PRESS to INT2
+  writeReg(0x5F, 0x08); // INT2_BUTTON_PRESS
 }
 
 void printWakeReason() {
@@ -98,7 +98,7 @@ void setup() {
 
   Serial.println("Ready.");
   Serial.println("- Move/shake = wake motion (activity tracking)");
-  Serial.println("- Two FAST sharp taps = DOUBLE TAP (Mittens audio)");
+  Serial.println("- Two FAST sharp taps = Button Press (Mittens audio)");
   Serial.println("Send 's' to enter deep sleep.");
 }
 
@@ -113,7 +113,7 @@ void loop() {
     uint8_t tapSrc = readReg(0x1C);
     if (tapSrc & 0x10) {
       if (now - lastTapTime > 500) {
-        Serial.println("DOUBLE TAP — trigger Mittens audio");
+        Serial.println("Button Press — trigger Mittens audio");
         lastTapTime = now;
       }
     }

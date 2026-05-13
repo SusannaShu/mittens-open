@@ -152,7 +152,7 @@ The good news: most of the pipeline plumbing is built. The hard part is **routin
 
 | Layer | File | Status |
 |---|---|---|
-| Pendant BLE protocol (DOUBLE_TAP, SINGLE_TAP, MOTION, COMMAND) | `lib/services/pendant/pendantProtocol.ts` | done |
+| Pendant BLE protocol (BUTTON_PRESS, SINGLE_TAP, MOTION, COMMAND) | `lib/services/pendant/pendantProtocol.ts` | done |
 | Pendant service lifecycle + BLE/HTTP | `lib/services/pendant/pendantService.ts` | done |
 | Firmware: IMU wake + button wake from deep sleep | `mittens_pendant/firmware/pendant_main/*.ino` | done |
 | Pendant → chat bridge (double-tap → brain → TTS) | `lib/hooks/pendant/usePendantBridge.ts` | done for voice; **motion frames currently dropped into a store, NOT piped to triage** |

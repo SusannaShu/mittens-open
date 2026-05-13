@@ -86,7 +86,7 @@ export class PendantService {
             console.log('[Pendant] iOS restored BLE state with', restoredState.connectedPeripherals.length, 'peripherals');
             // iOS restored a connection -- try to reconnect
             const device = restoredState.connectedPeripherals[0];
-            this.connectToDevice(device.id).catch(() => {});
+            this.connectToDevice(device.id).catch(() => { });
           }
         },
       });
@@ -299,7 +299,7 @@ export class PendantService {
 
   disconnect(): void {
     if (this.bleDevice) {
-      this.bleDevice.cancelConnection().catch(() => {});
+      this.bleDevice.cancelConnection().catch(() => { });
       this.bleDevice = null;
     }
     this.connected = false;
@@ -377,7 +377,7 @@ export class PendantService {
         });
       }
 
-      // DOUBLE_TAP and MOTION are also signaled separately for UI feedback
+      // BUTTON_PRESS and MOTION are also signaled separately for UI feedback
       // Data arrives via DATA_READY flow above
     } catch {
       console.error('[Pendant] BLE signal parse error');
@@ -581,7 +581,7 @@ export class PendantService {
     console.log(`[Pendant] Event: ${event.type}, audio: ${event.audioPath ? 'yes' : 'no'}, frame: ${event.framePath ? 'yes' : 'no'}`);
 
     switch (event.type) {
-      case 'DOUBLE_TAP':
+      case 'BUTTON_PRESS':
         if (event.audioPath) {
           for (const cb of this.doubleTapCbs) {
             cb(event.audioPath, event.framePath);
@@ -694,10 +694,10 @@ export class PendantService {
 
       // Get the recording URI from the end event
       const audioPath = FileSystem.documentDirectory + `pendant/sim_audio_${Date.now()}.wav`;
-      
+
       try {
         ExpoSpeechRecognition.ExpoSpeechRecognitionModule?.stop?.();
-      } catch {}
+      } catch { }
 
       console.log('[Pendant] Simulate recording stopped');
 

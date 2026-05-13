@@ -6,10 +6,10 @@
  * Uses multipart/form-data POST matching pendantServer.ts on the phone.
  */
 
-#include <WiFi.h>
+#include "config.h"
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include "config.h"
+#include <WiFi.h>
 
 // Phone IP (loaded from NVS or default)
 String g_phoneIP = PHONE_IP_DEFAULT;
@@ -76,7 +76,8 @@ bool wifiConnect() {
     WiFi.begin(g_userSSID.c_str(), g_userPassword.c_str());
 
     unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_TIMEOUT_MS) {
+    while (WiFi.status() != WL_CONNECTED &&
+           millis() - start < WIFI_TIMEOUT_MS) {
       delay(100);
     }
 
@@ -95,7 +96,8 @@ bool wifiConnect() {
     WiFi.begin(WIFI_DEV_SSID_1, WIFI_DEV_PASSWORD_1);
 
     unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_TIMEOUT_MS) {
+    while (WiFi.status() != WL_CONNECTED &&
+           millis() - start < WIFI_TIMEOUT_MS) {
       delay(100);
     }
 
@@ -114,7 +116,8 @@ bool wifiConnect() {
     WiFi.begin(WIFI_DEV_SSID_2, WIFI_DEV_PASSWORD_2);
 
     unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_TIMEOUT_MS) {
+    while (WiFi.status() != WL_CONNECTED &&
+           millis() - start < WIFI_TIMEOUT_MS) {
       delay(100);
     }
 
@@ -142,22 +145,19 @@ void wifiDisconnect() {
  * HTTP POST multipart event to phone.
  * Compatible with pendantServer.ts on the React Native app.
  *
- * @param eventType  "MOTION" or "DOUBLE_TAP"
+ * @param eventType  "MOTION" or "BUTTON_PRESS"
  * @param wakeCount  Wake counter (persisted in RTC)
  * @param audio      PCM16 audio bytes (nullable)
  * @param audioLen   Audio byte count
  * @param frame      JPEG frame bytes (nullable)
  * @param frameLen   Frame byte count
  */
-bool wifiPostEvent(
-  const char *eventType,
-  int wakeCount,
-  uint8_t *audio, size_t audioLen,
-  uint8_t *frame, size_t frameLen
-) {
-  String url = "http://" + g_phoneIP + ":" + String(HTTP_PORT) + "/pendant/event";
-  Serial.printf("[HTTP] POST %s (audio:%d frame:%d)\n",
-                url.c_str(), audioLen, frameLen);
+bool wifiPostEvent(const char *eventType, int wakeCount, uint8_t *audio,
+                   size_t audioLen, uint8_t *frame, size_t frameLen) {
+  String url =
+      "http://" + g_phoneIP + ":" + String(HTTP_PORT) + "/pendant/event";
+  Serial.printf("[HTTP] POST %s (audio:%d frame:%d)\n", url.c_str(), audioLen,
+                frameLen);
 
   HTTPClient http;
   http.begin(url);
@@ -167,35 +167,36 @@ bool wifiPostEvent(
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
 
   // Build meta JSON
-  String metaJson = String("{\"type\":\"") + eventType +
-    "\",\"ts\":" + String(millis()) +
-    ",\"wake\":" + String(wakeCount) +
-    ",\"audioRate\":" + String(AUDIO_SAMPLE_RATE) +
-    ",\"audioChannels\":1}";
+  String metaJson =
+      String("{\"type\":\"") + eventType + "\",\"ts\":" + String(millis()) +
+      ",\"wake\":" + String(wakeCount) +
+      ",\"audioRate\":" + String(AUDIO_SAMPLE_RATE) + ",\"audioChannels\":1}";
 
   // Build multipart parts as strings (headers only)
   String metaHeader = "--" + boundary +
-    "\r\nContent-Disposition: form-data; name=\"meta\"\r\n"
-    "Content-Type: application/json\r\n\r\n";
+                      "\r\nContent-Disposition: form-data; name=\"meta\"\r\n"
+                      "Content-Type: application/json\r\n\r\n";
   String metaPart = metaHeader + metaJson + "\r\n";
 
   String audioHeader = "--" + boundary +
-    "\r\nContent-Disposition: form-data; name=\"audio\"; "
-    "filename=\"audio.pcm\"\r\n"
-    "Content-Type: application/octet-stream\r\n\r\n";
+                       "\r\nContent-Disposition: form-data; name=\"audio\"; "
+                       "filename=\"audio.pcm\"\r\n"
+                       "Content-Type: application/octet-stream\r\n\r\n";
 
   String frameHeader = "--" + boundary +
-    "\r\nContent-Disposition: form-data; name=\"frame\"; "
-    "filename=\"frame.jpg\"\r\n"
-    "Content-Type: image/jpeg\r\n\r\n";
+                       "\r\nContent-Disposition: form-data; name=\"frame\"; "
+                       "filename=\"frame.jpg\"\r\n"
+                       "Content-Type: image/jpeg\r\n\r\n";
 
   String partEnd = "\r\n";
   String bodyEnd = "--" + boundary + "--\r\n";
 
   // Calculate total body size
   size_t totalSize = metaPart.length();
-  if (audioLen > 0) totalSize += audioHeader.length() + audioLen + partEnd.length();
-  if (frameLen > 0) totalSize += frameHeader.length() + frameLen + partEnd.length();
+  if (audioLen > 0)
+    totalSize += audioHeader.length() + audioLen + partEnd.length();
+  if (frameLen > 0)
+    totalSize += frameHeader.length() + frameLen + partEnd.length();
   totalSize += bodyEnd.length();
 
   // Allocate body in PSRAM

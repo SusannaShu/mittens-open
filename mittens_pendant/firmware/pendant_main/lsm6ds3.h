@@ -3,39 +3,40 @@
  * LSM6DS3 Driver -- Dual-interrupt motion wake + tap detection.
  *
  * Uses two interrupt pins for clean event separation:
- *   INT1 (D2 / GPIO3) -- Wake-up motion only. This is the deep sleep wake source.
- *   INT2 (D3 / GPIO4) -- Double-tap only. Checked after wake to distinguish events.
+ *   INT1 (D2 / GPIO3) -- Wake-up motion only. This is the deep sleep wake
+ * source. INT2 (D3 / GPIO4) -- Double-tap only. Checked after wake to
+ * distinguish events.
  *
  * After waking from deep sleep (always via INT1), the firmware reads both
- * TAP_SRC and WAKE_UP_SRC to classify: if INT2 is also high, it was a double-tap.
- * Otherwise it was general motion.
+ * TAP_SRC and WAKE_UP_SRC to classify: if INT2 is also high, it was a
+ * double-tap. Otherwise it was general motion.
  */
 
-#include <Wire.h>
-#include "esp_sleep.h"
 #include "config.h"
+#include "esp_sleep.h"
+#include <Wire.h>
 
 // ─── LSM6DS3 Registers ───
-#define LSM6DS3_WHO_AM_I       0x0F
-#define LSM6DS3_CTRL1_XL       0x10
-#define LSM6DS3_CTRL2_G        0x11
-#define LSM6DS3_CTRL3_C        0x12
-#define LSM6DS3_WAKE_UP_SRC    0x1B
-#define LSM6DS3_TAP_SRC        0x1C
-#define LSM6DS3_TAP_CFG        0x58
-#define LSM6DS3_TAP_THS_6D     0x59
-#define LSM6DS3_INT_DUR2       0x5A
-#define LSM6DS3_WAKE_UP_THS    0x5B
-#define LSM6DS3_WAKE_UP_DUR    0x5C
-#define LSM6DS3_MD1_CFG        0x5E
-#define LSM6DS3_MD2_CFG        0x5F
+#define LSM6DS3_WHO_AM_I 0x0F
+#define LSM6DS3_CTRL1_XL 0x10
+#define LSM6DS3_CTRL2_G 0x11
+#define LSM6DS3_CTRL3_C 0x12
+#define LSM6DS3_WAKE_UP_SRC 0x1B
+#define LSM6DS3_TAP_SRC 0x1C
+#define LSM6DS3_TAP_CFG 0x58
+#define LSM6DS3_TAP_THS_6D 0x59
+#define LSM6DS3_INT_DUR2 0x5A
+#define LSM6DS3_WAKE_UP_THS 0x5B
+#define LSM6DS3_WAKE_UP_DUR 0x5C
+#define LSM6DS3_MD1_CFG 0x5E
+#define LSM6DS3_MD2_CFG 0x5F
 
 // ─── Wake Reason ───
 enum WakeReason {
   WAKE_UNKNOWN,
   WAKE_MOTION,
   WAKE_SINGLE_TAP,
-  WAKE_DOUBLE_TAP,
+  WAKE_BUTTON_PRESS,
 };
 
 // ─── I2C Helpers ───
@@ -97,7 +98,7 @@ WakeReason classifyWake() {
 
   // Double-tap: INT2 high OR TAP_SRC double-tap bit (bit 4)
   if (int2State == HIGH || (tapSrc & 0x10)) {
-    return WAKE_DOUBLE_TAP;
+    return WAKE_BUTTON_PRESS;
   }
 
   // Motion: INT1 high, or WU_IA bit set (bit 3 on DS33, bit 5 on DS3),
@@ -139,8 +140,8 @@ void lsmConfigureWake() {
   // 0x42 = tested working value for reliable double-tap
   lsmWrite(LSM6DS3_INT_DUR2, 0x42);
 
-  // Enable single + double tap detection, set wake-up threshold
-  // Bit 7 = SINGLE_DOUBLE_TAP enable, bits 5:0 = wake threshold (0x02)
+  // Enable single + Button Press detection, set wake-up threshold
+  // Bit 7 = SINGLE_BUTTON_PRESS enable, bits 5:0 = wake threshold (0x02)
   lsmWrite(LSM6DS3_WAKE_UP_THS, 0x82);
 
   // WAKE_UP_DUR: wake needs ~7ms sustained motion
@@ -151,7 +152,7 @@ void lsmConfigureWake() {
   lsmWrite(LSM6DS3_MD1_CFG, 0x20);
 
   // Route ONLY double-tap to INT2 -- checked after wake to classify event
-  // 0x08 = INT2_DOUBLE_TAP
+  // 0x08 = INT2_BUTTON_PRESS
   lsmWrite(LSM6DS3_MD2_CFG, 0x08);
 
   // Wait for IMU output to stabilize after configuration change.
@@ -165,7 +166,8 @@ void lsmConfigureWake() {
   for (int i = 0; i < 20; i++) {
     lsmRead(LSM6DS3_TAP_SRC);
     lsmRead(LSM6DS3_WAKE_UP_SRC);
-    if (digitalRead(IMU_INT1_PIN) == LOW && digitalRead(IMU_INT2_PIN) == LOW) break;
+    if (digitalRead(IMU_INT1_PIN) == LOW && digitalRead(IMU_INT2_PIN) == LOW)
+      break;
     delay(10);
   }
 

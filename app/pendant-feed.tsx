@@ -35,7 +35,7 @@ export default function PendantFeedScreen() {
 
   const filteredCaptures = React.useMemo(() => {
     if (filter === 'vision') return captures.filter((c) => c.type === 'MOTION');
-    if (filter === 'voice') return captures.filter((c) => c.type === 'DOUBLE_TAP');
+    if (filter === 'voice') return captures.filter((c) => c.type === 'BUTTON_PRESS');
     return captures;
   }, [captures, filter]);
 

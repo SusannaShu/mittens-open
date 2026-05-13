@@ -162,14 +162,14 @@ export function PendantSection({ collapsed, onToggle, onOpenFeed }: Props) {
               activeOpacity={0.7}
             >
               <Feather
-                name={lastCapture.type === 'DOUBLE_TAP' ? 'mic' : 'camera'}
+                name={lastCapture.type === 'BUTTON_PRESS' ? 'mic' : 'camera'}
                 size={14}
                 color={colors.textSecondary}
               />
               <Text style={styles.latestText} numberOfLines={1}>
                 {lastCapture.brainResponse ||
                   lastCapture.transcript ||
-                  `${lastCapture.type === 'DOUBLE_TAP' ? 'Voice' : 'Frame'} captured`}
+                  `${lastCapture.type === 'BUTTON_PRESS' ? 'Voice' : 'Frame'} captured`}
               </Text>
               <Feather name="arrow-right" size={12} color={colors.textMuted} />
             </TouchableOpacity>

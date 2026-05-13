@@ -8,17 +8,17 @@
 // ─── BLE UUIDs ───
 
 export const PENDANT_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-export const EVENT_SIGNAL_UUID    = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-export const COMMAND_UUID         = '6e400004-b5a3-f393-e0a9-e50e24dcca9e';
+export const EVENT_SIGNAL_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+export const COMMAND_UUID = '6e400004-b5a3-f393-e0a9-e50e24dcca9e';
 
 // BLE chunked data transfer (added for WiFi-free operation)
-export const DATA_INFO_UUID       = '6e400005-b5a3-f393-e0a9-e50e24dcca9e';
-export const DATA_STREAM_UUID     = '6e400006-b5a3-f393-e0a9-e50e24dcca9e';
-export const DATA_ACK_UUID        = '6e400007-b5a3-f393-e0a9-e50e24dcca9e';
+export const DATA_INFO_UUID = '6e400005-b5a3-f393-e0a9-e50e24dcca9e';
+export const DATA_STREAM_UUID = '6e400006-b5a3-f393-e0a9-e50e24dcca9e';
+export const DATA_ACK_UUID = '6e400007-b5a3-f393-e0a9-e50e24dcca9e';
 
 // ─── Event Types ───
 
-export type PendantEventType = 'DOUBLE_TAP' | 'SINGLE_TAP' | 'TRIPLE_TAP' | 'MOTION';
+export type PendantEventType = 'BUTTON_PRESS' | 'SINGLE_TAP' | 'TRIPLE_TAP' | 'MOTION';
 
 export interface PendantEventMeta {
   type: PendantEventType;
@@ -102,7 +102,7 @@ export function parseMultipart(body: ArrayBuffer, boundary: string): MultipartPa
     let headerEnd = -1;
     for (let i = start; i < end - 3; i++) {
       if (bodyBytes[i] === 0x0D && bodyBytes[i + 1] === 0x0A &&
-          bodyBytes[i + 2] === 0x0D && bodyBytes[i + 3] === 0x0A) {
+        bodyBytes[i + 2] === 0x0D && bodyBytes[i + 3] === 0x0A) {
         headerEnd = i;
         break;
       }

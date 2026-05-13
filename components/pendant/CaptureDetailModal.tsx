@@ -50,7 +50,7 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
     if (!visible && soundRef.current) {
       try {
         soundRef.current.unloadAsync();
-      } catch {}
+      } catch { }
       soundRef.current = null;
       setAudioPlaying(false);
     }
@@ -77,16 +77,16 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
       const pcmPath = capture.audioPath.startsWith('file://')
         ? capture.audioPath.replace('file://', '')
         : capture.audioPath;
-      
+
       const pcmBase64 = await FileSystem.readAsStringAsync(
         pcmPath.startsWith('/') ? pcmPath : `file://${pcmPath}`,
         { encoding: FileSystem.EncodingType.Base64 }
       );
-      
+
       // Decode base64 to binary string
       const pcmBinaryString = atob(pcmBase64);
       const dataLen = pcmBinaryString.length;
-      
+
       // Build WAV header (44 bytes)
       const sampleRate = 16000;
       const channels = 1;
@@ -94,15 +94,15 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
       const byteRate = sampleRate * channels * (bitsPerSample / 8);
       const blockAlign = channels * (bitsPerSample / 8);
       const fileSize = 36 + dataLen;
-      
+
       const header = new Uint8Array(44);
       const view = new DataView(header.buffer);
-      
+
       // RIFF header
       header.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
       view.setUint32(4, fileSize, true);
       header.set([0x57, 0x41, 0x56, 0x45], 8); // "WAVE"
-      
+
       // fmt chunk
       header.set([0x66, 0x6D, 0x74, 0x20], 12); // "fmt "
       view.setUint32(16, 16, true); // chunk size
@@ -112,18 +112,18 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
       view.setUint32(28, byteRate, true);
       view.setUint16(32, blockAlign, true);
       view.setUint16(34, bitsPerSample, true);
-      
+
       // data chunk
       header.set([0x64, 0x61, 0x74, 0x61], 36); // "data"
       view.setUint32(40, dataLen, true);
-      
+
       // Create combined binary string
       let combinedBinary = '';
       for (let i = 0; i < header.length; i++) {
         combinedBinary += String.fromCharCode(header[i]);
       }
       combinedBinary += pcmBinaryString;
-      
+
       // Encode the combined binary to base64
       const wavBase64 = btoa(combinedBinary);
       const wavPath = pcmPath.replace('.pcm', '_play.wav');
@@ -132,21 +132,21 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
         wavBase64,
         { encoding: FileSystem.EncodingType.Base64 }
       );
-      
+
       // Play the WAV
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
         staysActiveInBackground: false,
       });
-      
+
       const { sound } = await Audio.Sound.createAsync(
         { uri: wavPath.startsWith('/') ? `file://${wavPath}` : wavPath },
         { shouldPlay: true }
       );
-      
+
       soundRef.current = sound;
       setAudioPlaying(true);
-      
+
       sound.setOnPlaybackStatusUpdate((status: any) => {
         if (status.didJustFinish) {
           setAudioPlaying(false);
@@ -161,7 +161,7 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
 
   if (!capture) return null;
 
-  const isAudio = capture.type === 'DOUBLE_TAP';
+  const isAudio = capture.type === 'BUTTON_PRESS';
   const hasFrame = !!capture.framePath;
   const hasAudio = !!capture.audioPath;
 

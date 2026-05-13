@@ -53,7 +53,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           initVoice();
         } catch { /* voice init is best-effort */ }
 
-        // ─── Double Tap: Audio + optional frame -> Brain -> TTS ───
+        // ─── Button Press: Audio + optional frame -> Brain -> TTS ───
         unsubDoubleTap = service.onDoubleTap(async (audioPath: string, framePath?: string) => {
           if (processingRef.current) {
             console.log('[PendantBridge] Already processing, skipping');
@@ -81,7 +81,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
 
           // Save to pendant store for UI display
           const captureId = pendantStore.addCapture({
-            type: 'DOUBLE_TAP' as const,
+            type: 'BUTTON_PRESS' as const,
             timestamp: Date.now(),
             framePath,
             audioPath,
@@ -243,7 +243,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             console.error('[PendantBridge] Processing failed:', err?.message || err);
             // Mark as processed even on failure so UI doesn't show "Pending..." forever
             pendantStore.updateCapture(captureId, { processed: true });
-            try { speak("Sorry, I couldn't process that. Try again."); } catch {}
+            try { speak("Sorry, I couldn't process that. Try again."); } catch { }
           } finally {
             processingRef.current = false;
           }
@@ -283,7 +283,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             const { getSceneStreamManager } = require('../../services/ambient/sceneStreamManager');
             const manager = getSceneStreamManager();
             const result = await manager.onPendantFrame(framePath, Date.now());
-            
+
             if (result) {
               pendantStore.updateCapture(captureId, {
                 processed: true,

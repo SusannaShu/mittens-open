@@ -15,18 +15,18 @@
  * Phone uses sizes from DATA_INFO to split them.
  */
 
+#include "config.h"
+#include <BLE2902.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
-#include <BLE2902.h>
-#include "config.h"
 
 // ─── Transfer State ───
 
-uint8_t *g_transferData = nullptr;   // Combined JPEG + audio in PSRAM
-static size_t   g_transferTotal = 0;
-static size_t   g_jpegLen = 0;
-static size_t   g_audioTransferLen = 0;
-static String   g_transferType = "";        // "MOTION" or "DOUBLE_TAP"
+uint8_t *g_transferData = nullptr; // Combined JPEG + audio in PSRAM
+static size_t g_transferTotal = 0;
+static size_t g_jpegLen = 0;
+static size_t g_audioTransferLen = 0;
+static String g_transferType = ""; // "MOTION" or "BUTTON_PRESS"
 
 // Characteristic pointers (created in bleInit in ble_signal.h)
 BLECharacteristic *g_dataInfoChar = nullptr;
@@ -58,16 +58,14 @@ void bleTransferAttachCallback() {
   }
 }
 
-// bleTransferSetup() is no longer needed -- characteristics are created in bleInit()
+// bleTransferSetup() is no longer needed -- characteristics are created in
+// bleInit()
 
 // ─── Stage Data ───
 // Copies JPEG + audio into a single PSRAM buffer for streaming.
 
-bool bleTransferStage(
-  const char *eventType,
-  uint8_t *jpegBuf, size_t jpegSize,
-  uint8_t *audioBuf, size_t audioSize
-) {
+bool bleTransferStage(const char *eventType, uint8_t *jpegBuf, size_t jpegSize,
+                      uint8_t *audioBuf, size_t audioSize) {
   // Free any previous transfer
   if (g_transferData) {
     free(g_transferData);
@@ -100,19 +98,21 @@ bool bleTransferStage(
   g_transferType = eventType;
 
   // Update DATA_INFO so phone can read sizes
-  String info = String(eventType) + ":" + String(jpegSize) + ":" + String(audioSize);
+  String info =
+      String(eventType) + ":" + String(jpegSize) + ":" + String(audioSize);
   g_dataInfoChar->setValue(info.c_str());
 
   g_pullRequested = false;
   g_transferDone = false;
 
-  Serial.printf("[BLE-TX] Staged %s: jpeg=%d audio=%d total=%d\n",
-                eventType, jpegSize, audioSize, g_transferTotal);
+  Serial.printf("[BLE-TX] Staged %s: jpeg=%d audio=%d total=%d\n", eventType,
+                jpegSize, audioSize, g_transferTotal);
   return true;
 }
 
 // ─── Stream Data ───
-// Blocks until phone pulls all data or timeout. Call after bleSignalEvent("DATA_READY").
+// Blocks until phone pulls all data or timeout. Call after
+// bleSignalEvent("DATA_READY").
 
 bool bleTransferStream() {
   if (!g_transferData || g_transferTotal == 0) {
@@ -153,16 +153,15 @@ bool bleTransferStream() {
     // The ESP32 BLE stack can queue ~5 notifications; if we send faster
     // than the radio transmits, the tail gets silently dropped.
     if (chunkNum % 20 == 0) {
-      delay(50);  // Let BLE stack flush
+      delay(50); // Let BLE stack flush
     } else {
       delay(12);
     }
 
     // Log progress every 50 chunks (~9KB)
     if (chunkNum % 50 == 0) {
-      Serial.printf("[BLE-TX] Sent %d/%d bytes (%d%%)\n",
-                    offset, g_transferTotal,
-                    (int)(100.0f * offset / g_transferTotal));
+      Serial.printf("[BLE-TX] Sent %d/%d bytes (%d%%)\n", offset,
+                    g_transferTotal, (int)(100.0f * offset / g_transferTotal));
     }
   }
 

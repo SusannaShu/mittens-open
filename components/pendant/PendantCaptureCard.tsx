@@ -30,7 +30,7 @@ function formatRelative(ts: number): string {
 }
 
 export function PendantCaptureCard({ capture, onPress }: Props) {
-  const isAudio = capture.type === 'DOUBLE_TAP';
+  const isAudio = capture.type === 'BUTTON_PRESS';
   const icon = isAudio ? 'mic' : 'camera';
   const label = isAudio ? 'Voice' : 'Vision';
 

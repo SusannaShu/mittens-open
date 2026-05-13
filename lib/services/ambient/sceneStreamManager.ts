@@ -23,6 +23,8 @@ import {
   extendScene,
   closeScene,
   matchesScene,
+  matchesSceneType,
+  matchesSceneVision,
   isTimedOut,
   persistScene,
 } from './scene';
@@ -144,11 +146,16 @@ class SceneStreamManager {
       classification.confidence < MIN_CONFIDENCE
     ) {
       logger.skipPhase('scene', 'match', 'Low confidence unknown');
-      return;
+      return { summary: 'Low confidence unknown', log: logger.finalize() };
     }
 
-    // 4. Try to match against open scenes
-    const matched = this.findMatchingScene(classification);
+    // 4. Try to match against open scenes (vision-based)
+    const matchIdx = logger.startPhase('scene', 'match');
+    const matched = await this.findMatchingScene(classification, framePath, logger);
+    logger.completePhase(
+      matchIdx,
+      matched ? `Matched ${matched.type} (vision)` : 'No match',
+    );
 
     let result = '';
 
@@ -239,14 +246,36 @@ class SceneStreamManager {
 
   // ─── Scene Matching ───────────────────
 
-  private findMatchingScene(
+  private async findMatchingScene(
     classification: SceneClassification,
-  ): Scene | null {
-    for (const scene of this.openScenes) {
-      if (matchesScene(scene, classification)) {
+    framePath: string,
+    logger: PipelineLogger,
+  ): Promise<Scene | null> {
+    // Fast pass: find candidates by scene type (no API call)
+    const candidates = this.openScenes.filter(
+      (s) => matchesSceneType(s, classification),
+    );
+
+    if (candidates.length === 0) return null;
+
+    // Vision pass: check actual image continuity for each candidate
+    for (const scene of candidates) {
+      try {
+        const result = await matchesSceneVision(scene, classification, framePath);
+        if (result.matches) {
+          if (result.changes) {
+            console.log(`[SceneStream] Vision match ${scene.id}: score=${result.continuityScore}, changes=${result.changes}`);
+          }
+          return scene;
+        } else {
+          console.log(`[SceneStream] Vision rejected ${scene.id}: score=${result.continuityScore} -- different event`);
+        }
+      } catch {
+        // Vision failed -- fall back to text match
         return scene;
       }
     }
+
     return null;
   }
 
@@ -255,8 +284,9 @@ class SceneStreamManager {
     logger: PipelineLogger,
   ): void {
     // Increment non-match counts for all open scenes
+    // Uses fast text check here -- vision already ran in findMatchingScene
     for (const scene of this.openScenes) {
-      if (!matchesScene(scene, classification)) {
+      if (!matchesSceneType(scene, classification)) {
         const count = (this.nonMatchCounts.get(scene.id) || 0) + 1;
         this.nonMatchCounts.set(scene.id, count);
 
@@ -377,9 +407,11 @@ class SceneStreamManager {
       } catch { /* smartPantry not loaded */ }
     }
 
-    // Route to existing pipelines for actual log creation
+    // Route to existing pipelines for actual log creation (async -- runs food pipeline)
     const { routeToLogPipeline } = require('./sceneLogWriter');
-    routeToLogPipeline(scene);
+    routeToLogPipeline(scene).catch((err: any) => {
+      console.error('[SceneStream] Log pipeline error:', err?.message);
+    });
   }
 }
 

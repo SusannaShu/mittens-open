@@ -90,12 +90,12 @@ export function isTimedOut(scene: Scene, nowMs: number = Date.now()): boolean {
   return (nowMs - scene.lastActiveAt) >= TIMEOUT_MS;
 }
 
-/** Does a classification match an existing scene? */
-export function matchesScene(
+/** Fast text pre-check: does scene type allow a match? (sync, no API call) */
+export function matchesSceneType(
   scene: Scene,
   classification: SceneClassification,
 ): boolean {
-  // Same scene type is the primary match
+  // Same scene type is a candidate
   if (scene.type === classification.sceneType) return true;
 
   // meal_prep can transition to eating
@@ -105,6 +105,52 @@ export function matchesScene(
   ) return true;
 
   return false;
+}
+
+/**
+ * Vision-based scene continuity check.
+ * Only called when matchesSceneType returns true -- compares actual frames
+ * to determine if it's the same continuous event or a new one.
+ * Falls back to text match if vision is unavailable.
+ */
+export async function matchesSceneVision(
+  scene: Scene,
+  classification: SceneClassification,
+  currentFramePath: string,
+): Promise<{ matches: boolean; continuityScore: number; changes?: string }> {
+  // Text type must match first (fast gate)
+  if (!matchesSceneType(scene, classification)) {
+    return { matches: false, continuityScore: 0 };
+  }
+
+  // If scene has < 2 frames, skip vision check (not enough history)
+  if (scene.frameCount < 2 || !scene.lastFramePath) {
+    return { matches: true, continuityScore: 0.8 };
+  }
+
+  try {
+    const { checkContinuity } = require('./sceneDedup');
+    const result = await checkContinuity(scene, currentFramePath);
+    return {
+      matches: result.isSameScene,
+      continuityScore: result.score,
+      changes: result.changes,
+    };
+  } catch {
+    // Vision unavailable -- fall back to text match
+    return { matches: true, continuityScore: 0.5 };
+  }
+}
+
+/**
+ * @deprecated Use matchesSceneType for sync checks or matchesSceneVision for full check.
+ * Kept for backward compatibility with any callers not yet migrated.
+ */
+export function matchesScene(
+  scene: Scene,
+  classification: SceneClassification,
+): boolean {
+  return matchesSceneType(scene, classification);
 }
 
 /** Persist a closed scene to the database */

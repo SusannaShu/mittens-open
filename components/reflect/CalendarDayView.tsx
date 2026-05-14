@@ -203,7 +203,23 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
   const getBlockPosition = (evt: CalendarEvent) => {
     const d = new Date(evt.loggedAt);
     const startMin = (d.getHours() - START_HOUR) * 60 + d.getMinutes();
-    const duration = evt.duration_min || 30;
+    let duration = evt.duration_min || 30;
+
+    // For ongoing events on today's view, extend to current time + small overshoot
+    if (isToday) {
+      const locSession = evt.sourceData?.meta?.locationSession || evt.sourceData;
+      const isOngoing = locSession
+        && 'startedAt' in locSession
+        && locSession.endedAt === null;
+      if (isOngoing) {
+        const nowMin = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
+        const minToNow = nowMin - startMin + 5; // 5 min overshoot past the red line
+        if (minToNow > duration) {
+          duration = minToNow;
+        }
+      }
+    }
+
     const top = (startMin / 60) * hourHeight;
     const height = Math.max((duration / 60) * hourHeight, 24);
     return { top, height };

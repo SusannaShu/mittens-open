@@ -426,7 +426,9 @@ export async function initializeDatabase(): Promise<void> {
       reason TEXT,
       frame_path TEXT,
       created_at TEXT DEFAULT (datetime('now'))
-    );`
+    );`,
+    // Owner self-identification
+    `ALTER TABLE people ADD COLUMN is_me INTEGER DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

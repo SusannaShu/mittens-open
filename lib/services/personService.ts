@@ -109,6 +109,41 @@ export class PersonService {
     enqueueSyncRecord('people', personId, 'update');
   }
 
+  /**
+   * Update an existing person's details.
+   */
+  static async update(person: Person): Promise<void> {
+    if (!person.id) return;
+    const db = getDb();
+    const now = new Date().toISOString();
+
+    db.runSync(
+      `UPDATE people SET 
+        name = ?, nickname = ?, team_role = ?, context = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        person.name,
+        person.nickname || null,
+        person.teamRole || null,
+        person.context || null,
+        now,
+        person.id,
+      ]
+    );
+
+    enqueueSyncRecord('people', person.id, 'update');
+  }
+
+  /**
+   * Delete a person and all their face embeddings.
+   */
+  static async delete(personId: number): Promise<void> {
+    const db = getDb();
+    db.runSync('DELETE FROM face_embeddings WHERE person_id = ?', [personId]);
+    db.runSync('DELETE FROM people WHERE id = ?', [personId]);
+    enqueueSyncRecord('people', personId, 'delete');
+  }
+
   private static rowToModel(row: any): Person {
     return {
       id: row.id,
@@ -121,6 +156,7 @@ export class PersonService {
       avgEnergy: row.avg_energy,
       lastSeenAt: row.last_seen_at,
       avatarUri: row.avatar_uri,
+      isMe: row.is_me === 1,
     };
   }
 }

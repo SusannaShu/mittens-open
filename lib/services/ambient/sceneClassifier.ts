@@ -31,6 +31,7 @@ export async function classifyFrame(
     subPhase: 'idle',
     items: [],
     confidence: 0,
+    detectedPeople: 0,
   };
 
   try {
@@ -51,6 +52,7 @@ function buildPrompt(ctx: ClassifierContext): string {
     '  "t": scene type (cooking_at_home|eating_at_home|eating_out|work|exercise|commute|social|rest|grocery_shopping|errands|unknown),',
     '  "p": phase (prep|cook|plate|eat|cleanup|active|break|transit|idle),',
     '  "items": [{name, qty, unit, conf}] if food visible else [],',
+    '  "ppl": number of people/faces visible (0 if none),',
     '  "conf": 0-1 confidence,',
     '  "desc": 1-line description',
     '}',
@@ -113,6 +115,7 @@ function parseClassification(
       items,
       confidence: Number(parsed.conf || parsed.confidence || 0.5),
       description: parsed.desc || parsed.description || undefined,
+      detectedPeople: Number(parsed.ppl || parsed.people || 0),
     };
   } catch (err) {
     console.warn('[SceneClassifier] Parse failed, using fallback');

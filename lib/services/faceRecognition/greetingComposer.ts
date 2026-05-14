@@ -115,3 +115,46 @@ function fallbackGreeting(name: string): string {
   if (hour < 17) return `Hey ${name}, good to see you!`;
   return `Good evening, ${name}!`;
 }
+
+/**
+ * Compose a warmer, more personal greeting for the device owner.
+ * Called once per calendar day on first sighting.
+ */
+export async function composeOwnerGreeting(match: FaceMatch): Promise<string> {
+  const person = getPersonById(match.personId);
+  if (!person) return '';
+
+  try {
+    const { getBrain } = require('../../brain/selector');
+    const brain = await getBrain();
+
+    const hour = new Date().getHours();
+    const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+
+    const prompt = [
+      'You are Mittens, a personal AI assistant pendant.',
+      `It is ${timeOfDay} and you just noticed your owner ${person.name} for the first time today.`,
+      'Compose a brief, warm morning greeting (1 sentence max).',
+      '',
+      'Rules:',
+      '- Be warm and personal, like a close companion',
+      '- Reference the time of day naturally',
+      '- Keep it to 1 short, encouraging sentence',
+      '- Do not use emojis',
+      '- Address them by name',
+    ].join('\n');
+
+    const greeting = await brain.text(prompt);
+    return greeting?.trim() || fallbackOwnerGreeting(person.name);
+  } catch (err: any) {
+    console.warn('[GreetingComposer] Owner greeting failed:', err?.message);
+    return fallbackOwnerGreeting(person.name);
+  }
+}
+
+function fallbackOwnerGreeting(name: string): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return `Good morning, ${name}! Ready for the day?`;
+  if (hour < 17) return `Good afternoon, ${name}!`;
+  return `Good evening, ${name}!`;
+}

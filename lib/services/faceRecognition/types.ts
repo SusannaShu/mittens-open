@@ -13,6 +13,8 @@ export interface KnownPerson {
   lastSeenAt?: string;
   createdAt: string;
   avatarUri?: string;
+  /** True if this person is the device owner */
+  isMe?: boolean;
 }
 
 /** A single face embedding stored in the database */

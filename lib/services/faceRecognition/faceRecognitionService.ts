@@ -20,6 +20,7 @@ import {
   recordInteraction,
   pruneEmbeddings,
   getPersonById,
+  getOwner,
 } from './faceRecognitionApi';
 
 // ═══════════════════════════════════════
@@ -168,12 +169,7 @@ export async function recognizeFaces(
     if (bestMatch) {
       matches.push(bestMatch);
 
-      // Reinforcement: save this embedding to strengthen recognition
-      if (bestMatch.similarity >= REINFORCE_THRESHOLD) {
-        reinforceRecognition(bestMatch.personId, face.embedding, framePath);
-      }
-
-      // Record the interaction
+      // Record the interaction (but do NOT auto-reinforce)
       recordInteraction(bestMatch.personId);
     }
   }
@@ -199,6 +195,32 @@ export function markGreeted(personId: number): void {
 // ═══════════════════════════════════════
 // REINFORCEMENT
 // ═══════════════════════════════════════
+
+/**
+ * Save a new embedding for an already-recognized person.
+ * Called explicitly after user confirmation (mittensAsk).
+ */
+export function confirmAndReinforce(
+  personId: number,
+  framePath: string,
+): void {
+  // Re-detect face to get fresh embedding
+  detectFacesFromFrame(framePath).then(faces => {
+    if (faces.length === 0) return;
+    const face = faces[0];
+    reinforceRecognition(personId, face.embedding, framePath);
+  }).catch(err => {
+    console.warn('[FaceRecognition] Confirm reinforce failed:', err?.message);
+  });
+}
+
+/**
+ * Check if the matched person is the device owner.
+ */
+export function isOwner(personId: number): boolean {
+  const owner = getOwner();
+  return owner?.id === personId;
+}
 
 /**
  * Save a new embedding for an already-recognized person.

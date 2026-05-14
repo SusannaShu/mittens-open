@@ -131,6 +131,8 @@ export interface SceneClassification {
   confidence: number;
   /** Free-text description from the brain */
   description?: string;
+  /** Number of people/faces detected in the frame */
+  detectedPeople: number;
 }
 
 /** Context provided to the classifier alongside the frame */

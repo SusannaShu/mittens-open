@@ -186,6 +186,8 @@ export interface Person {
   avgEnergy?: number;
   lastSeenAt?: string;
   avatarUri?: string;
+  /** True if this person is the device owner */
+  isMe?: boolean;
 }
 
 /** Phase 1: Activity detection */

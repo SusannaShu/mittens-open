@@ -14,6 +14,12 @@ import { PendantCapture } from '../../lib/services/pendant/pendantStore';
 interface Props {
   capture: PendantCapture;
   onPress?: (capture: PendantCapture) => void;
+  /** When true, show selection checkbox */
+  selectionMode?: boolean;
+  /** Whether this card is selected */
+  selected?: boolean;
+  /** Toggle selection on tap in selection mode */
+  onToggleSelect?: (id: string) => void;
 }
 
 function formatTime(ts: number): string {
@@ -29,18 +35,39 @@ function formatRelative(ts: number): string {
   return formatTime(ts);
 }
 
-export function PendantCaptureCard({ capture, onPress }: Props) {
+export function PendantCaptureCard({
+  capture,
+  onPress,
+  selectionMode,
+  selected,
+  onToggleSelect,
+}: Props) {
   const isAudio = capture.type === 'BUTTON_PRESS';
   const icon = isAudio ? 'mic' : 'camera';
   const label = isAudio ? 'Voice' : 'Vision';
 
+  const handlePress = () => {
+    if (selectionMode && onToggleSelect) {
+      onToggleSelect(capture.id);
+    } else {
+      onPress?.(capture);
+    }
+  };
+
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, selected && styles.cardSelected]}
       activeOpacity={0.7}
-      onPress={() => onPress?.(capture)}
-      disabled={!onPress}
+      onPress={handlePress}
+      disabled={!onPress && !selectionMode}
     >
+      {/* Selection checkbox */}
+      {selectionMode && (
+        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+          {selected && <Feather name="check" size={12} color="#FFF" />}
+        </View>
+      )}
+
       {/* Frame thumbnail */}
       {capture.framePath ? (
         <Image
@@ -97,6 +124,24 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     marginBottom: spacing.sm,
     gap: spacing.sm,
+  },
+  cardSelected: {
+    borderColor: '#555',
+    backgroundColor: '#1A1A1A',
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.textMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#333',
+    borderColor: '#666',
   },
   thumbnail: {
     width: 64,

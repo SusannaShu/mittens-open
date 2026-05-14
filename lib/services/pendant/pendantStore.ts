@@ -1,7 +1,8 @@
 /**
  * PendantStore -- In-memory + persistent store for pendant captures.
  *
- * Stores the last 100 captures (frames + audio) with metadata.
+ * Stores captures (frames + audio) with metadata.
+ * Auto-cleans captures older than 1 day on init.
  * Persists to AsyncStorage so captures survive app restarts.
  * Emits change events for reactive UI updates.
  */
@@ -25,7 +26,7 @@ export interface PendantCapture {
 // ─── Constants ───
 
 const STORAGE_KEY = '@mittens_pendant_captures';
-const MAX_CAPTURES = 100;
+const AUTO_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 1 day
 
 // ─── State ───
 
@@ -103,9 +104,15 @@ async function loadCaptures() {
 
 // ─── Public API ───
 
-/** Initialize store (load from disk). Call once at app boot. */
+/** Initialize store (load from disk). Auto-cleans captures older than 1 day. */
 export async function initPendantStore(): Promise<void> {
   await loadCaptures();
+
+  // Auto-cleanup captures older than 1 day
+  const removed = await cleanupOlderThan(AUTO_CLEANUP_AGE_MS);
+  if (removed > 0) {
+    console.log(`[PendantStore] Auto-cleaned ${removed} captures older than 1 day`);
+  }
 }
 
 /** Add a new capture. Returns the capture ID. */
@@ -120,11 +127,6 @@ export function addCapture(
   };
 
   captures.unshift(capture);
-
-  // Trim to max
-  if (captures.length > MAX_CAPTURES) {
-    captures = captures.slice(0, MAX_CAPTURES);
-  }
 
   notifyListeners();
   persistCaptures();
@@ -181,15 +183,52 @@ export function getTodayStats(): {
   };
 }
 
-/** Remove captures older than the given age in milliseconds. */
-export function cleanupOlderThan(ageMs: number): number {
+/** Remove captures older than the given age in milliseconds. Also deletes files. */
+export async function cleanupOlderThan(ageMs: number): Promise<number> {
   const cutoff = Date.now() - ageMs;
-  const before = captures.length;
+  const toRemove = captures.filter((c) => c.timestamp < cutoff);
+  if (toRemove.length === 0) return 0;
+
+  // Delete associated files
+  try {
+    const FileSystem = require('expo-file-system/legacy');
+    for (const c of toRemove) {
+      if (c.framePath) {
+        FileSystem.deleteAsync(c.framePath, { idempotent: true }).catch(() => {});
+      }
+      if (c.audioPath) {
+        FileSystem.deleteAsync(c.audioPath, { idempotent: true }).catch(() => {});
+      }
+    }
+  } catch { /* file cleanup non-blocking */ }
+
   captures = captures.filter((c) => c.timestamp >= cutoff);
-  const removed = before - captures.length;
-  if (removed > 0) {
-    notifyListeners();
-    persistCaptures();
-  }
-  return removed;
+  notifyListeners();
+  persistCaptures();
+  return toRemove.length;
+}
+
+/** Remove multiple captures by IDs. Also deletes associated files. */
+export async function removeCaptures(ids: string[]): Promise<number> {
+  const idSet = new Set(ids);
+  const toRemove = captures.filter((c) => idSet.has(c.id));
+  if (toRemove.length === 0) return 0;
+
+  // Delete associated files
+  try {
+    const FileSystem = require('expo-file-system/legacy');
+    for (const c of toRemove) {
+      if (c.framePath) {
+        FileSystem.deleteAsync(c.framePath, { idempotent: true }).catch(() => {});
+      }
+      if (c.audioPath) {
+        FileSystem.deleteAsync(c.audioPath, { idempotent: true }).catch(() => {});
+      }
+    }
+  } catch { /* file cleanup non-blocking */ }
+
+  captures = captures.filter((c) => !idSet.has(c.id));
+  notifyListeners();
+  persistCaptures();
+  return toRemove.length;
 }

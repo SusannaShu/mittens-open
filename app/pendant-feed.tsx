@@ -5,7 +5,7 @@
  * Accessible from the Profile tab's Pendant section.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   Platform,
   Image,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
@@ -22,7 +23,7 @@ import { colors, fonts, radius, spacing } from '../lib/theme';
 import { usePendantFeed } from '../lib/hooks/pendant/usePendantFeed';
 import { PendantCaptureCard } from '../components/pendant/PendantCaptureCard';
 import { CaptureDetailModal } from '../components/pendant/CaptureDetailModal';
-import { PendantCapture } from '../lib/services/pendant/pendantStore';
+import { PendantCapture, removeCaptures } from '../lib/services/pendant/pendantStore';
 
 type FilterType = 'all' | 'vision' | 'voice';
 
@@ -32,8 +33,10 @@ export default function PendantFeedScreen() {
   const { captures, todayStats, isLoading } = usePendantFeed();
   const [filter, setFilter] = React.useState<FilterType>('all');
   const [selectedCapture, setSelectedCapture] = useState<PendantCapture | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const filteredCaptures = React.useMemo(() => {
+  const filteredCaptures = useMemo(() => {
     if (filter === 'vision') return captures.filter((c) => c.type === 'MOTION');
     if (filter === 'voice') return captures.filter((c) => c.type === 'BUTTON_PRESS');
     return captures;
@@ -41,6 +44,40 @@ export default function PendantFeedScreen() {
 
   const handleCapturePress = useCallback((capture: PendantCapture) => {
     setSelectedCapture(capture);
+  }, []);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    Alert.alert(
+      'Delete Selected',
+      `Delete ${selectedIds.size} capture${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await removeCaptures(Array.from(selectedIds));
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+          },
+        },
+      ],
+    );
+  }, [selectedIds]);
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
   }, []);
 
   const renderHeader = useCallback(() => (
@@ -113,7 +150,15 @@ export default function PendantFeedScreen() {
             <Text style={styles.headerTitle}>Mittens Pendant</Text>
           </View>
           <View style={styles.headerRight}>
-            <Image source={require('../assets/icon.png')} style={{ width: 26, height: 26, borderRadius: 13 }} />
+            {selectionMode ? (
+              <TouchableOpacity onPress={exitSelectionMode}>
+                <Text style={styles.selectBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={() => setSelectionMode(true)}>
+                <Text style={styles.selectBtnText}>Select</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -121,7 +166,13 @@ export default function PendantFeedScreen() {
           data={filteredCaptures}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <PendantCaptureCard capture={item} onPress={handleCapturePress} />
+            <PendantCaptureCard
+              capture={item}
+              onPress={handleCapturePress}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(item.id)}
+              onToggleSelect={toggleSelect}
+            />
           )}
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={renderEmpty}
@@ -135,6 +186,19 @@ export default function PendantFeedScreen() {
         visible={!!selectedCapture}
         onClose={() => setSelectedCapture(null)}
       />
+
+      {/* Selection Action Bar */}
+      {selectionMode && selectedIds.size > 0 && (
+        <View style={[styles.selectionBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <Text style={styles.selectionCount}>
+            {selectedIds.size} selected
+          </Text>
+          <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteSelected}>
+            <Feather name="trash-2" size={16} color="#FF4444" />
+            <Text style={styles.deleteBtnText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </>
   );
 }
@@ -243,5 +307,44 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     paddingHorizontal: spacing.lg,
+  },
+  selectBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  selectionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.bgCard,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  selectionCount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#FF4444',
+  },
+  deleteBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FF4444',
   },
 });

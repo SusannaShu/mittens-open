@@ -54,12 +54,20 @@ export function triageCapture(
   }
 
   // Food scenes: always create/update meal log (separate from trail activity)
+  let decision: TriageDecision;
   if (['eating', 'meal_prep', 'cooking_at_home', 'eating_at_home', 'eating_out'].includes(sceneType)) {
-    return triageFood(classification, dedup);
+    decision = triageFood(classification, dedup);
+  } else {
+    // Activity scenes: route to trail log if active
+    decision = triageActivity(classification, dedup, trailLogId);
   }
 
-  // Activity scenes: route to trail log if active
-  return triageActivity(classification, dedup, trailLogId);
+  // Gate face recognition: only run when people are detected in the frame
+  if (classification.detectedPeople > 0) {
+    decision.phases.push('face_recognition');
+  }
+
+  return decision;
 }
 
 // ─── Food Triage ────

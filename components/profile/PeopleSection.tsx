@@ -5,19 +5,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput, Alert, Modal,
-  KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
+  View, Text, TouchableOpacity, TextInput, Alert,
+  StyleSheet, Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, radius } from '../../lib/theme';
 import { profileStyles as ps } from './profileStyles';
 import { PersonService } from '../../lib/services/personService';
-import { getEmbeddingsForPerson } from '../../lib/services/faceRecognition/faceRecognitionApi';
+import { PersonEditSheet } from './PersonEditSheet';
 import type { Person } from '../../lib/pipelines/types';
-import type { FaceEmbedding } from '../../lib/services/faceRecognition/types';
-
-const TEAM_ROLES = ['supporter', 'player', 'intimate', 'mentor', 'collaborator'] as const;
 
 interface Props {
   collapsed: boolean;
@@ -56,6 +52,8 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
           teamRole: person.teamRole,
           context: person.context,
         });
+      } else {
+        await PersonService.update(person);
       }
       setSheetVisible(false);
       setEditingPerson(null);
@@ -64,6 +62,13 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
       Alert.alert('Error', e.message || 'Failed to save');
     }
   };
+
+  const handleDelete = useCallback(async (personId: number) => {
+    setSheetVisible(false);
+    setEditingPerson(null);
+    await PersonService.delete(personId);
+    loadPeople();
+  }, [loadPeople]);
 
   return (
     <View style={ps.card}>
@@ -125,7 +130,6 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
             >
               <View style={st.avatar}>
                 {p.avatarUri ? (
-                  // @ts-ignore
                   <Image source={{ uri: p.avatarUri }} style={st.avatarImg} />
                 ) : (
                   <Text style={st.avatarText}>{p.name.charAt(0).toUpperCase()}</Text>
@@ -163,140 +167,12 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
               person={editingPerson}
               onSave={handleSave}
               onClose={() => { setSheetVisible(false); setEditingPerson(null); }}
+              onDelete={handleDelete}
             />
           )}
         </>
       )}
     </View>
-  );
-}
-
-/* ── Edit Sheet ── */
-
-function PersonEditSheet({
-  person, onSave, onClose,
-}: {
-  person: Person;
-  onSave: (p: Person) => void;
-  onClose: () => void;
-}) {
-  const [draft, setDraft] = useState<Person>({ ...person });
-  const [embeddings, setEmbeddings] = useState<FaceEmbedding[]>([]);
-  const insets = useSafeAreaInsets();
-
-  useEffect(() => {
-    if (person.id && person.id > 0) {
-      try {
-        const loaded = getEmbeddingsForPerson(person.id);
-        setEmbeddings(loaded);
-      } catch (e) {
-        console.warn('Failed to load embeddings for person', e);
-      }
-    }
-  }, [person.id]);
-
-  return (
-    <Modal visible transparent animationType="slide">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        {/* Backdrop */}
-        <TouchableOpacity style={st.overlay} activeOpacity={1} onPress={onClose} />
-
-        {/* Sheet */}
-        <View style={[st.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={st.dragHandle} />
-
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: colors.textPrimary }}>
-              {person.id === 0 ? 'Add Person' : 'Edit Person'}
-            </Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Feather name="x" size={20} color={colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={true} style={{ flex: 1 }}>
-            <Text style={st.fieldLabel}>Name</Text>
-            <TextInput
-              style={st.input}
-              value={draft.name}
-              onChangeText={(v) => setDraft(p => ({ ...p, name: v }))}
-              placeholder="Name"
-              placeholderTextColor={colors.textMuted}
-              autoFocus={person.id === 0}
-            />
-
-            <Text style={st.fieldLabel}>Nickname</Text>
-            <TextInput
-              style={st.input}
-              value={draft.nickname || ''}
-              onChangeText={(v) => setDraft(p => ({ ...p, nickname: v }))}
-              placeholder="Optional"
-              placeholderTextColor={colors.textMuted}
-            />
-
-            <Text style={st.fieldLabel}>Team Role</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
-              {TEAM_ROLES.map((role) => (
-                <TouchableOpacity
-                  key={role}
-                  style={[st.toggle, draft.teamRole === role && st.toggleActive]}
-                  onPress={() => setDraft(p => ({ ...p, teamRole: p.teamRole === role ? undefined : role }))}
-                >
-                  <Text style={[st.toggleText, draft.teamRole === role && st.toggleTextActive]}>
-                    {role.charAt(0).toUpperCase() + role.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={st.fieldLabel}>Context</Text>
-            <TextInput
-              style={[st.input, { minHeight: 60 }]}
-              value={draft.context || ''}
-              onChangeText={(v) => setDraft(p => ({ ...p, context: v }))}
-              placeholder="How do you know them?"
-              placeholderTextColor={colors.textMuted}
-              multiline
-            />
-
-            {person.id && person.id > 0 && embeddings.length > 0 ? (
-              <View style={{ marginTop: spacing.md }}>
-                <Text style={st.fieldLabel}>Pictures Used to Remember ({embeddings.length})</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }}>
-                  {embeddings.map((emb, idx) => (
-                    emb.imageUri ? (
-                      <View key={emb.id || idx} style={st.galleryItem}>
-                        {/* @ts-ignore */}
-                        <Image source={{ uri: emb.imageUri }} style={st.galleryImage} />
-                        <Text style={st.galleryDate}>
-                          {new Date(emb.capturedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                        </Text>
-                      </View>
-                    ) : null
-                  ))}
-                </ScrollView>
-              </View>
-            ) : null}
-
-            <View style={{ height: 60 }} />
-          </ScrollView>
-
-          {/* Actions -- pinned */}
-          <View style={st.actionBar}>
-            <TouchableOpacity style={st.cancelBtn} onPress={onClose}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[st.saveBtn, !draft.name.trim() && { opacity: 0.4 }]}
-              onPress={() => draft.name.trim() && onSave(draft)}
-              disabled={!draft.name.trim()}
-            >
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff' }}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
   );
 }
 
@@ -337,57 +213,4 @@ const st = StyleSheet.create({
     borderRadius: radius.md, borderStyle: 'dashed',
   },
   addText: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: {
-    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingHorizontal: spacing.lg, paddingTop: spacing.sm,
-    maxHeight: '70%',
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-  },
-  dragHandle: {
-    width: 36, height: 4, borderRadius: 2, backgroundColor: '#DDD',
-    alignSelf: 'center', marginBottom: spacing.sm,
-  },
-  input: {
-    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14,
-    color: colors.textPrimary, marginBottom: spacing.sm,
-  },
-  fieldLabel: {
-    fontSize: 11, fontWeight: '700', color: colors.textMuted,
-    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6,
-  },
-  toggle: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff',
-  },
-  toggleActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
-  toggleText: { fontSize: 12, fontWeight: '500', color: colors.textPrimary },
-  toggleTextActive: { color: '#fff' },
-  actionBar: {
-    flexDirection: 'row', gap: 10, paddingTop: spacing.sm,
-    borderTopWidth: 1, borderTopColor: colors.border,
-  },
-  saveBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 12,
-    backgroundColor: colors.textPrimary, borderRadius: radius.md,
-  },
-  cancelBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 12,
-    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-  },
-  galleryItem: {
-    marginRight: spacing.sm,
-    alignItems: 'center',
-  },
-  galleryImage: {
-    width: 80, height: 80,
-    borderRadius: radius.sm,
-    backgroundColor: '#EAEAEA',
-  },
-  galleryDate: {
-    fontSize: 10,
-    color: colors.textMuted,
-    marginTop: 4,
-  },
 });

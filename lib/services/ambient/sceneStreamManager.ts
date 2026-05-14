@@ -95,6 +95,23 @@ class SceneStreamManager {
     timestamp: number,
   ): Promise<{ summary: string, log: PipelineLog }> {
     const logger = new PipelineLogger();
+    const FileSystem = require('expo-file-system/legacy');
+
+    // 0. Frame dedup -- skip + delete if too similar to last frame
+    const frameDedupIdx = logger.startPhase('scene', 'frame_dedup');
+    try {
+      const { checkFrameDedup, setLastFrame } = require('./frameDedup');
+      const dupCheck = await checkFrameDedup(framePath);
+      if (dupCheck.isDuplicate) {
+        logger.completePhase(frameDedupIdx, `Skipped (tier ${dupCheck.tier}): ${dupCheck.reason}`);
+        FileSystem.deleteAsync(framePath, { idempotent: true }).catch(() => {});
+        return { summary: `Skipped: ${dupCheck.reason}`, log: logger.finalize() };
+      }
+      logger.completePhase(frameDedupIdx, 'Frame is different, proceeding');
+      setLastFrame(framePath);
+    } catch (err: any) {
+      logger.completePhase(frameDedupIdx, `Dedup check failed: ${err?.message}`);
+    }
 
     // 1. Build context from phone state
     const context = this.buildContext();
@@ -104,7 +121,7 @@ class SceneStreamManager {
     const classification = await classifyFrame(framePath, context);
     logger.completePhase(
       classifyIdx,
-      `${classification.sceneType}/${classification.subPhase} (conf: ${classification.confidence})`,
+      `${classification.sceneType}/${classification.subPhase} (conf: ${classification.confidence}, ppl: ${classification.detectedPeople})`,
     );
 
     // 2.5. Consume GPS tag if this was a phone-triggered capture
@@ -120,7 +137,7 @@ class SceneStreamManager {
     console.log(
       `[SceneStream] Frame classified: ${classification.sceneType}` +
       `/${classification.subPhase} conf=${classification.confidence}` +
-      ` items=${classification.items.length}`,
+      ` items=${classification.items.length} ppl=${classification.detectedPeople}`,
     );
 
     // 3. Skip low-confidence unknown frames
@@ -223,13 +240,9 @@ class SceneStreamManager {
       result = `Skipped: ${triageDecision.reason}`;
     }
 
-    // 7. Ambient face recognition (non-blocking)
-    // Run on social scenes, or periodically on any frame
+    // 7. Ambient face recognition -- gated by triage (only when people detected)
     const activeScene = matched || (classification.confidence >= MIN_CONFIDENCE ? this.openScenes[this.openScenes.length - 1] : null);
-    if (
-      activeScene &&
-      (classification.sceneType === 'social' || activeScene.type === 'social')
-    ) {
+    if (triageDecision.phases.includes('face_recognition') && activeScene) {
       try {
         await this.checkFaceRecognition(framePath, activeScene, logger);
       } catch (err: any) {

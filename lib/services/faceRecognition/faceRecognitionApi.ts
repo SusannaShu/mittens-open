@@ -202,7 +202,6 @@ export function undoLastReinforcement(personName?: string): boolean {
     const person = findPersonByName(personName);
     if (!person) return false;
     
-    // Find the most recent embedding in the last 15 mins
     const row = db.getFirstSync(
       `SELECT id FROM face_embeddings 
        WHERE person_id = ? AND captured_at > datetime('now', '-15 minutes')
@@ -215,7 +214,6 @@ export function undoLastReinforcement(personName?: string): boolean {
       return true;
     }
   } else {
-    // Just delete the absolute most recent embedding overall
     const row = db.getFirstSync(
       `SELECT id FROM face_embeddings 
        WHERE captured_at > datetime('now', '-15 minutes')
@@ -229,6 +227,38 @@ export function undoLastReinforcement(personName?: string): boolean {
   }
   
   return false;
+}
+
+/** Delete a single embedding by ID ("not [name]" correction). */
+export function deleteEmbedding(embeddingId: number): void {
+  initFaceRecognitionTable();
+  const db = getDb();
+  db.runSync('DELETE FROM face_embeddings WHERE id = ?', [embeddingId]);
+}
+
+/** Get the device owner (person with is_me = 1). */
+export function getOwner(): KnownPerson | null {
+  const db = getDb();
+  const row = db.getFirstSync(
+    `SELECT p.*,
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+     FROM people p WHERE p.is_me = 1 LIMIT 1`,
+  ) as any;
+  return row ? rowToPerson(row) : null;
+}
+
+/** Set a person as the device owner. Clears any previous owner. */
+export function setOwner(personId: number): void {
+  const db = getDb();
+  db.runSync('UPDATE people SET is_me = 0 WHERE is_me = 1');
+  db.runSync('UPDATE people SET is_me = 1, team_role = ? WHERE id = ?', ['self', personId]);
+}
+
+/** Delete a person and all their embeddings (CASCADE). */
+export function deletePerson(personId: number): void {
+  const db = getDb();
+  db.runSync('DELETE FROM face_embeddings WHERE person_id = ?', [personId]);
+  db.runSync('DELETE FROM people WHERE id = ?', [personId]);
 }
 
 // ═══════════════════════════════════════
@@ -246,6 +276,7 @@ function rowToPerson(row: any): KnownPerson {
     lastSeenAt: row.last_seen_at,
     createdAt: row.created_at,
     avatarUri: row.avatar_uri,
+    isMe: row.is_me === 1,
   };
 }
 

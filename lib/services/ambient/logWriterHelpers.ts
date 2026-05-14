@@ -39,11 +39,14 @@ export async function runAEIOUPhases(
       const { detectSocial } = require('../../pipelines/activity/social');
       const result = await detectSocial(input, classification);
       if (result.interactions) {
-        // Append to existing instead of replacing
-        const prev = aeiou.interactions || '';
-        aeiou.interactions = prev
-          ? `${prev}; ${result.interactions}`
-          : result.interactions;
+        // Dedup: merge with existing values via Set
+        const existing = (aeiou.interactions || '')
+          .split(/[;,]/)
+          .map((s: string) => s.trim().toLowerCase())
+          .filter(Boolean);
+        const merged = new Set(existing);
+        merged.add(result.interactions.trim().toLowerCase());
+        aeiou.interactions = [...merged].join(', ');
       }
       logger.completePhase(idx, result.interactions || 'none');
     } catch (err: any) { logger.failPhase(idx, err?.message); }
@@ -55,8 +58,13 @@ export async function runAEIOUPhases(
       const { detectObjects } = require('../../pipelines/activity/objects');
       const result = await detectObjects(input, classification);
       if (result.objects?.length) {
-        const names = result.objects.map((o: any) => o.name || o).join(', ');
-        aeiou.objects = aeiou.objects ? `${aeiou.objects}, ${names}` : names;
+        const newNames = result.objects.map((o: any) => (o.name || o).toString().trim().toLowerCase());
+        const existing = (aeiou.objects || '')
+          .split(/[;,]/)
+          .map((s: string) => s.trim().toLowerCase())
+          .filter(Boolean);
+        const merged = new Set([...existing, ...newNames]);
+        aeiou.objects = [...merged].join(', ');
       }
       logger.completePhase(idx, `${result.objects?.length ?? 0} objects`);
     } catch (err: any) { logger.failPhase(idx, err?.message); }

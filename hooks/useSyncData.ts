@@ -291,42 +291,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
     };
 
     // Location rail events (left side rail, opens map modal)
-    const locationEvents: CalendarEvent[] = (locationSessions || []).map((s: LocationSession, i: number) => {
-      const actualStart = new Date(s.startedAt);
-      const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
-      const dayStart = new Date(selectedDate + 'T00:00:00');
-      const dayEnd = new Date(selectedDate + 'T23:59:59');
-
-      const visibleStart = actualStart < dayStart ? dayStart : actualStart;
-      const visibleEnd = actualEnd > dayEnd ? dayEnd : actualEnd;
-      const durationMin = Math.max(1, Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000));
-      
-      let resolvedName = s.placeName;
-      const matchedPlace = s.placeId ? knownPlaces.find(p => p.id === s.placeId) : null;
-      if (matchedPlace) {
-        resolvedName = matchedPlace.name;
-      } else if (s.motionType === 'stationary' && s.path && s.path.length > 0) {
-        const threshold = 0.001;
-        const coordMatch = knownPlaces.find(p => Math.abs(p.latitude - s.path[0][0]) < threshold && Math.abs(p.longitude - s.path[0][1]) < threshold);
-        if (coordMatch) resolvedName = coordMatch.name;
-      }
-
-      const label = resolvedName 
-        ? resolvedName
-        : MOTION_LABELS[s.motionType] || 'Location';
-
-      return {
-        id: 500000 + i,
-        loggedAt: visibleStart.toISOString(),
-        title: label,
-        duration_min: durationMin,
-        icon: MOTION_ICONS[s.motionType] || 'map-pin',
-        location: s.placeName || null,
-        type: 'location' as const,
-        sourceData: s,
-      };
-    });
-
+    const locationEvents: CalendarEvent[] = [];
     // Location-derived calendar blocks (main area, opens ActivityEditModal)
     // Consecutive trails merge into one commute block; stationary => activity block
     const locationActivityEvents: CalendarEvent[] = [];
@@ -337,6 +302,49 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       if (trailGroup.length === 0) return;
       const first = trailGroup[0];
       const last = trailGroup[trailGroup.length - 1];
+      
+      const mergedPath = trailGroup.flatMap(s => s.path || []);
+      const mergedSession = {
+        ...first,
+        endedAt: last.endedAt,
+        duration_min: Math.max(1, Math.round((new Date(last.endedAt || new Date()).getTime() - new Date(first.startedAt).getTime()) / 60000)),
+        path: mergedPath,
+      };
+
+      // 1. Add location events (rail dots) for each segment, but with the merged path
+      trailGroup.forEach((s, i) => {
+        const actualStart = new Date(s.startedAt);
+        const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
+        const dayStart = new Date(selectedDate + 'T00:00:00');
+        const dayEnd = new Date(selectedDate + 'T23:59:59');
+
+        const visibleStart = actualStart < dayStart ? dayStart : actualStart;
+        const visibleEnd = actualEnd > dayEnd ? dayEnd : actualEnd;
+        const durationMin = Math.max(1, Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000));
+        
+        let resolvedName = s.placeName;
+        const matchedPlace = s.placeId ? knownPlaces.find(p => p.id === s.placeId) : null;
+        if (matchedPlace) {
+          resolvedName = matchedPlace.name;
+        }
+
+        const label = resolvedName 
+          ? resolvedName
+          : MOTION_LABELS[s.motionType] || 'Location';
+
+        locationEvents.push({
+          id: 500000 + locationEvents.length,
+          loggedAt: visibleStart.toISOString(),
+          title: label,
+          duration_min: durationMin,
+          icon: MOTION_ICONS[s.motionType] || 'navigation',
+          location: s.placeName || null,
+          type: 'location' as const,
+          sourceData: { ...s, path: mergedPath },
+        });
+      });
+
+      // 2. Add location activity event (main calendar block)
       const actualStart = new Date(first.startedAt);
       const actualEnd = last.endedAt ? new Date(last.endedAt) : new Date();
       const dayStart = new Date(selectedDate + 'T00:00:00');
@@ -345,15 +353,20 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       const visibleEnd = actualEnd > dayEnd ? dayEnd : actualEnd;
       const durationMin = Math.max(1, Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000));
 
-      // Build motion type label from all trail segments
       const motionTypes = [...new Set(trailGroup.map(s => s.motionType))];
       const TRAIL_VERBS: Record<string, string> = {
         walking: 'Walk', running: 'Run', cycling: 'Bike', driving: 'Drive',
       };
-      const verbs = motionTypes.map(m => TRAIL_VERBS[m] || m).filter(Boolean);
+      const verbs = motionTypes
+        .filter(m => m !== 'unknown')
+        .map(m => TRAIL_VERBS[m] || m)
+        .filter(Boolean);
+        
       const title = verbs.length > 1
         ? `${verbs.slice(0, 2).join(' and ')} commute`
-        : `${verbs[0] || 'Commute'} commute`;
+        : verbs.length === 1 
+          ? `${verbs[0]} commute` 
+          : 'Transit';
 
       locationActivityEvents.push({
         id: 600000 + locationActivityEvents.length,
@@ -370,7 +383,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
           logName: title,
           duration_min: durationMin,
           source: 'location',
-          meta: { locationSession: first, trailSessions: trailGroup },
+          meta: { locationSession: mergedSession, trailSessions: trailGroup },
         },
       });
       trailGroup = [];
@@ -387,17 +400,47 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       // Flush any accumulated trail group before this stationary session
       flushTrailGroup();
 
-      // Stationary session -> activity block with smart title
-      const childActs = getChildActivitiesForSession(s);
-      const smartTitle = generateLocationBlockTitle(s, childActs);
+      // Handle stationary session
       const actualStart = new Date(s.startedAt);
       const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
       const dayStart = new Date(selectedDate + 'T00:00:00');
       const dayEnd = new Date(selectedDate + 'T23:59:59');
       const visibleStart = actualStart < dayStart ? dayStart : actualStart;
       const visibleEnd = actualEnd > dayEnd ? dayEnd : actualEnd;
-      let durationMin = Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000);
-      if (durationMin < 30) durationMin = 30; // Minimum 30 min block for stationary sessions
+      let durationMin = Math.max(1, Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000));
+
+      // 1. Add to location rail
+      let resolvedName = s.placeName;
+      const matchedPlace = s.placeId ? knownPlaces.find(p => p.id === s.placeId) : null;
+      if (matchedPlace) {
+        resolvedName = matchedPlace.name;
+      } else if (s.path && s.path.length > 0) {
+        const threshold = 0.001;
+        const coordMatch = knownPlaces.find(p => Math.abs(p.latitude - s.path[0][0]) < threshold && Math.abs(p.longitude - s.path[0][1]) < threshold);
+        if (coordMatch) resolvedName = coordMatch.name;
+      }
+
+      const label = resolvedName 
+        ? resolvedName
+        : MOTION_LABELS[s.motionType] || 'Location';
+
+      locationEvents.push({
+        id: 500000 + locationEvents.length,
+        loggedAt: visibleStart.toISOString(),
+        title: label,
+        duration_min: durationMin,
+        icon: MOTION_ICONS[s.motionType] || 'map-pin',
+        location: s.placeName || null,
+        type: 'location' as const,
+        sourceData: s,
+      });
+
+      // 2. Add stationary session -> activity block with smart title
+      const childActs = getChildActivitiesForSession(s);
+      const smartTitle = generateLocationBlockTitle(s, childActs);
+      
+      let activityDurationMin = durationMin;
+      if (activityDurationMin < 30) activityDurationMin = 30; // Minimum 30 min block for stationary sessions
 
       // Determine icon from dominant child activity
       const dominantType = childActs.length > 0
@@ -413,7 +456,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         id: 600000 + locationActivityEvents.length,
         loggedAt: visibleStart.toISOString(),
         title: smartTitle,
-        duration_min: durationMin,
+        duration_min: activityDurationMin,
         icon: ACTIVITY_ICONS[dominantType] || 'map-pin',
         location: s.placeName || null,
         type: 'activity' as const,
@@ -422,7 +465,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
           loggedAt: visibleStart.toISOString(),
           activityType: dominantType,
           logName: smartTitle,
-          duration_min: durationMin,
+          duration_min: activityDurationMin,
           location: s.placeName || undefined,
           source: 'location',
           meta: { locationSession: s },

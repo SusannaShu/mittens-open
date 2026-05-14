@@ -134,8 +134,8 @@ export function aggregateAEIOU(
     for (const [key, value] of Object.entries(aeiou)) {
       const normalKey = key.toLowerCase();
       if (result[normalKey] && value) {
-        // Split by comma and trim each item
-        const items = value.split(',').map(s => s.trim()).filter(Boolean);
+        // Split by comma or semicolon and normalize for dedup
+        const items = value.split(/[;,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
         items.forEach(item => result[normalKey].add(item));
       }
     }

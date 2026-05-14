@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, PanResponder, Animated, Dimensions } from 'react-native';
 import { Tabs } from 'expo-router';
+import { getDb } from '../../lib/database';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../lib/theme';
 import ActivityEditModal from '../../components/common/ActivityEditModal';
@@ -23,6 +24,7 @@ const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
 export default function ReflectScreen() {
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [viewMode, setViewMode] = useState<ViewMode>('day');
+  const db = getDb();
 
   const {
     weekStart,
@@ -296,6 +298,15 @@ export default function ReflectScreen() {
         onDelete={async (id) => {
           if (id === -1 && h.editingActivity?.meta?.syncedCalendarEventId) {
             await h.deleteCalendarEvent(h.editingActivity.meta.syncedCalendarEventId).unwrap();
+          } else if (id < 0 && h.editingActivity?.source === 'location') {
+            const meta = h.editingActivity.meta as any;
+            if (meta?.trailSessions) {
+              for (const ts of meta.trailSessions) {
+                await db.runAsync('DELETE FROM location_sessions WHERE id = ?', [ts.id]);
+              }
+            } else if (meta?.locationSession) {
+              await db.runAsync('DELETE FROM location_sessions WHERE id = ?', [meta.locationSession.id]);
+            }
           } else if (id > 0) {
             await h.deleteActivity(id).unwrap();
           }

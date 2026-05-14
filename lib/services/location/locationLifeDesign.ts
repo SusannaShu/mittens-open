@@ -115,37 +115,79 @@ export function generateActivityNarrative(
 }
 
 /**
- * Aggregate AEIOU fields from multiple child activity records.
- * Union-merges all values per AEIOU dimension.
+ * A child record with both AEIOU data and its duration.
+ */
+export interface AEIOUChild {
+  aeiou: Record<string, string> | null;
+  duration_min: number;
+}
+
+/**
+ * Aggregate AEIOU fields from child activity records with duration awareness.
+ * Groups identical values per dimension, sums durations, and outputs a
+ * narrative like "solo for 30min, 1-2 for 5min".
+ *
+ * For dimensions where duration context doesn't make sense (objects, users),
+ * we just deduplicate the list.
  */
 export function aggregateAEIOU(
-  childAeious: Array<Record<string, string> | null>,
+  children: AEIOUChild[],
 ): Record<string, string> {
-  const result: Record<string, Set<string>> = {
-    activity: new Set(),
-    environment: new Set(),
-    interactions: new Set(),
+  // Dimensions where we want "value for Xmin" narrative
+  const DURATION_DIMS = new Set(['interactions', 'environment']);
+  // Dimensions where we just list unique values
+  const LIST_DIMS = new Set(['objects', 'users']);
+
+  // Map of dimension -> value -> total minutes
+  const durationMap: Record<string, Map<string, number>> = {
+    interactions: new Map(),
+    environment: new Map(),
+  };
+  const listSets: Record<string, Set<string>> = {
     objects: new Set(),
     users: new Set(),
   };
 
-  for (const aeiou of childAeious) {
-    if (!aeiou) continue;
-    for (const [key, value] of Object.entries(aeiou)) {
+  for (const child of children) {
+    if (!child.aeiou) continue;
+    const dur = child.duration_min || 0;
+
+    for (const [key, value] of Object.entries(child.aeiou)) {
       const normalKey = key.toLowerCase();
-      if (result[normalKey] && value) {
-        // Split by comma or semicolon and normalize for dedup
-        const items = value.split(/[;,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
-        items.forEach(item => result[normalKey].add(item));
+      if (!value) continue;
+
+      // Split compound values (from legacy semicolon/comma appending)
+      const items = value.split(/[;,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+
+      if (DURATION_DIMS.has(normalKey) && durationMap[normalKey]) {
+        // Distribute duration equally across items in this record
+        const perItem = items.length > 0 ? dur / items.length : 0;
+        for (const item of items) {
+          durationMap[normalKey].set(item, (durationMap[normalKey].get(item) || 0) + perItem);
+        }
+      } else if (LIST_DIMS.has(normalKey) && listSets[normalKey]) {
+        items.forEach(item => listSets[normalKey].add(item));
       }
     }
   }
 
   const merged: Record<string, string> = {};
-  for (const [key, valueSet] of Object.entries(result)) {
-    if (valueSet.size > 0) {
-      merged[key] = [...valueSet].join(', ');
+
+  // Build duration narratives for interactions and environment
+  for (const [dim, map] of Object.entries(durationMap)) {
+    if (map.size === 0) continue;
+    const sorted = [...map.entries()].sort((a, b) => b[1] - a[1]);
+    merged[dim] = sorted
+      .map(([val, mins]) => mins > 0 ? `${val} for ${Math.round(mins)}min` : val)
+      .join(', ');
+  }
+
+  // Build simple deduped lists for objects and users
+  for (const [dim, valSet] of Object.entries(listSets)) {
+    if (valSet.size > 0) {
+      merged[dim] = [...valSet].join(', ');
     }
   }
+
   return merged;
 }

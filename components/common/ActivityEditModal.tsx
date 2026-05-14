@@ -570,10 +570,10 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   );
 }
 
-/** Query child AEIOU records from activity_logs for aggregation. */
+/** Query child AEIOU records with durations from activity_logs for aggregation. */
 function getChildAEIOUs(
   session: { startedAt: string; endedAt: string | null },
-): Array<Record<string, string> | null> {
+): Array<{ aeiou: Record<string, string> | null; duration_min: number }> {
   try {
     const db = getDb();
     const startIso = new Date(session.startedAt).toISOString();
@@ -581,13 +581,16 @@ function getChildAEIOUs(
       ? new Date(session.endedAt).toISOString()
       : new Date().toISOString();
     const rows = db.getAllSync(
-      `SELECT aeiou FROM activity_logs
+      `SELECT aeiou, duration_min FROM activity_logs
        WHERE source IN ('pendant', 'trail')
          AND logged_at >= ? AND logged_at <= ?
          AND aeiou IS NOT NULL`,
       [startIso, endIso],
     ) as any[];
-    return rows.map(r => JSON.parse(r.aeiou));
+    return rows.map(r => ({
+      aeiou: JSON.parse(r.aeiou),
+      duration_min: r.duration_min || 0,
+    }));
   } catch {
     return [];
   }

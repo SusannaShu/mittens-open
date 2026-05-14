@@ -289,6 +289,21 @@ export default function ReflectScreen() {
           if (h.isNewCalendarActivity || id === -1) {
             const googleEventId = h.editingActivity?.meta?.googleEventId || null;
             await h.logActivity({ ...data, source: 'calendar', googleEventId } as any).unwrap();
+          } else if (id < 0 && h.editingActivity?.source === 'location') {
+            const meta = h.editingActivity.meta as any;
+            if (meta?.trailSessions) {
+              for (const ts of meta.trailSessions) {
+                await db.runAsync(
+                  'UPDATE location_sessions SET motion_type = ?, place_name = ? WHERE id = ?',
+                  [data.activityType || ts.motionType, data.location || ts.placeName, ts.id]
+                );
+              }
+            } else if (meta?.locationSession) {
+              await db.runAsync(
+                'UPDATE location_sessions SET motion_type = ?, place_name = ? WHERE id = ?',
+                [data.activityType || meta.locationSession.motionType, data.location || meta.locationSession.placeName, meta.locationSession.id]
+              );
+            }
           } else {
             await h.reflectActivity({ id, ...data }).unwrap();
           }

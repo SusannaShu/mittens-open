@@ -6,6 +6,7 @@ import { baseApi } from '../baseApi';
 import { getDb } from '../../database';
 
 export interface LocationSession {
+  id: number;
   startedAt: string;
   endedAt: string | null;
   motionType: 'stationary' | 'walking' | 'running' | 'cycling' | 'driving' | 'unknown';
@@ -17,6 +18,7 @@ export interface LocationSession {
 
 function rowToSession(r: any): LocationSession {
   return {
+    id: r.id,
     startedAt: r.started_at,
     endedAt: r.ended_at,
     motionType: r.motion_type || 'unknown',

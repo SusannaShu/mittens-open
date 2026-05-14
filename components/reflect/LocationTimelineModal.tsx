@@ -432,8 +432,8 @@ function buildTimelineRows(session: LocationSession): TimelineRow[] {
     }
   } catch { /* db not available */ }
 
-  // Sort by timestamp
-  rows.sort((a, b) => a.timestamp - b.timestamp);
+  // Sort by timestamp (latest to oldest)
+  rows.sort((a, b) => b.timestamp - a.timestamp);
   return rows;
 }
 

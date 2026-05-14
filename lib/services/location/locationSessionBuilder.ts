@@ -23,7 +23,8 @@ const MIN_TRAIL_POINT_DISTANCE_M = 15;
 
 // GPS jitter suppression radius for stationary sessions (meters).
 // Points within this radius of a stationary session's start are silently dropped.
-const STATIONARY_SUPPRESSION_M = 50;
+// Indoor GPS can drift 50-150m easily, so we use a generous radius.
+const STATIONARY_SUPPRESSION_M = 100;
 
 // Minimum dwell time (ms) before we split a moving session into a stationary one.
 // If the user stops for less than this, the stationary points stay in the trail.
@@ -33,7 +34,12 @@ const MIN_STATIONARY_DWELL_MS = 3 * 60 * 1000;
 // When a stationary session sees a point this far away, it means
 // the user traveled while the app was backgrounded. We bridge with
 // a transit session rather than discarding the movement.
-const DISTANCE_JUMP_M = 200;
+const DISTANCE_JUMP_M = 350;
+
+// Minimum trail points required per 10 minutes of transit duration.
+// Real movement generates consistent GPS samples; jitter creates sparse,
+// scattered points. A 35-minute "transit" with only 3 points is GPS drift.
+const MIN_POINTS_PER_10MIN = 3;
 
 // Track when the classifier first reported "stationary" during a moving session.
 // We keep adding points to the trail until this exceeds MIN_STATIONARY_DWELL_MS,
@@ -390,9 +396,28 @@ function resolveTransitMotion(incomingMotion: string, distanceM: number): string
 function closeSession(db: any, sessionId: number, endedAt: string): void {
   // Get session info before closing to check if it's a movement session
   const session = db.getFirstSync(
-    'SELECT motion_type FROM location_sessions WHERE id = ?',
+    'SELECT motion_type, started_at, trail FROM location_sessions WHERE id = ?',
     [sessionId],
   ) as any;
+
+  // Phantom transit detection: if a movement session has too few points
+  // for its duration, it's GPS jitter -- delete it instead of closing.
+  if (session?.motion_type && session.motion_type !== 'stationary') {
+    const startMs = new Date(session.started_at).getTime();
+    const endMs = new Date(endedAt).getTime();
+    const durationMin = (endMs - startMs) / 60000;
+    let pointCount = 0;
+    try {
+      pointCount = session.trail ? JSON.parse(session.trail).length : 0;
+    } catch { pointCount = 0; }
+
+    const expectedPoints = Math.max(1, (durationMin / 10) * MIN_POINTS_PER_10MIN);
+    if (durationMin > 5 && pointCount < expectedPoints) {
+      console.log(`[sessionBuilder] PHANTOM detected: ${pointCount} pts in ${Math.round(durationMin)}min (need ${Math.round(expectedPoints)}), deleting session #${sessionId}`);
+      db.runSync('DELETE FROM location_sessions WHERE id = ?', [sessionId]);
+      return;
+    }
+  }
 
   db.runSync(
     'UPDATE location_sessions SET ended_at = ? WHERE id = ?',

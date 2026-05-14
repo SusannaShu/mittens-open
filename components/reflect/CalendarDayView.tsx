@@ -420,42 +420,7 @@ export default function CalendarDayView({ events, date, onEdit, onTimeChange, on
             );
           }
 
-          if (evt.type === 'location') {
-            const mType = evt.sourceData?.motionType || 'unknown';
-            const isSt = mType === 'stationary';
-            const isOngoing = evt.sourceData?.endedAt === null;
-            const BLOCK_ICONS: Record<string, string> = {
-              stationary: 'map-pin', walking: 'navigation', running: 'trending-up',
-              cycling: 'navigation', driving: 'truck', unknown: 'map-pin',
-            };
-            const iconName = BLOCK_ICONS[mType] || 'map-pin';
-            
-            return (
-              <TouchableOpacity
-                key={`${evt.type}-${evt.id}`}
-                style={[
-                  s.block,
-                  { 
-                    top, height: Math.max(height, 28), left: 0, width: TOTAL_BLOCK_WIDTH, 
-                    backgroundColor: isSt ? 'rgba(102, 187, 106, 0.12)' : 'rgba(67, 160, 71, 0.08)',
-                    borderColor: isSt ? '#81C784' : '#66BB6A',
-                    borderStyle: isSt ? 'solid' as const : 'dashed' as const,
-                    zIndex: 5,
-                  }
-                ]}
-                onPress={() => onEdit(evt)}
-                activeOpacity={0.8}
-              >
-                <View style={[s.blockInner, { backgroundColor: 'transparent' }]}>
-                  <Feather name={iconName as any} size={12} color={isSt ? '#4CAF50' : '#388E3C'} />
-                  <Text style={[s.blockTitle, { color: isSt ? '#388E3C' : '#2E7D32' }]} numberOfLines={1}>
-                    {evt.title}
-                  </Text>
-                  {isOngoing && <OngoingDot color="#4CAF50" />}
-                </View>
-              </TouchableOpacity>
-            );
-          }
+
 
           // Build drag handlers only for draggable events
           const panHandlers = isDraggable ? createPanResponder(evt, top) : null;

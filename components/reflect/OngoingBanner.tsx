@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../../lib/theme';
 import { useFocusTimer } from '../../hooks/useFocusTimer';
-import { CalendarEvent } from '../../hooks/useSyncData';
+import { CalendarEvent } from './CalendarDayView';
 
 interface Props {
   ongoingLocation?: CalendarEvent;

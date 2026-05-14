@@ -141,7 +141,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       id: m.id as number,
       loggedAt: m.loggedAt as string,
       title: m.logName || `${m.mealType || 'Meal'}`,
-      duration_min: m.duration_min || 20,
+      duration_min: (m as any).duration_min || 20,
       icon: MEAL_ICONS[m.mealType || ''] || 'circle',
       location: null,
       type: 'meal',
@@ -290,6 +290,7 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       driving: 'Transit', unknown: 'Location',
     };
 
+    // Location rail events (left side rail, opens map modal)
     const locationEvents: CalendarEvent[] = (locationSessions || []).map((s: LocationSession, i: number) => {
       const actualStart = new Date(s.startedAt);
       const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
@@ -314,14 +315,10 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         ? resolvedName
         : MOTION_LABELS[s.motionType] || 'Location';
 
-      // Generate smart title from child activities
-      const childActs = getChildActivitiesForSession(s);
-      const smartTitle = generateLocationBlockTitle(s, childActs);
-
       return {
         id: 500000 + i,
         loggedAt: visibleStart.toISOString(),
-        title: smartTitle || label,
+        title: label,
         duration_min: durationMin,
         icon: MOTION_ICONS[s.motionType] || 'map-pin',
         location: s.placeName || null,
@@ -330,7 +327,112 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       };
     });
 
-    return [...actEvents, ...mealEvents, ...syncedEvents, ...sleepEvents, ...plannedEvents, ...solarEvents, ...locationEvents].sort(
+    // Location-derived calendar blocks (main area, opens ActivityEditModal)
+    // Consecutive trails merge into one commute block; stationary => activity block
+    const locationActivityEvents: CalendarEvent[] = [];
+    const sessions = locationSessions || [];
+    let trailGroup: LocationSession[] = [];
+
+    const flushTrailGroup = () => {
+      if (trailGroup.length === 0) return;
+      const first = trailGroup[0];
+      const last = trailGroup[trailGroup.length - 1];
+      const actualStart = new Date(first.startedAt);
+      const actualEnd = last.endedAt ? new Date(last.endedAt) : new Date();
+      const dayStart = new Date(selectedDate + 'T00:00:00');
+      const dayEnd = new Date(selectedDate + 'T23:59:59');
+      const visibleStart = actualStart < dayStart ? dayStart : actualStart;
+      const visibleEnd = actualEnd > dayEnd ? dayEnd : actualEnd;
+      const durationMin = Math.max(1, Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000));
+
+      // Build motion type label from all trail segments
+      const motionTypes = [...new Set(trailGroup.map(s => s.motionType))];
+      const TRAIL_VERBS: Record<string, string> = {
+        walking: 'Walk', running: 'Run', cycling: 'Bike', driving: 'Drive',
+      };
+      const verbs = motionTypes.map(m => TRAIL_VERBS[m] || m).filter(Boolean);
+      const title = verbs.length > 1
+        ? `${verbs.slice(0, 2).join(' and ')} commute`
+        : `${verbs[0] || 'Commute'} commute`;
+
+      locationActivityEvents.push({
+        id: 600000 + locationActivityEvents.length,
+        loggedAt: visibleStart.toISOString(),
+        title,
+        duration_min: durationMin,
+        icon: 'navigation',
+        location: null,
+        type: 'activity' as const,
+        sourceData: {
+          id: -(600000 + locationActivityEvents.length),
+          loggedAt: visibleStart.toISOString(),
+          activityType: 'commute',
+          logName: title,
+          duration_min: durationMin,
+          source: 'location',
+          meta: { locationSession: first, trailSessions: trailGroup },
+        },
+      });
+      trailGroup = [];
+    };
+
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i] as LocationSession;
+      if (s.motionType !== 'stationary') {
+        // Trail segment -- accumulate
+        trailGroup.push(s);
+        continue;
+      }
+
+      // Flush any accumulated trail group before this stationary session
+      flushTrailGroup();
+
+      // Stationary session -> activity block with smart title
+      const childActs = getChildActivitiesForSession(s);
+      const smartTitle = generateLocationBlockTitle(s, childActs);
+      const actualStart = new Date(s.startedAt);
+      const actualEnd = s.endedAt ? new Date(s.endedAt) : new Date();
+      const dayStart = new Date(selectedDate + 'T00:00:00');
+      const dayEnd = new Date(selectedDate + 'T23:59:59');
+      const visibleStart = actualStart < dayStart ? dayStart : actualStart;
+      const visibleEnd = actualEnd > dayEnd ? dayEnd : actualEnd;
+      let durationMin = Math.round((visibleEnd.getTime() - visibleStart.getTime()) / 60000);
+      if (durationMin < 30) durationMin = 30; // Minimum 30 min block for stationary sessions
+
+      // Determine icon from dominant child activity
+      const dominantType = childActs.length > 0
+        ? childActs.sort((a, b) => (b.duration_min || 0) - (a.duration_min || 0))[0].activity_type
+        : 'other';
+      const ACTIVITY_ICONS: Record<string, string> = {
+        work: 'monitor', social: 'users', rest: 'moon', exercise: 'zap',
+        cooking: 'coffee', eating: 'coffee', reading: 'book-open',
+        commute: 'truck', walk: 'map-pin', workout: 'zap',
+      };
+
+      locationActivityEvents.push({
+        id: 600000 + locationActivityEvents.length,
+        loggedAt: visibleStart.toISOString(),
+        title: smartTitle,
+        duration_min: durationMin,
+        icon: ACTIVITY_ICONS[dominantType] || 'map-pin',
+        location: s.placeName || null,
+        type: 'activity' as const,
+        sourceData: {
+          id: -(600000 + locationActivityEvents.length),
+          loggedAt: visibleStart.toISOString(),
+          activityType: dominantType,
+          logName: smartTitle,
+          duration_min: durationMin,
+          location: s.placeName || undefined,
+          source: 'location',
+          meta: { locationSession: s },
+        },
+      });
+    }
+    // Flush remaining trail group
+    flushTrailGroup();
+
+    return [...actEvents, ...mealEvents, ...syncedEvents, ...sleepEvents, ...plannedEvents, ...solarEvents, ...locationEvents, ...locationActivityEvents].sort(
       (a, b) => new Date(a.loggedAt).getTime() - new Date(b.loggedAt).getTime()
     );
   }, [activities, meals, calData, sleepLogs, plannedBlocks, solarTimes, selectedDate, locationSessions]);

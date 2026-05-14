@@ -39,27 +39,15 @@ export default function ReflectScreen() {
   const [locationSession, setLocationSession] = React.useState<LocationSession | null>(null);
   const [locationModalVisible, setLocationModalVisible] = React.useState(false);
 
-  // Wrap handleEdit to route location events to ActivityEditModal
-  // with a synthetic ActivityEntry carrying locationSession metadata
+  // Wrap handleEdit to route:
+  //   - 'location' type events (rail taps) -> LocationLogModal (map)
+  //   - 'activity' type events with source='location' -> ActivityEditModal (normal flow)
+  //   - everything else -> normal handleEdit
   const handleEdit = (evt: any) => {
     if (evt.type === 'location') {
-      const session = evt.sourceData as LocationSession;
-      const syntheticActivity: any = {
-        id: evt.id,
-        loggedAt: session.startedAt,
-        endedAt: session.endedAt,
-        activityType: session.motionType === 'stationary' ? 'other' : 'commute',
-        logName: evt.title,
-        duration_min: session.duration_min || Math.max(1, Math.round(
-          ((session.endedAt ? new Date(session.endedAt).getTime() : Date.now()) -
-            new Date(session.startedAt).getTime()) / 60000)),
-        location: session.placeName || undefined,
-        source: 'location',
-        meta: { locationSession: session },
-      };
-      h.setEditingActivity(syntheticActivity);
-      h.setIsNewCalendarActivity(false);
-      h.setActivityEditVisible(true);
+      // Location rail tap -> open map modal
+      setLocationSession(evt.sourceData);
+      setLocationModalVisible(true);
     } else {
       h.handleEdit(evt);
     }
@@ -399,7 +387,7 @@ export default function ReflectScreen() {
         analyzing={h.analyzingManual}
         onSubmit={h.handleMealSubmit}
         onActivitySubmit={async (data) => {
-          await h.logActivity({ ...data, loggedAt: data.loggedAt || new Date().toISOString() }).unwrap();
+          await h.logActivity({ ...data, loggedAt: data.loggedAt || new Date().toISOString() } as any).unwrap();
           h.setManualModalVisible(false);
           refetch();
         }}

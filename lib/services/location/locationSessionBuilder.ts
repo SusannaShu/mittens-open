@@ -39,6 +39,48 @@ const DISTANCE_JUMP_M = 200;
 // We keep adding points to the trail until this exceeds MIN_STATIONARY_DWELL_MS,
 // at which point we close the moving session and create a stationary one.
 let stationarySince: { time: number; lat: number; lon: number } | null = null;
+let stationaryDwellTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearDwellTimer() {
+  if (stationaryDwellTimer) {
+    clearTimeout(stationaryDwellTimer);
+    stationaryDwellTimer = null;
+  }
+}
+
+/**
+ * Schedule automatic dwell confirmation after MIN_STATIONARY_DWELL_MS.
+ * This ensures a stationary session is created even if no further GPS
+ * points arrive (e.g. because locationService suppresses drift).
+ */
+function scheduleDwellConfirmation() {
+  clearDwellTimer();
+  stationaryDwellTimer = setTimeout(() => {
+    stationaryDwellTimer = null;
+    if (!stationarySince) return;
+
+    try {
+      const db = getDb();
+      const activeSession = db.getFirstSync(
+        'SELECT * FROM location_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1'
+      ) as any;
+
+      if (!activeSession) {
+        console.log('[sessionBuilder] Dwell timer fired: creating stationary session');
+        startNewSession(db, stationarySince.lat, stationarySince.lon, 'stationary', new Date(stationarySince.time).toISOString());
+        stationarySince = null;
+      } else if (activeSession.motion_type !== 'stationary') {
+        const splitTime = new Date(stationarySince.time).toISOString();
+        console.log('[sessionBuilder] Dwell timer fired: splitting moving session to stationary');
+        closeSession(db, activeSession.id, splitTime);
+        startNewSession(db, stationarySince.lat, stationarySince.lon, 'stationary', splitTime);
+        stationarySince = null;
+      }
+    } catch (err) {
+      console.warn('[sessionBuilder] Dwell timer failed:', err);
+    }
+  }, MIN_STATIONARY_DWELL_MS + 500);
+}
 
 /**
  * Record a location point and update the active session.
@@ -70,6 +112,7 @@ export function recordLocationPoint(entry: {
       if (motionType === 'stationary') {
         if (!stationarySince) {
           stationarySince = { time: nowMs, lat: entry.latitude, lon: entry.longitude };
+          scheduleDwellConfirmation();
           console.log('[sessionBuilder] Tracking stationary dwell (no active session)');
         }
         const dwellMs = nowMs - stationarySince.time;
@@ -78,11 +121,13 @@ export function recordLocationPoint(entry: {
           console.log(`[sessionBuilder] Dwell confirmed (${Math.round(dwellMs / 60000)}min), creating stationary session`);
           startNewSession(db, stationarySince.lat, stationarySince.lon, 'stationary', new Date(stationarySince.time).toISOString());
           stationarySince = null;
+          clearDwellTimer();
         }
         return;
       }
       // Non-stationary: clear any pending dwell and start a moving session
       stationarySince = null;
+      clearDwellTimer();
       console.log('[sessionBuilder] No active session, starting new one');
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
@@ -111,9 +156,11 @@ export function recordLocationPoint(entry: {
 
       if (motionType === 'stationary') {
         stationarySince = { time: nowMs, lat: entry.latitude, lon: entry.longitude };
+        scheduleDwellConfirmation();
         return;
       }
       stationarySince = null;
+      clearDwellTimer();
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       return;
     }
@@ -127,6 +174,7 @@ export function recordLocationPoint(entry: {
     if (motionType === 'stationary' && currentMotion !== 'stationary') {
       if (!stationarySince) {
         stationarySince = { time: nowMs, lat: entry.latitude, lon: entry.longitude };
+        scheduleDwellConfirmation();
         console.log(`[sessionBuilder] Stationary detected during '${currentMotion}' session, tracking dwell...`);
       }
 
@@ -139,6 +187,7 @@ export function recordLocationPoint(entry: {
         closeSession(db, activeSession.id, splitTime);
         startNewSession(db, stationarySince.lat, stationarySince.lon, 'stationary', splitTime);
         stationarySince = null;
+        clearDwellTimer();
         return;
       }
 
@@ -149,6 +198,7 @@ export function recordLocationPoint(entry: {
       if (stationarySince) {
         console.log(`[sessionBuilder] Motion resumed as '${motionType}', dwell cancelled`);
         stationarySince = null;
+        clearDwellTimer();
       }
     }
 
@@ -173,6 +223,7 @@ export function recordLocationPoint(entry: {
       closeSession(db, activeSession.id, now);
       startNewSession(db, entry.latitude, entry.longitude, motionType, now);
       stationarySince = null;
+      clearDwellTimer();
       return;
     }
 

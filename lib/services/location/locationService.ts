@@ -257,6 +257,20 @@ function handleSignificantLocationChange(location: Location.LocationObject) {
     console.log(`[location] motion=${motionType} conf=${motionConfidence.toFixed(2)}`);
   }
 
+  // When stationary, always forward to the session builder for dwell tracking,
+  // even if the point will be suppressed below for trail/history purposes.
+  // The session builder needs continuous input to track the 3-minute dwell
+  // threshold and create/maintain stationary sessions.
+  if (motionType === 'stationary') {
+    recordLocationPoint({
+      latitude,
+      longitude,
+      motionType: 'stationary',
+      speed: location.coords.speed != null ? location.coords.speed : null,
+      loggedAt: now,
+    });
+  }
+
   // Only log if moved meaningfully. Motion transitions can force their own samples,
   // so the regular trail stream can stay distance-based without cutting off endpoints.
   if (prevLat != null && prevLon != null) {

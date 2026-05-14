@@ -11,9 +11,12 @@
 
 import type { LocationSession } from './locationSessionApi';
 
-interface ChildActivity {
+export interface ChildActivity {
+  id?: number;
   activity_type: string;
   duration_min: number;
+  life_categories?: Record<string, number> | null;
+  logged_at?: string;
 }
 
 /** Human-friendly labels for activity types */
@@ -132,14 +135,21 @@ export function getChildActivitiesForSession(
       : new Date().toISOString();
 
     const rows = db.getAllSync(
-      `SELECT activity_type, duration_min FROM activity_logs
+      `SELECT id, activity_type, duration_min, life_categories, logged_at
+       FROM activity_logs
        WHERE source IN ('pendant', 'trail')
          AND logged_at >= ? AND logged_at <= ?
        ORDER BY logged_at ASC`,
       [startIso, endIso],
-    ) as ChildActivity[];
+    ) as any[];
 
-    return rows;
+    return rows.map(r => ({
+      id: r.id,
+      activity_type: r.activity_type,
+      duration_min: r.duration_min,
+      life_categories: r.life_categories ? JSON.parse(r.life_categories) : null,
+      logged_at: r.logged_at,
+    }));
   } catch {
     return [];
   }

@@ -1,12 +1,4 @@
-/**
- * locationLifeDesign.ts -- Duration-based Life Design calculation.
- *
- * Calculates Life Design gauge weights from activity durations within a
- * location session. Pure math -- no AI calls needed.
- *
- * Example: 45min work + 30min social in 120min session
- *   -> { work: 0.375, love: 0.15, play: 0.1, health: 0.375 }
- */
+import { type ChildActivity } from './locationBlockTitle';
 
 /** Activity type -> default Life Design category weights (from activityTypeService) */
 const ACTIVITY_LIFE_DESIGN: Record<string, Record<string, number>> = {
@@ -37,13 +29,12 @@ const ACTIVITY_LIFE_DESIGN: Record<string, Record<string, number>> = {
   other:      { work: 1.0 },
 };
 
-interface ChildActivity {
-  activity_type: string;
-  duration_min: number;
-}
-
 /**
  * Calculate Life Design weights from child activity durations.
+ *
+ * Uses the *stored* life_categories per child (set by the per-capture
+ * pipeline and correctable by the user) when available.
+ * Falls back to defaults from ACTIVITY_LIFE_DESIGN when no stored values exist.
  * Returns proportional weights summing to ~1.0.
  */
 export function calculateLocationLifeDesign(
@@ -65,10 +56,14 @@ export function calculateLocationLifeDesign(
     if (dur === 0) continue;
 
     const proportion = dur / totalMin;
-    const categoryWeights = ACTIVITY_LIFE_DESIGN[act.activity_type] || ACTIVITY_LIFE_DESIGN.other;
+
+    // Prefer stored life_categories (user-correctable) over defaults
+    const categoryWeights = act.life_categories
+      || ACTIVITY_LIFE_DESIGN[act.activity_type]
+      || ACTIVITY_LIFE_DESIGN.other;
 
     for (const [category, weight] of Object.entries(categoryWeights)) {
-      result[category] = (result[category] || 0) + proportion * weight;
+      result[category] = (result[category] || 0) + proportion * (weight as number);
     }
   }
 

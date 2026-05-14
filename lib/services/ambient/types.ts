@@ -11,14 +11,18 @@
 
 /** High-level scene classifications */
 export type SceneType =
-  | 'meal_prep'    // cooking, assembling food
-  | 'eating'       // actively consuming food
+  | 'meal_prep'    // legacy: cooking, assembling food
+  | 'eating'       // legacy: actively consuming food
+  | 'cooking_at_home'
+  | 'eating_at_home'
+  | 'eating_out'
   | 'work'         // desk work, laptop, reading
   | 'exercise'     // physical activity
   | 'commute'      // walking, biking, transit
   | 'social'       // conversation, gathering
   | 'rest'         // lounging, napping
   | 'errands'      // shopping, chores
+  | 'grocery_shopping'
   | 'unknown';
 
 /** Sub-phases within a scene -- tracks progression */
@@ -82,6 +86,7 @@ export interface PantryDelta {
   unit: string;
   confidence: 'high' | 'medium' | 'guess';
   reason: string;
+  framePath?: string;
 }
 
 /** A single scene -- the core unit of ambient intelligence */
@@ -100,6 +105,13 @@ export interface Scene {
   food?: SceneFoodData;
   eatingContext?: SceneEatingContext;
   pantryDeltas: PantryDelta[];
+
+  /** People tracking */
+  detectedPeopleDetails?: Array<{
+    name: string;
+    timestamp: number;
+    imageUri: string;
+  }>;
 
   /** Frames that built this scene */
   frameCount: number;

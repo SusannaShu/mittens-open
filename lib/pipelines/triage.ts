@@ -144,11 +144,15 @@ For activity pipeline:
 For meal pipeline:
 - "identify": always include when meal pipeline triggers
 - "eatingContext": ONLY include if there are EXPLICIT, VISIBLE human eating behavior cues (e.g., a person actively chewing, a hand holding a fork/spoon, a person sitting at a table eating). ABSOLUTELY DO NOT include for photos of just plated food, drinks, or ingredients! If no human is interacting with the food, omit this phase.
+- "pantryDelta": ONLY include if the scene appears to be cooking or eating AT HOME. Do NOT include if eating out at a restaurant.
+
+For pantry/errands pipeline:
+- "pantryDelta": ONLY include if you see grocery shopping (items placed in basket/cart, or paid at checkout) or specific food items being added to storage.
 
 Return ALL that apply. A single submission can trigger multiple logs.
 
 JSON: {"intents":[
-  {"pipeline":"meal","confidence":0.9,"phases":["identify"]},
+  {"pipeline":"meal","confidence":0.9,"phases":["identify", "pantryDelta"]},
   {"pipeline":"activity","confidence":0.8,"activityType":"walk","phases":["detect","environment"]}
 ]}
 
@@ -222,11 +226,12 @@ pipeline: meal (mentions eating/food), activity (movement, events, work, social 
 sleep (sleep mention), email (emails, orders, inbox), watch (websites, news, feeds),
 chat (conversational, question, or unclear)
 
-For meal: include "identify" always, "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate.
+For meal: include "identify" always, "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate. Include "pantryDelta" ONLY if they are cooking or eating at home (skip if eating out).
 
 For activity: include phases with evidence — "detect" always, "social" if people mentioned,
 "environment" if location mentioned, "objects" if tools/devices mentioned,
 "lifeDesign" if enough context for work/health/play/love assessment.
+"pantryDelta" if they specifically mention grocery shopping or restocking.
 
 Can return multiple intents.
 
@@ -256,11 +261,11 @@ function parseTriageResponse(raw: string): TriageResult {
   return { intents: [{ pipeline: 'chat', confidence: 0.5 }] };
 }
 
-/** Normalize raw parsed JSON into a clean TriageResult */
+/** Normalize raw parsed JSON into a clean TriageResult and enforce confidence threshold */
 function normalizeTriageResult(parsed: any): TriageResult {
   if (parsed.intents && Array.isArray(parsed.intents)) {
-    return {
-      intents: parsed.intents.map((i: any) => ({
+    const validIntents = parsed.intents
+      .map((i: any) => ({
         pipeline: i.pipeline || 'chat',
         confidence: i.confidence ?? 0.5,
         inferrablePhases: Array.isArray(i.phases) ? i.phases : undefined,
@@ -269,8 +274,12 @@ function normalizeTriageResult(parsed: any): TriageResult {
           activityType: i.activityType,
           storageType: i.storageType,
         },
-      })),
-    };
+      }))
+      .filter((i: any) => i.confidence >= 0.3); // Do not log if below confidence level
+
+    if (validIntents.length > 0) {
+      return { intents: validIntents };
+    }
   }
   return { intents: [{ pipeline: 'chat', confidence: 0.5 }] };
 }

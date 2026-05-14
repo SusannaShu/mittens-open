@@ -14,6 +14,7 @@ import { Meal } from '../lib/types';
 import { CalendarEvent } from '../components/reflect/CalendarDayView';
 import { useGetLocationSessionsQuery, LocationSession } from '../lib/services/location/locationSessionApi';
 import { useGetKnownPlacesQuery } from '../lib/services/location/knownPlaceApi';
+import { generateLocationBlockTitle, getChildActivitiesForSession } from '../lib/services/location/locationBlockTitle';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -111,7 +112,9 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
 
   // Build unified CalendarEvents
   const calendarEvents: CalendarEvent[] = useMemo(() => {
-    const actEvents: CalendarEvent[] = activities.map((act: ActivityEntry) => ({
+    const actEvents: CalendarEvent[] = activities
+      .filter((act: ActivityEntry) => act.source !== 'pendant' && act.source !== 'trail')
+      .map((act: ActivityEntry) => ({
       id: act.id,
       loggedAt: act.loggedAt,
       title: act.logName,
@@ -132,7 +135,9 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       sourceData: act,
     }));
 
-    const mealEvents: CalendarEvent[] = meals.map((m: Meal) => ({
+    const mealEvents: CalendarEvent[] = meals
+      .filter((m: Meal) => (m as any).source !== 'pendant')
+      .map((m: Meal) => ({
       id: m.id as number,
       loggedAt: m.loggedAt as string,
       title: m.logName || `${m.mealType || 'Meal'}`,
@@ -306,13 +311,17 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       }
 
       const label = resolvedName 
-        ? `At ${resolvedName}`
+        ? resolvedName
         : MOTION_LABELS[s.motionType] || 'Location';
+
+      // Generate smart title from child activities
+      const childActs = getChildActivitiesForSession(s);
+      const smartTitle = generateLocationBlockTitle(s, childActs);
 
       return {
         id: 500000 + i,
         loggedAt: visibleStart.toISOString(),
-        title: label,
+        title: smartTitle || label,
         duration_min: durationMin,
         icon: MOTION_ICONS[s.motionType] || 'map-pin',
         location: s.placeName || null,

@@ -132,6 +132,38 @@ export function getPantryItems(
   }
 }
 
+/**
+ * Get history of changes for a specific pantry item
+ */
+export function getPantryHistory(itemId: number): Array<{
+  id: number;
+  qtyChange: number;
+  reason: string;
+  framePath?: string;
+  createdAt: string;
+}> {
+  try {
+    const { getDb } = require('../../database');
+    const db = getDb();
+
+    const rows = db.getAllSync(
+      'SELECT id, qty_change, reason, frame_path, created_at FROM pantry_history WHERE item_id = ? ORDER BY created_at DESC',
+      [itemId],
+    ) as any[];
+
+    return (rows || []).map((r: any) => ({
+      id: r.id,
+      qtyChange: r.qty_change,
+      reason: r.reason,
+      framePath: r.frame_path,
+      createdAt: r.created_at,
+    }));
+  } catch (err: any) {
+    console.warn(`[Pantry] Get history failed for item ${itemId}:`, err?.message);
+    return [];
+  }
+}
+
 // ═══════════════════════════════════════
 // INTERNAL
 // ═══════════════════════════════════════
@@ -148,29 +180,55 @@ function applyDelta(
     [normalized],
   ) as any;
 
-  if (!existing?.id) {
-    // Item not tracked yet -- we can't decrement what we don't have.
-    // Log it as a first sighting instead.
-    console.log(`[Pantry] Unknown item "${normalized}" consumed -- not tracked`);
-    return null;
+  let itemId = existing?.id;
+  if (!itemId) {
+    if (delta.qtyChange > 0) {
+      // Add new item from grocery shopping
+      const result = db.runSync(
+        `INSERT INTO smart_pantry (item_name, quantity, unit, last_added_qty, confidence, last_seen_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [normalized, delta.qtyChange, delta.unit, delta.qtyChange, delta.confidence]
+      );
+      itemId = result.lastInsertRowId;
+      console.log(`[Pantry] Added new item from shopping: ${normalized} (${delta.qtyChange}${delta.unit})`);
+    } else {
+      // Consumption of untracked item
+      console.log(`[Pantry] Unknown item "${normalized}" consumed -- adding as 0 remaining.`);
+      const result = db.runSync(
+        `INSERT INTO smart_pantry (item_name, quantity, unit, last_added_qty, confidence, last_seen_at, updated_at)
+         VALUES (?, 0, ?, 0, ?, datetime('now'), datetime('now'))`,
+        [normalized, delta.unit, delta.confidence]
+      );
+      itemId = result.lastInsertRowId;
+    }
   }
 
-  const newQty = Math.max(0, existing.quantity + delta.qtyChange);
+  const newQty = Math.max(0, (existing?.quantity || 0) + delta.qtyChange);
 
-  db.runSync(
-    `UPDATE smart_pantry
-     SET quantity = ?, confidence = ?,
-         last_seen_at = datetime('now'), updated_at = datetime('now')
-     WHERE id = ?`,
-    [newQty, delta.confidence, existing.id],
-  );
+  if (existing?.id) {
+    db.runSync(
+      `UPDATE smart_pantry
+       SET quantity = ?, confidence = ?,
+           last_seen_at = datetime('now'), updated_at = datetime('now')
+       WHERE id = ?`,
+      [newQty, delta.confidence, existing.id],
+    );
+  }
 
-  const isLow = isRunningLow(newQty, existing.last_added_qty);
+  const isLow = isRunningLow(newQty, existing?.last_added_qty || (delta.qtyChange > 0 ? delta.qtyChange : 0));
 
   console.log(
-    `[Pantry] ${normalized}: ${existing.quantity} -> ${newQty}${delta.unit}` +
+    `[Pantry] ${normalized}: ${existing?.quantity || 0} -> ${newQty}${delta.unit}` +
     ` (${delta.reason})${isLow ? ' [RUNNING LOW]' : ''}`,
   );
+
+  if (itemId) {
+    db.runSync(
+      `INSERT INTO pantry_history (item_id, qty_change, reason, frame_path)
+       VALUES (?, ?, ?, ?)`,
+      [itemId, delta.qtyChange, delta.reason, delta.framePath || null]
+    );
+  }
 
   return { remaining: newQty, isLow };
 }

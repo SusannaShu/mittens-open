@@ -26,10 +26,11 @@ export function checkAfterFrameTriggers(
  */
 export async function checkFaceRecognition(
   framePath: string,
+  scene: Scene,
   logger: PipelineLogger,
 ): Promise<void> {
   const { checkFaceRecognition: check } = require('./sceneFaceRecognition');
-  await check(framePath, logger);
+  await check(framePath, scene, logger);
 }
 
 /**

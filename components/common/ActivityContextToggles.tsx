@@ -30,45 +30,32 @@ interface Props {
 export default function ActivityContextToggles({
   isMovement, setIsMovement, metValue, setMetValue, durationMin,
 }: Props) {
+  if (!isMovement) return null;
+
   return (
     <>
-      {/* Movement toggle chip */}
-      <View style={s.contextToggleRow}>
-        <TouchableOpacity
-          style={[s.sunscreenToggle, isMovement && s.sunscreenToggleActive]}
-          onPress={() => setIsMovement(!isMovement)}
-          activeOpacity={0.6}
-        >
-          <Text style={[s.sunscreenToggleText, isMovement && s.sunscreenToggleTextActive]}>
-            <Feather name="activity" size={11} /> Movement
-          </Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Movement expanded: MET value */}
-      {isMovement && (
-        <View style={s.sunSection}>
-          <Text style={s.label}>Metabolic Equivalent (MET)</Text>
-          <View style={s.coverageRow}>
-            {MET_PRESETS.map(({ value, label }) => (
-              <TouchableOpacity
-                key={value}
-                style={[s.coverageChip, metValue === value && s.coverageChipActive]}
-                onPress={() => setMetValue(value)}
-                activeOpacity={0.6}
-              >
-                <Text style={[s.coverageChipPct, metValue === value && s.coverageChipPctActive]}>{value}</Text>
-                <Text style={[s.coverageChipLabel, metValue === value && s.coverageChipLabelActive]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {metValue != null && (
-            <Text style={s.vitDNote}>
-              {metValue} MET x {durationMin || '0'}min = ~{Math.round((metValue || 1) * parseInt(durationMin || '0', 10) * 0.0175 * 70)} kcal burned
-            </Text>
-          )}
+      <View style={s.sunSection}>
+        <Text style={s.label}>Metabolic Equivalent (MET)</Text>
+        <View style={s.coverageRow}>
+          {MET_PRESETS.map(({ value, label }) => (
+            <TouchableOpacity
+              key={value}
+              style={[s.coverageChip, metValue === value && s.coverageChipActive]}
+              onPress={() => setMetValue(value)}
+              activeOpacity={0.6}
+            >
+              <Text style={[s.coverageChipPct, metValue === value && s.coverageChipPctActive]}>{value}</Text>
+              <Text style={[s.coverageChipLabel, metValue === value && s.coverageChipLabelActive]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      )}
+        {metValue != null && (
+          <Text style={s.vitDNote}>
+            {metValue} MET x {durationMin || '0'}min = ~{Math.round((metValue || 1) * parseInt(durationMin || '0', 10) * 0.0175 * 70)} kcal burned
+          </Text>
+        )}
+      </View>
     </>
   );
 }

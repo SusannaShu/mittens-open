@@ -27,7 +27,7 @@ import {
 // ═══════════════════════════════════════
 
 /** Minimum cosine similarity to consider a match */
-const MATCH_THRESHOLD = 0.55;
+const MATCH_THRESHOLD = 0.80;
 
 /** High-confidence threshold for automatic reinforcement */
 const REINFORCE_THRESHOLD = 0.75;
@@ -76,7 +76,7 @@ export async function introducePerson(
 
   // Save embeddings for the first face detected (assumed to be the introduced person)
   const face = faces[0];
-  saveEmbedding(person.id, face.embedding, face.confidence);
+  saveEmbedding(person.id, face.embedding, face.confidence, framePath);
 
   // Record the interaction
   recordInteraction(person.id);
@@ -170,7 +170,7 @@ export async function recognizeFaces(
 
       // Reinforcement: save this embedding to strengthen recognition
       if (bestMatch.similarity >= REINFORCE_THRESHOLD) {
-        reinforceRecognition(bestMatch.personId, face.embedding);
+        reinforceRecognition(bestMatch.personId, face.embedding, framePath);
       }
 
       // Record the interaction
@@ -208,6 +208,7 @@ export function markGreeted(personId: number): void {
 function reinforceRecognition(
   personId: number,
   embedding: number[],
+  framePath: string
 ): void {
   const count = getEmbeddingCount(personId);
 
@@ -216,7 +217,7 @@ function reinforceRecognition(
     pruneEmbeddings(MAX_EMBEDDINGS_PER_PERSON - 1);
   }
 
-  saveEmbedding(personId, embedding, 0.9); // Slightly lower confidence for auto-reinforced
+  saveEmbedding(personId, embedding, 0.9, framePath); // Slightly lower confidence for auto-reinforced
   console.log(
     `[FaceRecognition] Reinforced person ${personId} (now ${count + 1} embeddings)`,
   );

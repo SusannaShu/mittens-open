@@ -12,6 +12,7 @@ export interface KnownPerson {
   interactionCount: number;
   lastSeenAt?: string;
   createdAt: string;
+  avatarUri?: string;
 }
 
 /** A single face embedding stored in the database */
@@ -21,6 +22,7 @@ export interface FaceEmbedding {
   embedding: number[];
   confidence: number;
   capturedAt: string;
+  imageUri?: string;
 }
 
 /** Result of a face recognition match */

@@ -1,11 +1,21 @@
+/**
+ * LoggedTodaySection -- Shows location blocks + manual meals/activities.
+ *
+ * Location blocks get smart titles derived from dominant activities.
+ * "See all" expands inline instead of jumping to the Reflect calendar.
+ * Each entry is tappable to open ActivityEditModal.
+ */
+
+import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { Meal } from '../../../lib/types';
 import { colors, spacing } from '../../../lib/theme';
 import { todayStyles as styles } from '../../../styles/todayStyles';
 import { ActivityEntry } from '../../../lib/services/activityApi';
 import MealRow from '../MealRow';
+import { useGetLocationSessionsQuery, LocationSession } from '../../../lib/services/location/locationSessionApi';
+import { generateLocationBlockTitle, getChildActivitiesForSession } from '../../../lib/services/location/locationBlockTitle';
 
 const ACT_ICONS: Record<string, string> = {
   work: 'monitor', workout: 'zap', bike: 'navigation', run: 'trending-up',
@@ -13,68 +23,10 @@ const ACT_ICONS: Record<string, string> = {
   stress: 'alert-circle', soul: 'heart', commute: 'truck', cooking: 'coffee', other: 'circle',
 };
 
-function ActivityTimelineRow({ act, onEdit }: { act: ActivityEntry; onEdit: () => void }) {
-  const iconName = ACT_ICONS[act.activityType] || 'circle';
-  const timeStr = new Date(act.loggedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-  const datePrefix = (() => {
-    const logDate = new Date(act.loggedAt);
-    const now = new Date();
-    if (logDate.toDateString() === now.toDateString()) return '';
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (logDate.toDateString() === yesterday.toDateString()) return 'Yesterday ';
-    return `${logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} `;
-  })();
-
-  return (
-    <TouchableOpacity
-      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10 }}
-      onPress={onEdit}
-      activeOpacity={0.7}
-    >
-      <Feather name={iconName as any} size={16} color={colors.textPrimary} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>{act.logName}</Text>
-        <Text style={{ fontSize: 12, color: colors.textMuted }}>
-          {datePrefix}{timeStr}{act.duration_min ? ` -- ${act.duration_min} min` : ''}{act.location ? ` -- ${act.location}` : ''}
-        </Text>
-        {act.nutrientImpact && Object.keys(act.nutrientImpact).length > 0 && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-            {Object.entries(act.nutrientImpact).map(([nutrient, amount]) => (
-              <View key={nutrient} style={{ backgroundColor: '#F0F0F0', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1 }}>
-                <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '600' }}>
-                  {(amount as number) > 0 ? '+' : ''}{typeof amount === 'number' ? Math.round(amount * 10) / 10 : amount} {nutrient}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-        {act.failure_logs && act.failure_logs.length > 0 && (
-          <View style={{ marginTop: 6, gap: 4 }}>
-            {act.failure_logs.map((f: any) => (
-              <View key={f.id} style={{ paddingHorizontal: 8, paddingVertical: 6, backgroundColor: '#FFF0F0', borderRadius: 6, borderLeftWidth: 3, borderLeftColor: '#FF5252' }}>
-                <Text style={{ fontSize: 11, color: '#D32F2F', fontWeight: '700', marginBottom: 2 }}>
-                  {f.category === 'screwup' ? 'Screwup' : f.category === 'weakness' ? 'Weakness' : 'Opportunity'}: {f.failure}
-                </Text>
-                {f.insight && (
-                  <Text style={{ fontSize: 11, color: '#D32F2F', fontStyle: 'italic' }}>Insight: {f.insight}</Text>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-      {act.engagement != null && (
-        <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }}>E:{act.engagement}</Text>
-      )}
-      {act.energy != null && (
-        <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }}>N:{act.energy > 0 ? '+' : ''}{act.energy}</Text>
-      )}
-      <Text style={{ fontSize: 13, color: colors.textMuted }}>Edit</Text>
-    </TouchableOpacity>
-  );
-}
+const MOTION_ICONS: Record<string, string> = {
+  stationary: 'map-pin', walking: 'navigation', cycling: 'navigation',
+  driving: 'truck', unknown: 'map-pin',
+};
 
 interface Props {
   meals: Meal[];
@@ -85,21 +37,58 @@ interface Props {
   onEditActivity: (act: ActivityEntry) => void;
 }
 
-const MAX_DEFAULT = 3;
+const MAX_DEFAULT = 4;
 
 export default function LoggedTodaySection({ meals, todayActivities, collapsed, onToggle, onEditMeal, onEditActivity }: Props) {
-  const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
 
-  if (meals.length === 0 && todayActivities.length === 0) return null;
+  const todayDate = new Date().toLocaleDateString('en-CA');
+  const { data: locationSessions = [] } = useGetLocationSessionsQuery(todayDate);
 
-  type TimelineItem = { type: 'meal'; data: Meal; time: Date } | { type: 'activity'; data: ActivityEntry; time: Date };
-  const foodMeals = meals.filter((m: Meal) => m.entryType !== 'activity');
-  const items: TimelineItem[] = [
-    ...foodMeals.map((m: Meal) => ({ type: 'meal' as const, data: m, time: new Date(m.loggedAt || 0) })),
-    ...todayActivities.map((a: ActivityEntry) => ({ type: 'activity' as const, data: a, time: new Date(a.loggedAt) })),
-  ].sort((a, b) => b.time.getTime() - a.time.getTime());
+  // Build unified timeline: location blocks + manual meals + manual activities
+  type TimelineItem =
+    | { type: 'meal'; data: Meal; time: Date }
+    | { type: 'activity'; data: ActivityEntry; time: Date }
+    | { type: 'location'; data: LocationSession; time: Date; title: string };
 
-  const visible = items.slice(0, MAX_DEFAULT);
+  const items: TimelineItem[] = useMemo(() => {
+    const result: TimelineItem[] = [];
+
+    // Location blocks with smart titles
+    for (const session of locationSessions) {
+      const childActs = getChildActivitiesForSession(session);
+      const smartTitle = generateLocationBlockTitle(session, childActs);
+      result.push({
+        type: 'location',
+        data: session,
+        time: new Date(session.startedAt),
+        title: smartTitle,
+      });
+    }
+
+    // Manual meals only (not pendant-detected eating)
+    const foodMeals = meals.filter((m: Meal) => m.entryType !== 'activity' && (m as any).source !== 'pendant');
+    for (const m of foodMeals) {
+      result.push({ type: 'meal', data: m, time: new Date(m.loggedAt || 0) });
+    }
+
+    // Manual activities only (not pendant-detected)
+    const manualActs = todayActivities.filter(
+      (a: ActivityEntry) => a.source !== 'pendant' && a.source !== 'trail',
+    );
+    for (const a of manualActs) {
+      result.push({ type: 'activity', data: a, time: new Date(a.loggedAt) });
+    }
+
+    // Sort newest first
+    result.sort((a, b) => b.time.getTime() - a.time.getTime());
+    return result;
+  }, [locationSessions, meals, todayActivities]);
+
+  if (items.length === 0) return null;
+
+  const visible = expanded ? items : items.slice(0, MAX_DEFAULT);
+  const hasMore = items.length > MAX_DEFAULT;
 
   return (
     <View style={styles.section}>
@@ -124,28 +113,124 @@ export default function LoggedTodaySection({ meals, todayActivities, collapsed, 
                 />
               );
             }
+
+            if (item.type === 'location') {
+              return (
+                <LocationRow
+                  key={`loc-${i}`}
+                  session={item.data}
+                  title={item.title}
+                  onEdit={() => onEditLocationAsActivity(item.data, item.title, onEditActivity)}
+                />
+              );
+            }
+
             return (
-              <ActivityTimelineRow
+              <ManualActivityRow
                 key={`act-${item.data.id}`}
                 act={item.data}
                 onEdit={() => onEditActivity(item.data)}
               />
             );
           })}
-          {items.length > MAX_DEFAULT && (
+
+          {/* Inline expand/collapse -- no router.push */}
+          {hasMore && (
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, gap: 4 }}
-              onPress={() => router.push('/(tabs)/sync')}
+              onPress={() => setExpanded(!expanded)}
               activeOpacity={0.6}
             >
               <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>
-                See all {items.length} in Reflect
+                {expanded ? 'Show less' : `See all ${items.length} items`}
               </Text>
-              <Feather name="chevron-right" size={14} color={colors.textMuted} />
+              <Feather
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={colors.textMuted}
+              />
             </TouchableOpacity>
           )}
         </>
       )}
     </View>
   );
+}
+
+/** Row for a location block */
+function LocationRow({ session, title, onEdit }: {
+  session: LocationSession;
+  title: string;
+  onEdit: () => void;
+}) {
+  const iconName = MOTION_ICONS[session.motionType] || 'map-pin';
+  const timeStr = new Date(session.startedAt).toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit',
+  });
+
+  return (
+    <TouchableOpacity
+      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10 }}
+      onPress={onEdit}
+      activeOpacity={0.7}
+    >
+      <Feather name={iconName as any} size={16} color={colors.textPrimary} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>{title}</Text>
+        <Text style={{ fontSize: 12, color: colors.textMuted }}>
+          {timeStr}{session.duration_min ? ` -- ${session.duration_min} min` : ''}
+        </Text>
+      </View>
+      <Text style={{ fontSize: 13, color: colors.textMuted }}>Edit</Text>
+    </TouchableOpacity>
+  );
+}
+
+/** Row for a manual activity entry */
+function ManualActivityRow({ act, onEdit }: { act: ActivityEntry; onEdit: () => void }) {
+  const iconName = ACT_ICONS[act.activityType] || 'circle';
+  const timeStr = new Date(act.loggedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  return (
+    <TouchableOpacity
+      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10 }}
+      onPress={onEdit}
+      activeOpacity={0.7}
+    >
+      <Feather name={iconName as any} size={16} color={colors.textPrimary} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>{act.logName}</Text>
+        <Text style={{ fontSize: 12, color: colors.textMuted }}>
+          {timeStr}{act.duration_min ? ` -- ${act.duration_min} min` : ''}{act.location ? ` -- ${act.location}` : ''}
+        </Text>
+      </View>
+      {act.engagement != null && (
+        <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }}>E:{act.engagement}</Text>
+      )}
+      <Text style={{ fontSize: 13, color: colors.textMuted }}>Edit</Text>
+    </TouchableOpacity>
+  );
+}
+
+/**
+ * Create a synthetic ActivityEntry from a LocationSession to open the
+ * ActivityEditModal with locationSession metadata attached.
+ */
+function onEditLocationAsActivity(
+  session: LocationSession,
+  title: string,
+  onEditActivity: (act: ActivityEntry) => void,
+): void {
+  const syntheticActivity: ActivityEntry = {
+    id: -1,
+    loggedAt: session.startedAt,
+    endedAt: session.endedAt,
+    activityType: session.motionType === 'stationary' ? 'other' : 'commute',
+    logName: title,
+    duration_min: session.duration_min || 0,
+    location: session.placeName || undefined,
+    source: 'location',
+    meta: { locationSession: session },
+  };
+  onEditActivity(syntheticActivity);
 }

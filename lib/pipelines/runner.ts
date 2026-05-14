@@ -137,6 +137,13 @@ export class PipelineRunner {
             this.logger.completePhase(phaseIdx, summarizeResult('activity', 'lifeDesign', ldResult));
             break;
 
+          case 'pantryDelta':
+            const { extractPantryDeltas } = await import('./food/pantryDelta');
+            const deltaResult = await extractPantryDeltas(input);
+            context = { ...context, ...deltaResult };
+            this.logger.completePhase(phaseIdx, summarizeResult('activity', 'pantryDelta', deltaResult));
+            break;
+
           default:
             this.logger.skipPhase('activity', phase, 'Unknown phase');
         }
@@ -155,7 +162,7 @@ export class PipelineRunner {
 
   async runFoodPipeline(input: PipelineInput, phasesToRun?: string[]): Promise<any> {
     let result = {};
-    const phases = phasesToRun || ['eatingContext']; // Default to all if not specified
+    const phases = phasesToRun || ['eatingContext', 'pantryDelta']; // Default to all if not specified
 
     if (phases.includes('eatingContext')) {
       this.emit('food', { status: 'running', currentPhase: 'eatingContext' });
@@ -173,9 +180,30 @@ export class PipelineRunner {
       }
     } else {
       this.logger.skipPhase('food', 'eatingContext', 'No triage evidence');
-      this.emit('food', { status: 'complete', result: {} });
+    }
+
+    if (phases.includes('pantryDelta')) {
+      this.emit('food', { status: 'running', currentPhase: 'pantryDelta' });
+      const phaseIdx = this.logger.startPhase('food', 'pantryDelta');
+      try {
+        const { extractPantryDeltas } = await import('./food/pantryDelta');
+        const phaseResult = await extractPantryDeltas(input);
+        this.logger.completePhase(phaseIdx, summarizeResult('food', 'pantryDelta', phaseResult));
+        this.emit('food', { status: 'complete', result: phaseResult });
+        result = { ...result, ...phaseResult };
+      } catch (e: any) {
+        this.logger.failPhase(phaseIdx, e.message);
+        this.emit('food', { status: 'error', error: e.message });
+        throw e;
+      }
+    } else {
+      this.logger.skipPhase('food', 'pantryDelta', 'No triage evidence');
     }
     
+    // Fallback emit if no phases were run (or multiple phases run successfully)
+    if (Object.keys(result).length > 0 || phases.length === 0) {
+      this.emit('food', { status: 'complete', result });
+    }
     return result;
   }
 

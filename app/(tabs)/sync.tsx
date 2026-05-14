@@ -39,11 +39,27 @@ export default function ReflectScreen() {
   const [locationSession, setLocationSession] = React.useState<LocationSession | null>(null);
   const [locationModalVisible, setLocationModalVisible] = React.useState(false);
 
-  // Wrap handleEdit to route location events to LocationLogModal
+  // Wrap handleEdit to route location events to ActivityEditModal
+  // with a synthetic ActivityEntry carrying locationSession metadata
   const handleEdit = (evt: any) => {
     if (evt.type === 'location') {
-      setLocationSession(evt.sourceData as LocationSession);
-      setLocationModalVisible(true);
+      const session = evt.sourceData as LocationSession;
+      const syntheticActivity: any = {
+        id: evt.id,
+        loggedAt: session.startedAt,
+        endedAt: session.endedAt,
+        activityType: session.motionType === 'stationary' ? 'other' : 'commute',
+        logName: evt.title,
+        duration_min: session.duration_min || Math.max(1, Math.round(
+          ((session.endedAt ? new Date(session.endedAt).getTime() : Date.now()) -
+            new Date(session.startedAt).getTime()) / 60000)),
+        location: session.placeName || undefined,
+        source: 'location',
+        meta: { locationSession: session },
+      };
+      h.setEditingActivity(syntheticActivity);
+      h.setIsNewCalendarActivity(false);
+      h.setActivityEditVisible(true);
     } else {
       h.handleEdit(evt);
     }

@@ -179,12 +179,13 @@ export interface Person {
   id?: number;
   name: string;
   nickname?: string;
-  teamRole?: 'supporter' | 'player' | 'intimate' | 'mentor';
+  teamRole?: 'self' | 'supporter' | 'player' | 'intimate' | 'mentor' | 'collaborator';
   context?: string;
   interactionCount: number;
   avgEngagement?: number;
   avgEnergy?: number;
   lastSeenAt?: string;
+  avatarUri?: string;
 }
 
 /** Phase 1: Activity detection */

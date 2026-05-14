@@ -48,7 +48,7 @@ function buildPrompt(ctx: ClassifierContext): string {
   const parts: string[] = [
     'Classify this photo. Respond JSON only.',
     '{',
-    '  "t": scene type (meal_prep|eating|work|exercise|commute|social|rest|errands|unknown),',
+    '  "t": scene type (cooking_at_home|eating_at_home|eating_out|work|exercise|commute|social|rest|grocery_shopping|errands|unknown),',
     '  "p": phase (prep|cook|plate|eat|cleanup|active|break|transit|idle),',
     '  "items": [{name, qty, unit, conf}] if food visible else [],',
     '  "conf": 0-1 confidence,',
@@ -123,8 +123,8 @@ function parseClassification(
 // ─── Normalization ──────────────────────
 
 const VALID_SCENE_TYPES: Set<string> = new Set([
-  'meal_prep', 'eating', 'work', 'exercise', 'commute',
-  'social', 'rest', 'errands', 'unknown',
+  'cooking_at_home', 'eating_at_home', 'eating_out', 'meal_prep', 'eating',
+  'work', 'exercise', 'commute', 'social', 'rest', 'grocery_shopping', 'errands', 'unknown',
 ]);
 
 const VALID_SUB_PHASES: Set<string> = new Set([
@@ -137,8 +137,9 @@ function normalizeSceneType(raw: string): SceneType {
   if (VALID_SCENE_TYPES.has(cleaned)) return cleaned as SceneType;
 
   // Common aliases
-  if (cleaned.includes('cook') || cleaned.includes('kitchen')) return 'meal_prep';
-  if (cleaned.includes('eat') || cleaned.includes('food') || cleaned.includes('meal')) return 'eating';
+  if (cleaned.includes('cook') || cleaned.includes('kitchen')) return 'cooking_at_home';
+  if (cleaned.includes('eat') || cleaned.includes('food') || cleaned.includes('meal')) return 'eating_out';
+  if (cleaned.includes('grocery') || cleaned.includes('market')) return 'grocery_shopping';
   if (cleaned.includes('desk') || cleaned.includes('laptop') || cleaned.includes('office')) return 'work';
   if (cleaned.includes('walk') || cleaned.includes('bike') || cleaned.includes('drive')) return 'commute';
   if (cleaned.includes('gym') || cleaned.includes('run') || cleaned.includes('sport')) return 'exercise';

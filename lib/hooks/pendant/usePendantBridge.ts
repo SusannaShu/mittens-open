@@ -19,7 +19,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
   const processingRef = useRef(false);
 
   useEffect(() => {
-    let unsubDoubleTap: (() => void) | undefined;
+    let unsubButtonPress: (() => void) | undefined;
     let unsubSingleTap: (() => void) | undefined;
     let unsubMotion: (() => void) | undefined;
 
@@ -38,7 +38,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
 
         // Expose test function globally for dev console
         if (__DEV__) {
-          (global as any).testPendantTap = () => service.simulateDoubleTap(5000);
+          (global as any).testPendantTap = () => service.simulateButtonPress(5000);
           console.log('[PendantBridge] Call global.testPendantTap() to simulate');
         }
 
@@ -53,7 +53,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         } catch { /* voice init is best-effort */ }
 
         // ─── Button Press: Audio + optional frame -> Brain -> TTS ───
-        unsubDoubleTap = service.onDoubleTap(async (audioPath: string, framePath?: string) => {
+        unsubButtonPress = service.onButtonPress(async (audioPath: string, framePath?: string) => {
           if (processingRef.current) {
             console.log('[PendantBridge] Already processing, skipping');
             return;
@@ -210,11 +210,15 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             const result = await manager.onPendantFrame(framePath, Date.now());
 
             if (result) {
-              pendantStore.updateCapture(captureId, {
-                processed: true,
-                brainResponse: result.summary,
-                pipelineLog: result.log,
-              });
+              if (result.summary.toLowerCase().includes('skipped')) {
+                pendantStore.removeCapture(captureId);
+              } else {
+                pendantStore.updateCapture(captureId, {
+                  processed: true,
+                  brainResponse: result.summary,
+                  pipelineLog: result.log,
+                });
+              }
             }
           } catch (err: any) {
             console.warn('[PendantBridge] Ambient pipeline error (non-blocking):', err?.message);
@@ -234,7 +238,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
     init();
 
     return () => {
-      unsubDoubleTap?.();
+      unsubButtonPress?.();
       unsubSingleTap?.();
       unsubMotion?.();
     };

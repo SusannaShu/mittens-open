@@ -218,16 +218,20 @@ class SceneStreamManager {
       } catch (err: any) {
         logger.failPhase(logIdx, err?.message);
       }
+    } else {
+      // If triage skipped, override summary so UI bridge drops it
+      result = `Skipped: ${triageDecision.reason}`;
     }
 
     // 7. Ambient face recognition (non-blocking)
     // Run on social scenes, or periodically on any frame
+    const activeScene = matched || (classification.confidence >= MIN_CONFIDENCE ? this.openScenes[this.openScenes.length - 1] : null);
     if (
-      classification.sceneType === 'social' ||
-      (matched && matched.type === 'social')
+      activeScene &&
+      (classification.sceneType === 'social' || activeScene.type === 'social')
     ) {
       try {
-        await this.checkFaceRecognition(framePath, logger);
+        await this.checkFaceRecognition(framePath, activeScene, logger);
       } catch (err: any) {
         console.warn('[SceneStream] Face recognition error:', err?.message);
       }
@@ -374,9 +378,10 @@ class SceneStreamManager {
 
   private async checkFaceRecognition(
     framePath: string,
+    scene: Scene,
     logger: PipelineLogger,
   ): Promise<void> {
-    await lifecycleFaceRecog(framePath, logger);
+    await lifecycleFaceRecog(framePath, scene, logger);
   }
 
   // ─── Timeout / Cleanup ────────────────

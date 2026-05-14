@@ -285,7 +285,7 @@ export async function initializeDatabase(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       nickname TEXT,
-      team_role TEXT CHECK(team_role IN ('supporter','player','intimate','mentor','collaborator')),
+      team_role TEXT CHECK(team_role IN ('self','supporter','player','intimate','mentor','collaborator')),
       context TEXT,
       interaction_count INTEGER DEFAULT 0,
       avg_engagement REAL,
@@ -376,6 +376,16 @@ export async function initializeDatabase(): Promise<void> {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Pantry history (evidence for UI modal)
+    CREATE TABLE IF NOT EXISTS pantry_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id INTEGER NOT NULL REFERENCES smart_pantry(id),
+      qty_change REAL NOT NULL,
+      reason TEXT,
+      frame_path TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_created ON mittens_messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_nutrition_logged ON nutrition_logs(logged_at);
@@ -406,9 +416,48 @@ export async function initializeDatabase(): Promise<void> {
     `ALTER TABLE activity_logs ADD COLUMN pipeline_log TEXT`,
     // Trail-to-activity bridge
     `ALTER TABLE activity_logs ADD COLUMN location_session_id INTEGER`,
+    // Face embeddings visual memory
+    `ALTER TABLE face_embeddings ADD COLUMN image_uri TEXT`,
+    // Pantry History
+    `CREATE TABLE IF NOT EXISTS pantry_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id INTEGER NOT NULL REFERENCES smart_pantry(id),
+      qty_change REAL NOT NULL,
+      reason TEXT,
+      frame_path TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );`
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }
+  }
+
+  // Handle SQLite CHECK constraint updates by recreating people table
+  try {
+    const peopleSchema = database.getFirstSync(`SELECT sql FROM sqlite_master WHERE type='table' AND name='people'`) as any;
+    if (peopleSchema && !peopleSchema.sql.includes("'self'")) {
+      database.execSync(`
+        CREATE TABLE people_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          nickname TEXT,
+          team_role TEXT CHECK(team_role IN ('self','supporter','player','intimate','mentor','collaborator')),
+          context TEXT,
+          interaction_count INTEGER DEFAULT 0,
+          avg_engagement REAL,
+          avg_energy REAL,
+          last_seen_at TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          synced_at TEXT
+        );
+        INSERT INTO people_new SELECT * FROM people;
+        DROP TABLE people;
+        ALTER TABLE people_new RENAME TO people;
+      `);
+    }
+  } catch (e) {
+    console.warn('Failed to migrate people table:', e);
   }
 }
 

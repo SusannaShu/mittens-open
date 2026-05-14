@@ -32,6 +32,7 @@ import { EditModal, SourcesModal } from '../../components/today/TodayModals';
 import { ManualEntryModal } from '../../components/today/ManualEntryModal';
 import PastLogsModal from '../../components/today/PastLogsModal';
 import PantryEditModal from '../../components/today/PantryEditModal';
+import PantryEvidenceModal from '../../components/today/PantryEvidenceModal';
 import ActivityEditModal from '../../components/common/ActivityEditModal';
 import { MealDetailModal, GroceryListModal, ProjectedNutrientsModal } from '../../components/today/MealPlanModals';
 
@@ -105,6 +106,9 @@ export default function TodayScreen() {
   const [sectionCollapsed, setSectionCollapsed] = useState<Record<string, boolean>>({ pantry: false, stores: true, metabolic: true, today: true });
   const [expandedGauge, setExpandedGauge] = useState<string | null>(null);
   const toggle = (key: string) => setSectionCollapsed(p => ({ ...p, [key]: !p[key] }));
+
+  // Pantry history modal state
+  const [pantryHistoryItem, setPantryHistoryItem] = useState<{ id: number, name: string } | null>(null);
 
   // Local health pillar computation (fallback when cloud doesn't provide)
   const [localPillars, setLocalPillars] = useState<PillarScore[] | null>(null);
@@ -345,6 +349,7 @@ export default function TodayScreen() {
             });
           }}
           onEditItem={h.setPantryEditItem}
+          onHistoryClick={(id, name) => setPantryHistoryItem({ id, name })}
         />
 
         {/* Empty state */}
@@ -462,6 +467,13 @@ export default function TodayScreen() {
             debouncedRegeneratePlan();
           });
         }}
+      />
+
+      <PantryEvidenceModal
+        visible={!!pantryHistoryItem}
+        onClose={() => setPantryHistoryItem(null)}
+        itemId={pantryHistoryItem?.id || null}
+        itemName={pantryHistoryItem?.name || ''}
       />
 
       <MealDetailModal

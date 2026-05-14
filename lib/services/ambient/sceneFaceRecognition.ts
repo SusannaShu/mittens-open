@@ -9,6 +9,8 @@
 
 import type { PipelineLogger } from '../../pipelines/logger';
 
+import type { Scene } from './types';
+
 /**
  * Run face recognition on a frame during social scenes.
  * If a known person is recognized and the greet cooldown has passed,
@@ -16,6 +18,7 @@ import type { PipelineLogger } from '../../pipelines/logger';
  */
 export async function checkFaceRecognition(
   framePath: string,
+  scene: Scene,
   logger: PipelineLogger,
 ): Promise<void> {
   const faceIdx = logger.startPhase('scene', 'face_recognition');
@@ -44,6 +47,21 @@ export async function checkFaceRecognition(
       `[SceneFace] Recognized: ${topMatch.name}` +
       ` (similarity=${topMatch.similarity.toFixed(3)})`,
     );
+
+    // Track person in the scene (deduplication)
+    if (!scene.detectedPeopleDetails) {
+      scene.detectedPeopleDetails = [];
+    }
+    const alreadySeenInScene = scene.detectedPeopleDetails.some((p) => p.name === topMatch.name);
+    
+    if (!alreadySeenInScene) {
+      scene.detectedPeopleDetails.push({
+        name: topMatch.name,
+        timestamp: Date.now(),
+        imageUri: framePath,
+      });
+      console.log(`[SceneFace] Logged new person for scene ${scene.id}: ${topMatch.name}`);
+    }
 
     // Greet if cooldown has passed
     if (shouldGreet(topMatch.personId)) {

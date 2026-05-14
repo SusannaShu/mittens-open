@@ -29,7 +29,7 @@ export interface VoiceDispatchResult {
 }
 
 interface TriageResult {
-  intent: 'face_intro' | 'meal' | 'activity_update' | 'chat';
+  intent: 'face_intro' | 'face_correction' | 'meal' | 'activity_update' | 'chat';
   confidence: number;
   extractedName?: string;
 }
@@ -58,10 +58,18 @@ export async function dispatchVoice(
   const triage = await triageVoice(brain, transcript, framePath);
   console.log(`[VoiceDispatch] Triage: ${triage.intent} (${triage.confidence})`);
 
+  // Filter low confidence triage to prevent errant logs
+  if (triage.confidence < 0.3 && triage.intent !== 'chat') {
+    console.log(`[VoiceDispatch] Low confidence (${triage.confidence}), falling back to chat`);
+    triage.intent = 'chat';
+  }
+
   // Stage 2: Context-Enriched Dispatch
   switch (triage.intent) {
     case 'face_intro':
       return handleFaceIntro(triage, transcript, framePath);
+    case 'face_correction':
+      return handleFaceCorrection(triage, transcript);
     case 'meal':
       return handleMealIntent(brain, transcript, framePath);
     case 'activity_update':
@@ -87,6 +95,7 @@ async function triageVoice(
     '',
     'Possible intents:',
     '- "face_intro": user is introducing a person (e.g. "this is Sarah", "meet my friend John")',
+    '- "face_correction": user is correcting a false positive recognition (e.g. "that\'s not Caden", "wrong person", "whoops that is not John")',
     '- "meal": user is logging food/drink (e.g. "log two oranges", "I had a banana", "just ate lunch")',
     '- "activity_update": user is commenting on a current/recent activity (e.g. "meeting feels draining", "the walk was great", "I\'m so focused right now")',
     '- "chat": anything else (questions, conversation, commands unrelated to logging)',
@@ -114,7 +123,7 @@ function parseTriageResponse(raw: string): TriageResult {
     const jsonMatch = raw.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      if (['face_intro', 'meal', 'activity_update', 'chat'].includes(parsed.intent)) {
+      if (['face_intro', 'face_correction', 'meal', 'activity_update', 'chat'].includes(parsed.intent)) {
         return {
           intent: parsed.intent,
           confidence: parsed.confidence ?? 0.7,
@@ -169,6 +178,36 @@ async function handleFaceIntro(
     return {
       response: `Sorry, I had trouble registering ${name}. Could you try again?`,
       intent: 'face_intro', action: 'respond',
+    };
+  }
+}
+
+// ─── Face Correction ────
+
+async function handleFaceCorrection(
+  triage: TriageResult,
+  transcript: string | null,
+): Promise<VoiceDispatchResult> {
+  try {
+    const { undoLastReinforcement } = require('../faceRecognition/faceRecognitionApi');
+    const undonePersonId = undoLastReinforcement();
+
+    if (undonePersonId) {
+      return {
+        response: `Oops, sorry about that! I deleted the last memory I saved.`,
+        intent: 'face_correction', action: 'delete',
+      };
+    } else {
+      return {
+        response: `I couldn't find a recent face memory to delete.`,
+        intent: 'face_correction', action: 'respond',
+      };
+    }
+  } catch (err: any) {
+    console.warn('[VoiceDispatch] Face correction failed:', err?.message);
+    return {
+      response: `Sorry, I had trouble deleting the last face memory.`,
+      intent: 'face_correction', action: 'respond',
     };
   }
 }

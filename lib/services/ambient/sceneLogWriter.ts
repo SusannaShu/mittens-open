@@ -42,16 +42,16 @@ export async function executeLogDecision(
 
   if (decision.pipeline === 'food') {
     if (decision.action === 'create') {
-      return createMealLog(classification, framePath, decision.phases, logger);
+      return createMealLog(classification, framePath, scene, decision.phases, logger);
     }
-    return updateMealLog(decision.existingLogId!, classification, framePath, decision.phases, logger);
+    return updateMealLog(decision.existingLogId!, classification, framePath, scene, decision.phases, logger);
   }
 
   if (decision.pipeline === 'activity') {
     if (decision.action === 'create') {
       return createActivityLog(classification, framePath, scene, decision.phases, logger);
     }
-    return updateActivityLog(decision.existingLogId!, classification, framePath, decision.phases, logger);
+    return updateActivityLog(decision.existingLogId!, classification, framePath, scene, decision.phases, logger);
   }
 
   return { logId: null };
@@ -62,6 +62,7 @@ export async function executeLogDecision(
 async function createMealLog(
   classification: SceneClassification,
   framePath: string,
+  scene: Scene | null,
   phases: string[],
   logger: PipelineLogger,
 ): Promise<{ logId: number | null }> {
@@ -122,6 +123,23 @@ async function createMealLog(
     }
   }
 
+  // Phase: pantryDelta
+  if (phases.includes('pantryDelta') && framePath && scene) {
+    const idx = logger.startPhase('food', 'pantryDelta');
+    try {
+      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
+      const result = await extractPantryDeltas({ photos: [framePath] });
+      const deltas = result.deltas || [];
+      deltas.forEach((d: any) => {
+        d.framePath = framePath;
+        scene.pantryDeltas.push(d);
+      });
+      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
+    } catch (err: any) {
+      logger.failPhase(idx, err?.message);
+    }
+  }
+
   // Use identified foods or fall back to classifier items
   const finalItems = identifiedFoods.length > 0 ? identifiedFoods : classification.items;
   const logName = finalItems.length > 0
@@ -155,6 +173,7 @@ async function updateMealLog(
   logId: number,
   classification: SceneClassification,
   framePath: string,
+  scene: Scene | null,
   phases: string[],
   logger: PipelineLogger,
 ): Promise<{ logId: number | null }> {
@@ -206,6 +225,23 @@ async function updateMealLog(
       );
       updatedNutrients = aggregateNutrients(results.filter(Boolean));
       logger.completePhase(idx, `Re-analyzed ${results.filter(Boolean).length} items`);
+    } catch (err: any) {
+      logger.failPhase(idx, err?.message);
+    }
+  }
+
+  // Phase: pantryDelta
+  if (phases.includes('pantryDelta') && framePath && scene) {
+    const idx = logger.startPhase('food', 'pantryDelta');
+    try {
+      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
+      const result = await extractPantryDeltas({ photos: [framePath] });
+      const deltas = result.deltas || [];
+      deltas.forEach((d: any) => {
+        d.framePath = framePath;
+        scene.pantryDeltas.push(d);
+      });
+      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
     } catch (err: any) {
       logger.failPhase(idx, err?.message);
     }
@@ -284,12 +320,36 @@ async function createActivityLog(
   // AEIOU phases: only run when detected
   await runAEIOUPhases(phases, framePath, classification, aeiou, logger);
 
+  // Phase: pantryDelta (for grocery_shopping)
+  if (phases.includes('pantryDelta') && framePath && scene) {
+    const idx = logger.startPhase('activity', 'pantryDelta');
+    try {
+      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
+      const result = await extractPantryDeltas({ photos: [framePath] });
+      const deltas = result.deltas || [];
+      deltas.forEach((d: any) => {
+        d.framePath = framePath;
+        scene.pantryDeltas.push(d);
+      });
+      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
+    } catch (err: any) {
+      logger.failPhase(idx, err?.message);
+    }
+  }
+
+  // People from Face Recognition pipeline
+  let meta: any = {};
+  if (scene?.detectedPeopleDetails && scene.detectedPeopleDetails.length > 0) {
+    meta.detectedPeopleDetails = scene.detectedPeopleDetails;
+    aeiou.users = Array.from(new Set(scene.detectedPeopleDetails.map(p => p.name))).join(', ');
+  }
+
   const result = db.runSync(
     `INSERT INTO activity_logs (
       logged_at, log_name, activity_type, duration_min, mets,
-      life_categories, aeiou, source, location, image_uris,
+      life_categories, aeiou, meta, source, location, image_uris,
       created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
     [
       new Date().toISOString(),
       logName,
@@ -297,6 +357,7 @@ async function createActivityLog(
       metValue,
       lifeDesignWeights ? JSON.stringify(lifeDesignWeights) : null,
       Object.keys(aeiou).length > 0 ? JSON.stringify(aeiou) : null,
+      Object.keys(meta).length > 0 ? JSON.stringify(meta) : null,
       scene?.place || null,
       framePath ? JSON.stringify([framePath]) : null,
     ],
@@ -313,6 +374,7 @@ async function updateActivityLog(
   logId: number,
   classification: SceneClassification,
   framePath: string,
+  scene: Scene | null,
   phases: string[],
   logger: PipelineLogger,
 ): Promise<{ logId: number | null }> {
@@ -320,7 +382,7 @@ async function updateActivityLog(
   const db = getDb();
 
   const existing = db.getFirstSync(
-    'SELECT logged_at, image_uris, aeiou, life_categories FROM activity_logs WHERE id = ?',
+    'SELECT logged_at, image_uris, aeiou, life_categories, meta FROM activity_logs WHERE id = ?',
     [logId],
   ) as any;
 
@@ -335,6 +397,23 @@ async function updateActivityLog(
   // Merge AEIOU from new phase evidence
   let aeiou = existing?.aeiou ? JSON.parse(existing.aeiou) : {};
   await runAEIOUPhases(phases, framePath, classification, aeiou, logger);
+
+  // Phase: pantryDelta (for grocery_shopping)
+  if (phases.includes('pantryDelta') && framePath && scene) {
+    const idx = logger.startPhase('activity', 'pantryDelta');
+    try {
+      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
+      const result = await extractPantryDeltas({ photos: [framePath] });
+      const deltas = result.deltas || [];
+      deltas.forEach((d: any) => {
+        d.framePath = framePath;
+        scene.pantryDeltas.push(d);
+      });
+      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
+    } catch (err: any) {
+      logger.failPhase(idx, err?.message);
+    }
+  }
 
   // Weighted average life design (keep running average)
   let lifeCategories = existing?.life_categories ? JSON.parse(existing.life_categories) : null;
@@ -360,16 +439,24 @@ async function updateActivityLog(
     }
   }
 
+  // People from Face Recognition pipeline
+  let meta = existing?.meta ? JSON.parse(existing.meta) : {};
+  if (scene?.detectedPeopleDetails && scene.detectedPeopleDetails.length > 0) {
+    meta.detectedPeopleDetails = scene.detectedPeopleDetails;
+    aeiou.users = Array.from(new Set(scene.detectedPeopleDetails.map(p => p.name))).join(', ');
+  }
+
   db.runSync(
     `UPDATE activity_logs SET
       duration_min = ?, image_uris = ?, aeiou = ?,
-      life_categories = ?, updated_at = datetime('now')
+      life_categories = ?, meta = ?, updated_at = datetime('now')
     WHERE id = ?`,
     [
       durationMin,
       JSON.stringify(existingImages),
       Object.keys(aeiou).length > 0 ? JSON.stringify(aeiou) : null,
       lifeCategories ? JSON.stringify(lifeCategories) : null,
+      Object.keys(meta).length > 0 ? JSON.stringify(meta) : null,
       logId,
     ],
   );

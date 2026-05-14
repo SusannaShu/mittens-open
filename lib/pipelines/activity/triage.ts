@@ -1,6 +1,6 @@
 import { PipelineInput } from '../runner';
 
-export type ActivityPhase = 'detect' | 'environment' | 'social' | 'objects' | 'lifeDesign';
+export type ActivityPhase = 'detect' | 'environment' | 'social' | 'objects' | 'lifeDesign' | 'pantryDelta';
 
 /**
  * Micro-triage for the Activity pipeline.
@@ -69,6 +69,11 @@ export function getActivityPhases(input: PipelineInput, inferrablePhases?: strin
     // For lifeDesign without context, we can still use ActivityType defaults (deterministic)
     // So this phase runs even if not in inferrablePhases, but won't call the brain
     phases.push('lifeDesign');
+  }
+
+  // Phase 6: Pantry Delta (for grocery shopping)
+  if (shouldRun('pantryDelta', false) && hasContext) {
+    phases.push('pantryDelta');
   }
 
   return phases;

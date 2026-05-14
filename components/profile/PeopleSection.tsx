@@ -13,7 +13,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, radius } from '../../lib/theme';
 import { profileStyles as ps } from './profileStyles';
 import { PersonService } from '../../lib/services/personService';
+import { getEmbeddingsForPerson } from '../../lib/services/faceRecognition/faceRecognitionApi';
 import type { Person } from '../../lib/pipelines/types';
+import type { FaceEmbedding } from '../../lib/services/faceRecognition/types';
 
 const TEAM_ROLES = ['supporter', 'player', 'intimate', 'mentor', 'collaborator'] as const;
 
@@ -122,7 +124,12 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
               activeOpacity={0.6}
             >
               <View style={st.avatar}>
-                <Text style={st.avatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+                {p.avatarUri ? (
+                  // @ts-ignore
+                  <Image source={{ uri: p.avatarUri }} style={st.avatarImg} />
+                ) : (
+                  <Text style={st.avatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -174,7 +181,19 @@ function PersonEditSheet({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Person>({ ...person });
+  const [embeddings, setEmbeddings] = useState<FaceEmbedding[]>([]);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (person.id && person.id > 0) {
+      try {
+        const loaded = getEmbeddingsForPerson(person.id);
+        setEmbeddings(loaded);
+      } catch (e) {
+        console.warn('Failed to load embeddings for person', e);
+      }
+    }
+  }, [person.id]);
 
   return (
     <Modal visible transparent animationType="slide">
@@ -240,6 +259,25 @@ function PersonEditSheet({
               multiline
             />
 
+            {person.id && person.id > 0 && embeddings.length > 0 ? (
+              <View style={{ marginTop: spacing.md }}>
+                <Text style={st.fieldLabel}>Pictures Used to Remember ({embeddings.length})</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }}>
+                  {embeddings.map((emb, idx) => (
+                    emb.imageUri ? (
+                      <View key={emb.id || idx} style={st.galleryItem}>
+                        {/* @ts-ignore */}
+                        <Image source={{ uri: emb.imageUri }} style={st.galleryImage} />
+                        <Text style={st.galleryDate}>
+                          {new Date(emb.capturedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </Text>
+                      </View>
+                    ) : null
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={{ height: 60 }} />
           </ScrollView>
 
@@ -282,8 +320,9 @@ const st = StyleSheet.create({
   },
   avatar: {
     width: 36, height: 36, borderRadius: 18, backgroundColor: '#F0F0F0',
-    justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center', overflow: 'hidden',
   },
+  avatarImg: { width: 36, height: 36 },
   avatarText: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   personName: { fontSize: 14, fontWeight: '500', color: colors.textPrimary },
   nickname: { fontSize: 12, color: colors.textMuted },
@@ -336,5 +375,19 @@ const st = StyleSheet.create({
   cancelBtn: {
     flex: 1, alignItems: 'center', paddingVertical: 12,
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+  },
+  galleryItem: {
+    marginRight: spacing.sm,
+    alignItems: 'center',
+  },
+  galleryImage: {
+    width: 80, height: 80,
+    borderRadius: radius.sm,
+    backgroundColor: '#EAEAEA',
+  },
+  galleryDate: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 4,
   },
 });

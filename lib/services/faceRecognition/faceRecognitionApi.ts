@@ -28,7 +28,8 @@ export function initFaceRecognitionTable(): void {
       person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
       embedding TEXT NOT NULL,
       confidence REAL DEFAULT 1.0,
-      captured_at TEXT DEFAULT (datetime('now'))
+      captured_at TEXT DEFAULT (datetime('now')),
+      image_uri TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_face_embeddings_person
@@ -47,7 +48,9 @@ export function findPersonByName(name: string): KnownPerson | null {
   initFaceRecognitionTable();
   const db = getDb();
   const row = db.getFirstSync(
-    'SELECT * FROM people WHERE LOWER(name) = LOWER(?)',
+    `SELECT p.*,
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+     FROM people p WHERE LOWER(p.name) = LOWER(?)`,
     [name],
   ) as any;
   return row ? rowToPerson(row) : null;
@@ -69,7 +72,9 @@ export function createPerson(name: string, context?: string): number {
 export function getPersonById(id: number): KnownPerson | null {
   const db = getDb();
   const row = db.getFirstSync(
-    'SELECT * FROM people WHERE id = ?',
+    `SELECT p.*,
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+     FROM people p WHERE p.id = ?`,
     [id],
   ) as any;
   return row ? rowToPerson(row) : null;
@@ -79,7 +84,9 @@ export function getPersonById(id: number): KnownPerson | null {
 export function getAllPeople(): KnownPerson[] {
   const db = getDb();
   const rows = db.getAllSync(
-    'SELECT * FROM people ORDER BY last_seen_at DESC',
+    `SELECT p.*,
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+     FROM people p ORDER BY p.last_seen_at DESC`,
   ) as any[];
   return (rows || []).map(rowToPerson);
 }
@@ -106,13 +113,14 @@ export function saveEmbedding(
   personId: number,
   embedding: number[],
   confidence: number = 1.0,
+  imageUri?: string
 ): number {
   initFaceRecognitionTable();
   const db = getDb();
   const result = db.runSync(
-    `INSERT INTO face_embeddings (person_id, embedding, confidence, captured_at)
-     VALUES (?, ?, ?, datetime('now'))`,
-    [personId, JSON.stringify(embedding), confidence],
+    `INSERT INTO face_embeddings (person_id, embedding, confidence, captured_at, image_uri)
+     VALUES (?, ?, ?, datetime('now'), ?)`,
+    [personId, JSON.stringify(embedding), confidence, imageUri || null],
   );
   return result.lastInsertRowId;
 }
@@ -181,6 +189,48 @@ export function pruneEmbeddings(maxPerPerson: number = 20): void {
   }
 }
 
+/**
+ * Undo the most recent reinforcement (within the last 15 minutes).
+ * Used for voice correction ("that's not Caden").
+ * If personName is provided, only deletes for that person.
+ */
+export function undoLastReinforcement(personName?: string): boolean {
+  initFaceRecognitionTable();
+  const db = getDb();
+  
+  if (personName) {
+    const person = findPersonByName(personName);
+    if (!person) return false;
+    
+    // Find the most recent embedding in the last 15 mins
+    const row = db.getFirstSync(
+      `SELECT id FROM face_embeddings 
+       WHERE person_id = ? AND captured_at > datetime('now', '-15 minutes')
+       ORDER BY captured_at DESC LIMIT 1`,
+      [person.id]
+    ) as any;
+    
+    if (row?.id) {
+      db.runSync('DELETE FROM face_embeddings WHERE id = ?', [row.id]);
+      return true;
+    }
+  } else {
+    // Just delete the absolute most recent embedding overall
+    const row = db.getFirstSync(
+      `SELECT id FROM face_embeddings 
+       WHERE captured_at > datetime('now', '-15 minutes')
+       ORDER BY captured_at DESC LIMIT 1`
+    ) as any;
+    
+    if (row?.id) {
+      db.runSync('DELETE FROM face_embeddings WHERE id = ?', [row.id]);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 // ═══════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════
@@ -195,6 +245,7 @@ function rowToPerson(row: any): KnownPerson {
     interactionCount: row.interaction_count || 0,
     lastSeenAt: row.last_seen_at,
     createdAt: row.created_at,
+    avatarUri: row.avatar_uri,
   };
 }
 
@@ -205,5 +256,6 @@ function rowToEmbedding(row: any): FaceEmbedding {
     embedding: JSON.parse(row.embedding),
     confidence: row.confidence,
     capturedAt: row.captured_at,
+    imageUri: row.image_uri,
   };
 }

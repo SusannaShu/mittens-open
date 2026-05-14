@@ -15,9 +15,11 @@ export class PersonService {
 
     const db = getDb();
     const rows = db.getAllSync(
-      `SELECT * FROM people 
-       WHERE LOWER(name) LIKE ? OR LOWER(nickname) LIKE ? 
-       ORDER BY interaction_count DESC LIMIT 10`,
+      `SELECT p.*,
+        (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+       FROM people p 
+       WHERE LOWER(p.name) LIKE ? OR LOWER(p.nickname) LIKE ? 
+       ORDER BY p.interaction_count DESC LIMIT 10`,
       [`%${query}%`, `%${query}%`]
     ) as any[];
 
@@ -30,7 +32,10 @@ export class PersonService {
   static async getRecent(limit: number = 20): Promise<Person[]> {
     const db = getDb();
     const rows = db.getAllSync(
-      `SELECT * FROM people ORDER BY last_seen_at DESC, interaction_count DESC LIMIT ?`,
+      `SELECT p.*,
+        (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+       FROM people p 
+       ORDER BY p.last_seen_at DESC, p.interaction_count DESC LIMIT ?`,
       [limit]
     ) as any[];
     return rows.map(r => this.rowToModel(r));
@@ -115,6 +120,7 @@ export class PersonService {
       avgEngagement: row.avg_engagement,
       avgEnergy: row.avg_energy,
       lastSeenAt: row.last_seen_at,
+      avatarUri: row.avatar_uri,
     };
   }
 }

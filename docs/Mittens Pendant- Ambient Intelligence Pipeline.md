@@ -296,7 +296,7 @@ The "brain" of the ambient loop. Tracks all open scenes. On each new frame:
 5. On scene close -> route to existing pipelines (food/activity/pantry) to create actual log entries
 
 #### [NEW] `lib/services/ambient/mittensAsk.ts`
-The proactive question primitive. `ask(question, timeoutMs = 60000)`: speak via TTS, arm one-shot listener for next double-tap, return Promise that resolves with the audio response or rejects on timeout. Reuses existing `onDoubleTap` callback.
+The proactive question primitive. `ask(question, timeoutMs = 60000)`: speak via TTS, arm one-shot listener for next double-tap, return Promise that resolves with the audio response or rejects on timeout. Reuses existing `onButtonPress` callback.
 
 #### [NEW] `lib/services/ambient/memoryUpsert.ts`
 `upsert(transcript, signalType)`: asks brain (small prompt) "is there a stable preference here? category?" and appends to `profile.memory[category]`. Checks for near-duplicates before adding.

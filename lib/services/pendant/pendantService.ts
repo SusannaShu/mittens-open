@@ -30,7 +30,7 @@ const STORAGE_WIFI_SSID = '@pendant_wifi_ssid';
 
 // ─── Event Callbacks ───
 
-type DoubleTapCallback = (audioPath: string, framePath?: string) => void;
+type ButtonPressCallback = (audioPath: string, framePath?: string) => void;
 type SingleTapCallback = () => void;
 type MotionFrameCallback = (framePath: string) => void;
 type DisconnectCallback = () => void;
@@ -48,7 +48,7 @@ export class PendantService {
   private bleDevice: any = null;
 
   // Event callbacks
-  private doubleTapCbs: DoubleTapCallback[] = [];
+  private buttonPressCbs: ButtonPressCallback[] = [];
   private singleTapCbs: SingleTapCallback[] = [];
   private motionFrameCbs: MotionFrameCallback[] = [];
   private disconnectCbs: DisconnectCallback[] = [];
@@ -583,7 +583,7 @@ export class PendantService {
     switch (event.type) {
       case 'BUTTON_PRESS':
         if (event.audioPath) {
-          for (const cb of this.doubleTapCbs) {
+          for (const cb of this.buttonPressCbs) {
             cb(event.audioPath, event.framePath);
           }
         }
@@ -609,9 +609,9 @@ export class PendantService {
 
   // ─── Event Registration ───
 
-  onDoubleTap(cb: DoubleTapCallback): () => void {
-    this.doubleTapCbs.push(cb);
-    return () => { this.doubleTapCbs = this.doubleTapCbs.filter(c => c !== cb); };
+  onButtonPress(cb: ButtonPressCallback): () => void {
+    this.buttonPressCbs.push(cb);
+    return () => { this.buttonPressCbs = this.buttonPressCbs.filter(c => c !== cb); };
   }
 
   onSingleTap(cb: SingleTapCallback): () => void {
@@ -656,7 +656,7 @@ export class PendantService {
    * Records audio from the phone mic for `durationMs` using
    * expo-speech-recognition, then feeds it through the pendant pipeline.
    */
-  async simulateDoubleTap(durationMs = 5000): Promise<void> {
+  async simulateButtonPress(durationMs = 5000): Promise<void> {
     console.log(`[Pendant] Simulating double-tap (${durationMs}ms)...`);
 
     try {
@@ -668,7 +668,7 @@ export class PendantService {
       if (!supportsRecording) {
         console.warn('[Pendant] Speech recognition recording not supported, using text fallback');
         // Fallback: just fire callbacks with no audio to test TTS
-        for (const cb of this.doubleTapCbs) {
+        for (const cb of this.buttonPressCbs) {
           cb('', undefined);
         }
         return;
@@ -703,13 +703,13 @@ export class PendantService {
 
       // Fire callbacks -- even without a real audio file,
       // this tests the bridge -> brain -> TTS pipeline
-      for (const cb of this.doubleTapCbs) {
+      for (const cb of this.buttonPressCbs) {
         cb(audioPath, undefined);
       }
     } catch (err: any) {
       console.error('[Pendant] Simulate failed:', err?.message || err);
       // Still fire callbacks for pipeline testing
-      for (const cb of this.doubleTapCbs) {
+      for (const cb of this.buttonPressCbs) {
         cb('', undefined);
       }
     }

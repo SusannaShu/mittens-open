@@ -123,7 +123,7 @@ bool handlePushToTalk() {
   return ok;
 }
 
-bool handleDoubleTap() {
+bool handleButtonPress() {
   // Double-tap now just calls push-to-talk with a fixed 3s recording
   Serial.println("[FLOW] === Button Press ===");
   return handlePushToTalk();

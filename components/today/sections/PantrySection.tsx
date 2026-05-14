@@ -10,6 +10,7 @@ interface Props {
   onToggle: () => void;
   onAddItem: (foodName: string) => void;
   onEditItem: (item: { id: number; foodName: string; quantity?: string; freshness: string }) => void;
+  onHistoryClick: (itemId: number, foodName: string) => void;
 }
 
 const FRESHNESS_ORDER: Record<string, number> = { questionable: 0, use_soon: 1, good: 2, fresh: 3 };
@@ -23,7 +24,7 @@ function freshnessDisplay(freshness: string) {
   };
 }
 
-export default function PantrySection({ pantry, collapsed, onToggle, onAddItem, onEditItem }: Props) {
+export default function PantrySection({ pantry, collapsed, onToggle, onAddItem, onEditItem, onHistoryClick }: Props) {
   if (pantry.length === 0) return null;
 
   return (
@@ -67,11 +68,22 @@ export default function PantrySection({ pantry, collapsed, onToggle, onAddItem, 
                 <Text style={styles.pantryName}>{item.foodName}</Text>
                 {item.quantity ? <Text style={styles.pantryQty}>{item.quantity}</Text> : null}
               </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.pantryFreshness, { color: fColor }]}>{fLabel}</Text>
-                {item.daysSinceScan != null && item.daysSinceScan > 0 && (
-                  <Text style={styles.pantryAge}>{item.daysSinceScan}d ago</Text>
-                )}
+              <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 12 }}>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[styles.pantryFreshness, { color: fColor }]}>{fLabel}</Text>
+                  {item.daysSinceScan != null && item.daysSinceScan > 0 && (
+                    <Text style={styles.pantryAge}>{item.daysSinceScan}d ago</Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onHistoryClick(item.id, item.foodName);
+                  }}
+                  style={{ padding: 4 }}
+                >
+                  <Feather name="chevron-right" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           );

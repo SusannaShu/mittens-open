@@ -54,7 +54,7 @@ export function triageCapture(
   }
 
   // Food scenes: always create/update meal log (separate from trail activity)
-  if (sceneType === 'eating' || sceneType === 'meal_prep') {
+  if (['eating', 'meal_prep', 'cooking_at_home', 'eating_at_home', 'eating_out'].includes(sceneType)) {
     return triageFood(classification, dedup);
   }
 
@@ -70,12 +70,17 @@ function triageFood(
 ): TriageDecision {
   const recentLog = findRecentLog('nutrition_logs', DEDUP_WINDOW_MS);
 
+  // Only trigger pantry delta if cooking or eating at home
+  const { sceneType } = classification;
+  const isHome = sceneType === 'cooking_at_home' || sceneType === 'eating_at_home' || sceneType === 'meal_prep';
+  const pantryPhase = isHome ? ['pantryDelta'] : [];
+
   if (!recentLog) {
     // No recent meal -- create with full pipeline
     return {
       pipeline: 'food',
       action: 'create',
-      phases: ['identify', 'nutrients', 'eatingContext'],
+      phases: ['identify', 'nutrients', 'eatingContext', ...pantryPhase],
       reason: 'New eating scene, no recent meal log',
     };
   }
@@ -90,19 +95,21 @@ function triageFood(
       pipeline: 'food',
       action: 'update',
       existingLogId: recentLog.id,
-      phases: hasNewItems ? ['identify', 'nutrients'] : [],
+      phases: hasNewItems ? ['identify', 'nutrients', ...pantryPhase] : [],
       reason: hasNewItems
         ? `Same meal scene, new items detected (score: ${dedup.continuityScore})`
         : `Same meal scene, extending time (score: ${dedup.continuityScore})`,
     };
   }
 
-  // Vision says different scene but still eating -- new meal
+  // Contextual dedup fallback for food
+  // We don't have activity_type on nutrition_logs, but we know it's a food log
   return {
     pipeline: 'food',
-    action: 'create',
-    phases: ['identify', 'nutrients', 'eatingContext'],
-    reason: 'New eating scene (vision: different from recent meal)',
+    action: 'update',
+    existingLogId: recentLog.id,
+    phases: [],
+    reason: `Recent meal log exists, avoiding spam`,
   };
 }
 
@@ -115,6 +122,11 @@ function triageActivity(
 ): TriageDecision {
   // Determine which AEIOU phases have evidence
   const detectablePhases = getDetectablePhases(classification, dedup);
+
+  // If this is grocery shopping, trigger pantryDelta to restock pantry
+  if (classification.sceneType === 'grocery_shopping') {
+    detectablePhases.push('pantryDelta');
+  }
 
   // Active trail: always route updates to the trail's activity log
   if (trailLogId != null) {
@@ -151,12 +163,24 @@ function triageActivity(
     };
   }
 
+  // Contextual dedup fallback
+  if (recentLog.activity_type === classification.sceneType) {
+    // Same activity type within dedup window, even if vision thinks it's a new scene
+    return {
+      pipeline: 'activity',
+      action: 'update',
+      existingLogId: recentLog.id,
+      phases: detectablePhases,
+      reason: `Same activity context (${classification.sceneType}), avoiding spam`,
+    };
+  }
+
   // Different scene -- new activity
   return {
     pipeline: 'activity',
     action: 'create',
     phases: ['detect', 'lifeDesign', ...detectablePhases],
-    reason: `New ${classification.sceneType} (vision: different from recent log)`,
+    reason: `New ${classification.sceneType} (vision/context: different from recent log)`,
   };
 }
 
@@ -199,6 +223,7 @@ function getDetectablePhases(
 interface RecentLogRow {
   id: number;
   logged_at: string;
+  activity_type?: string;
 }
 
 function findRecentLog(
@@ -210,7 +235,7 @@ function findRecentLog(
     const db = getDb();
     const cutoff = new Date(Date.now() - windowMs).toISOString();
     const row = db.getFirstSync(
-      `SELECT id, logged_at FROM ${table}
+      `SELECT id, logged_at${table === 'activity_logs' ? ', activity_type' : ''} FROM ${table}
        WHERE source IN ('pendant', 'trail') AND logged_at >= ?
        ORDER BY logged_at DESC LIMIT 1`,
       [cutoff],

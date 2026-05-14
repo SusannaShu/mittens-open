@@ -2,12 +2,18 @@
  * ActivityEditModal -- Edit activity details + reflection.
  * Editable: title, time, duration, engagement, energy,
  *           life categories (work/health/play/love), location, AEIOU.
+ *
+ * For pendant/location-anchored logs, shows:
+ *  - Timeline row (tappable, opens LocationTimelineModal)
+ *  - Auto-aggregated AEIOU from child observations
+ *  - Duration-based Life Design weights
+ *  - Trail map for movement sessions
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, Modal, Pressable, TouchableOpacity,
-  TextInput, StyleSheet, ScrollView, Alert,
+  TextInput, StyleSheet, ScrollView, Alert, Image
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../../lib/theme';
@@ -15,8 +21,14 @@ import { ActivityEntry } from '../../lib/services/activityApi';
 import ImpactLedgerView from '../today/ImpactLedgerView';
 import ActivityTimeInputs from './ActivityTimeInputs';
 import ActivityContextToggles from './ActivityContextToggles';
+import UsersEvidenceModal from './UsersEvidenceModal';
+import { TimelineRow, LocationField, LocationTimeline } from './LocationEditSection';
 import { activityEditStyles as s } from './activityEditStyles';
 import { ActivityTypeService } from '../../lib/services/activityTypeService';
+import { getChildActivitiesForSession } from '../../lib/services/location/locationBlockTitle';
+import { calculateLocationLifeDesign, generateActivityNarrative, aggregateAEIOU } from '../../lib/services/location/locationLifeDesign';
+import { getTodayCaptures } from '../../lib/services/pendant/pendantStore';
+import { getDb } from '../../lib/database';
 
 interface Props {
   visible: boolean;
@@ -61,6 +73,23 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   const [saving, setSaving] = useState(false);
   const [isOutdoors, setIsOutdoors] = useState(false);
   const [isNature, setIsNature] = useState(false);
+  const [showUsersEvidence, setShowUsersEvidence] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+
+  // Location session data for pendant/location-anchored logs
+  const locationSession = activity?.meta?.locationSession || null;
+  const isLocationAnchored = !!locationSession;
+
+  // Count observations for the timeline row
+  const observationCount = useMemo(() => {
+    if (!locationSession) return 0;
+    try {
+      const startMs = new Date(locationSession.startedAt).getTime();
+      const endMs = locationSession.endedAt ? new Date(locationSession.endedAt).getTime() : Date.now();
+      const captures = getTodayCaptures().filter(c => c.timestamp >= startMs && c.timestamp <= endMs);
+      return captures.length;
+    } catch { return 0; }
+  }, [locationSession]);
 
   // Movement context
   const [isMovement, setIsMovement] = useState(false);
@@ -87,21 +116,40 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
       setIsOutdoors(activity.outdoors || false);
       setIsNature(activity.isNature || false);
 
-      // Life categories -- convert 0-1 weights to 0-10 for slider display
-      const cats: Record<string, number> = {};
-      if (activity.lifeCategories) {
-        for (const [k, v] of Object.entries(activity.lifeCategories)) {
-          cats[k] = Math.round((v as number) * 10);
+      // For location-anchored logs, auto-populate from child observations
+      const session = activity.meta?.locationSession;
+      if (session) {
+        const children = getChildActivitiesForSession(session);
+        // Life Design from durations
+        const durationCats = calculateLocationLifeDesign(children);
+        const cats: Record<string, number> = {};
+        for (const [k, v] of Object.entries(durationCats)) {
+          cats[k] = Math.round(v * 10);
         }
+        setLifeCats(cats);
+
+        // AEIOU: aggregate from child observations
+        const childAeious = getChildAEIOUs(session);
+        const merged = aggregateAEIOU(childAeious);
+        // Auto-populate Activity field with narrative
+        const narrative = generateActivityNarrative(children);
+        if (narrative) merged.activity = narrative;
+        setAeiou(merged);
+      } else {
+        // Standard activity: use stored values
+        const cats: Record<string, number> = {};
+        if (activity.lifeCategories) {
+          for (const [k, v] of Object.entries(activity.lifeCategories)) {
+            cats[k] = Math.round((v as number) * 10);
+          }
+        }
+        setLifeCats(cats);
+        setAeiou(activity.aeiou ? { ...activity.aeiou } : {});
       }
-      setLifeCats(cats);
 
       // Sun exposure
       setCoveragePct(activity.meta?.coverage_pct ?? 50);
       setHasSunscreen(activity.meta?.sunscreen ?? false);
-
-      // AEIOU
-      setAeiou(activity.aeiou ? { ...activity.aeiou } : {});
 
       // Movement + Brain Hygiene from activity type metadata
       setMetValue(activity.mets ?? null);
@@ -208,7 +256,31 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               setDurationMin={setDurationMin}
             />
 
-            {/* Context toggles row 1: Outdoors & Nature */}
+            {/* Visual Evidence */}
+            {activity?.image && activity.image.length > 0 && (
+              <View style={{ marginBottom: spacing.md }}>
+                <Text style={s.label}>Visual Evidence</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', gap: 8 }}>
+                  {activity.image.map((img: any, i: number) => (
+                    <Image
+                      key={img.id || i}
+                      source={{ uri: img.url.startsWith('/') ? `file://${img.url}` : img.url }}
+                      style={{ width: 120, height: 120, borderRadius: radius.md, marginRight: spacing.sm, backgroundColor: '#111' }}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Timeline row -- pendant/location-anchored logs only */}
+            {isLocationAnchored && (
+              <TimelineRow
+                observationCount={observationCount}
+                onPress={() => setShowTimeline(true)}
+              />
+            )}
+
+            {/* Context toggles row: Outdoors, Nature, Movement */}
             <View style={s.contextToggleRow}>
               <TouchableOpacity
                 style={[s.sunscreenToggle, isOutdoors && s.sunscreenToggleActive]}
@@ -228,9 +300,18 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                   <Feather name="cloud" size={11} /> Nature
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.sunscreenToggle, isMovement && s.sunscreenToggleActive]}
+                onPress={() => setIsMovement(!isMovement)}
+                activeOpacity={0.6}
+              >
+                <Text style={[s.sunscreenToggleText, isMovement && s.sunscreenToggleTextActive]}>
+                  <Feather name="activity" size={11} /> Movement
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Context toggles row 2: Movement & Brain Hygiene */}
+            {/* Movement expanded: MET value */}
             <ActivityContextToggles
               isMovement={isMovement}
               setIsMovement={setIsMovement}
@@ -352,15 +433,23 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               })}
             </View>
 
-            {/* Location */}
+            {/* Location -- trail map for movement sessions, text input for stationary */}
             <Text style={s.label}>Location</Text>
-            <TextInput
-              style={s.input}
-              value={location}
-              onChangeText={setLocation}
-              placeholder="Where did this happen?"
-              placeholderTextColor={colors.textMuted}
-            />
+            {isLocationAnchored ? (
+              <LocationField
+                locationSession={locationSession}
+                location={location}
+                setLocation={setLocation}
+              />
+            ) : (
+              <TextInput
+                style={s.input}
+                value={location}
+                onChangeText={setLocation}
+                placeholder="Where did this happen?"
+                placeholderTextColor={colors.textMuted}
+              />
+            )}
 
             {/* AEIOU -- editable */}
             <Text style={s.label}>AEIOU Reflection</Text>
@@ -369,14 +458,21 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                 <Text style={s.aeiouKey}>{key.charAt(0).toUpperCase()}</Text>
                 <View style={s.aeiouInputWrap}>
                   <Text style={s.aeiouLabel}>{AEIOU_LABELS[key]}</Text>
-                  <TextInput
-                    style={s.aeiouInput}
-                    value={aeiou[key] || ''}
-                    onChangeText={(text) => setAeiou(prev => ({ ...prev, [key]: text }))}
-                    placeholder={`What ${AEIOU_LABELS[key].toLowerCase()}?`}
-                    placeholderTextColor={colors.textMuted}
-                    multiline
-                  />
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <TextInput
+                      style={[s.aeiouInput, { flex: 1 }]}
+                      value={aeiou[key] || ''}
+                      onChangeText={(text) => setAeiou(prev => ({ ...prev, [key]: text }))}
+                      placeholder={`What ${AEIOU_LABELS[key].toLowerCase()}?`}
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                    />
+                    {key === 'users' && activity?.meta?.detectedPeopleDetails && (
+                      <TouchableOpacity onPress={() => setShowUsersEvidence(true)} style={{ padding: 8, paddingRight: 0 }}>
+                        <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
               </View>
             ))}
@@ -448,6 +544,43 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
           </View>
         </View>
       </View>
+
+      <UsersEvidenceModal
+        visible={showUsersEvidence}
+        onClose={() => setShowUsersEvidence(false)}
+        detectedPeopleDetails={activity?.meta?.detectedPeopleDetails || []}
+      />
+
+      <LocationTimeline
+        visible={showTimeline}
+        session={locationSession}
+        title={logName || 'Location Timeline'}
+        onClose={() => setShowTimeline(false)}
+      />
     </Modal>
   );
 }
+
+/** Query child AEIOU records from activity_logs for aggregation. */
+function getChildAEIOUs(
+  session: { startedAt: string; endedAt: string | null },
+): Array<Record<string, string> | null> {
+  try {
+    const db = getDb();
+    const startIso = new Date(session.startedAt).toISOString();
+    const endIso = session.endedAt
+      ? new Date(session.endedAt).toISOString()
+      : new Date().toISOString();
+    const rows = db.getAllSync(
+      `SELECT aeiou FROM activity_logs
+       WHERE source IN ('pendant', 'trail')
+         AND logged_at >= ? AND logged_at <= ?
+         AND aeiou IS NOT NULL`,
+      [startIso, endIso],
+    ) as any[];
+    return rows.map(r => JSON.parse(r.aeiou));
+  } catch {
+    return [];
+  }
+}
+

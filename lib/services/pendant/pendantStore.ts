@@ -144,6 +144,16 @@ export function updateCapture(
   persistCaptures();
 }
 
+/** Remove a capture by ID. */
+export function removeCapture(id: string): void {
+  const before = captures.length;
+  captures = captures.filter((c) => c.id !== id);
+  if (captures.length < before) {
+    notifyListeners();
+    persistCaptures();
+  }
+}
+
 /** Get all captures (newest first). */
 export function getCaptures(): PendantCapture[] {
   return [...captures];

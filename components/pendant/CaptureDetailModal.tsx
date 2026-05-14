@@ -265,12 +265,7 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
             </View>
           )}
 
-          {/* Pipeline Log (Visual Debugging) */}
-          {capture.pipelineLog && (
-            <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.lg }}>
-              <PipelineLogBubble log={capture.pipelineLog} />
-            </View>
-          )}
+
 
           {/* Phase Debug Trace (expandable I/O per phase) */}
           {capture.pipelineLog?.phases?.length > 0 && (

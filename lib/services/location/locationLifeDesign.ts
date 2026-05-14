@@ -127,26 +127,17 @@ export interface AEIOUChild {
  * Groups identical values per dimension, sums durations, and outputs a
  * narrative like "solo for 30min, 1-2 for 5min".
  *
- * For dimensions where duration context doesn't make sense (objects, users),
- * we just deduplicate the list.
+ * All dimensions produce duration-weighted narratives like
+ * "solo for 30min, 1-2 for 5min" or "laptop for 45min, notebook for 10min".
  */
 export function aggregateAEIOU(
   children: AEIOUChild[],
 ): Record<string, string> {
-  // Dimensions where we want "value for Xmin" narrative
-  const DURATION_DIMS = new Set(['interactions', 'environment']);
-  // Dimensions where we just list unique values
-  const LIST_DIMS = new Set(['objects', 'users']);
+  const DIMS = ['interactions', 'environment', 'objects', 'users'];
 
   // Map of dimension -> value -> total minutes
-  const durationMap: Record<string, Map<string, number>> = {
-    interactions: new Map(),
-    environment: new Map(),
-  };
-  const listSets: Record<string, Set<string>> = {
-    objects: new Set(),
-    users: new Set(),
-  };
+  const durationMap: Record<string, Map<string, number>> = {};
+  for (const dim of DIMS) durationMap[dim] = new Map();
 
   for (const child of children) {
     if (!child.aeiou) continue;
@@ -154,39 +145,25 @@ export function aggregateAEIOU(
 
     for (const [key, value] of Object.entries(child.aeiou)) {
       const normalKey = key.toLowerCase();
-      if (!value) continue;
+      if (!value || !durationMap[normalKey]) continue;
 
       // Split compound values (from legacy semicolon/comma appending)
       const items = value.split(/[;,]/).map(s => s.trim().toLowerCase()).filter(Boolean);
-
-      if (DURATION_DIMS.has(normalKey) && durationMap[normalKey]) {
-        // Distribute duration equally across items in this record
-        const perItem = items.length > 0 ? dur / items.length : 0;
-        for (const item of items) {
-          durationMap[normalKey].set(item, (durationMap[normalKey].get(item) || 0) + perItem);
-        }
-      } else if (LIST_DIMS.has(normalKey) && listSets[normalKey]) {
-        items.forEach(item => listSets[normalKey].add(item));
+      const perItem = items.length > 0 ? dur / items.length : 0;
+      for (const item of items) {
+        durationMap[normalKey].set(item, (durationMap[normalKey].get(item) || 0) + perItem);
       }
     }
   }
 
   const merged: Record<string, string> = {};
 
-  // Build duration narratives for interactions and environment
   for (const [dim, map] of Object.entries(durationMap)) {
     if (map.size === 0) continue;
     const sorted = [...map.entries()].sort((a, b) => b[1] - a[1]);
     merged[dim] = sorted
       .map(([val, mins]) => mins > 0 ? `${val} for ${Math.round(mins)}min` : val)
       .join(', ');
-  }
-
-  // Build simple deduped lists for objects and users
-  for (const [dim, valSet] of Object.entries(listSets)) {
-    if (valSet.size > 0) {
-      merged[dim] = [...valSet].join(', ');
-    }
   }
 
   return merged;

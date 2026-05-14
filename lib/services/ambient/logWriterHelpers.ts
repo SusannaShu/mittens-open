@@ -26,8 +26,8 @@ export async function runAEIOUPhases(
   if (phases.includes('environment')) {
     const idx = logger.startPhase('activity', 'environment');
     try {
-      const { inferEnvironment } = require('../../pipelines/activity/environment');
-      const result = await inferEnvironment(input);
+      const { detectEnvironment } = require('../../pipelines/activity/environment');
+      const result = await detectEnvironment(input, classification);
       if (result.environment) aeiou.environment = result.environment;
       logger.completePhase(idx, result.environment || 'none');
     } catch (err: any) { logger.failPhase(idx, err?.message); }
@@ -36,8 +36,8 @@ export async function runAEIOUPhases(
   if (phases.includes('social')) {
     const idx = logger.startPhase('activity', 'social');
     try {
-      const { inferSocial } = require('../../pipelines/activity/social');
-      const result = await inferSocial(input);
+      const { detectSocial } = require('../../pipelines/activity/social');
+      const result = await detectSocial(input, classification);
       if (result.interactions) {
         // Append to existing instead of replacing
         const prev = aeiou.interactions || '';
@@ -52,8 +52,8 @@ export async function runAEIOUPhases(
   if (phases.includes('objects')) {
     const idx = logger.startPhase('activity', 'objects');
     try {
-      const { inferObjects } = require('../../pipelines/activity/objects');
-      const result = await inferObjects(input);
+      const { detectObjects } = require('../../pipelines/activity/objects');
+      const result = await detectObjects(input, classification);
       if (result.objects?.length) {
         const names = result.objects.map((o: any) => o.name || o).join(', ');
         aeiou.objects = aeiou.objects ? `${aeiou.objects}, ${names}` : names;

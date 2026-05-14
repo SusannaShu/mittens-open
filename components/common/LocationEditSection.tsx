@@ -42,33 +42,46 @@ interface LocationFieldProps {
   locationSession: LocationSession;
   location: string;
   setLocation: (val: string) => void;
+  onPressMap?: () => void;
 }
 
 /** Location field: trail info for movement sessions, text input for stationary */
-export function LocationField({ locationSession, location, setLocation }: LocationFieldProps) {
+export function LocationField({ locationSession, location, setLocation, onPressMap }: LocationFieldProps) {
   const isTrail = locationSession.motionType !== 'stationary' && (locationSession.path?.length ?? 0) > 1;
 
   if (isTrail) {
     return (
-      <View style={locationStyles.trailInfo}>
+      <TouchableOpacity style={locationStyles.trailInfo} onPress={onPressMap} activeOpacity={0.7}>
         <Feather name="navigation" size={14} color={colors.textSecondary} />
         <Text style={locationStyles.trailText}>
           {locationSession.motionType} trail
           {locationSession.duration_min ? ` -- ${locationSession.duration_min} min` : ''}
           {locationSession.path?.length > 0 ? ` -- ${locationSession.path.length} points` : ''}
         </Text>
-      </View>
+        <Feather name="chevron-right" size={16} color={colors.textSecondary} style={{ marginLeft: 'auto' }} />
+      </TouchableOpacity>
     );
   }
 
   return (
-    <TextInput
-      style={s.input}
-      value={location}
-      onChangeText={setLocation}
-      placeholder="Where did this happen?"
-      placeholderTextColor={colors.textMuted}
-    />
+    <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+      <TextInput
+        style={[s.input, { flex: 1, marginBottom: 0 }]}
+        value={location}
+        onChangeText={setLocation}
+        placeholder="Where did this happen?"
+        placeholderTextColor={colors.textMuted}
+      />
+      {onPressMap && (
+        <TouchableOpacity 
+          style={{ width: 44, height: 44, borderRadius: radius.sm, backgroundColor: '#FAFAFA', borderWidth: 1, borderColor: colors.border, justifyContent: 'center', alignItems: 'center' }}
+          onPress={onPressMap}
+          activeOpacity={0.7}
+        >
+          <Feather name="map" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 

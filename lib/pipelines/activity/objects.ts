@@ -10,7 +10,7 @@ const OBJECTS_SCHEMA = {
   required: ['objects'],
 };
 
-export async function detectObjects(input: PipelineInput, context: any): Promise<{ aeiou: Partial<any> }> {
+export async function detectObjects(input: PipelineInput, context: any): Promise<{ objects: string }> {
   const brain = await getBrain();
   
   const prompt = `You are identifying key objects for a Stanford Life Design "O" (Objects) reflection.
@@ -34,5 +34,5 @@ Activity detected: ${context.activityType || 'unknown'} — ${context.logName ||
     result = await brain.json<{ objects: string }>(prompt, OBJECTS_SCHEMA, { objects: '' }, { temperature: 0.1 });
   }
 
-  return { aeiou: { objects: result.objects } };
+  return { objects: result.objects };
 }

@@ -23,6 +23,7 @@ import ActivityTimeInputs from './ActivityTimeInputs';
 import ActivityContextToggles from './ActivityContextToggles';
 import UsersEvidenceModal from './UsersEvidenceModal';
 import { TimelineRow, LocationField, LocationTimeline } from './LocationEditSection';
+import LocationLogModal from '../places/LocationLogModal';
 import { activityEditStyles as s } from './activityEditStyles';
 import { ActivityTypeService } from '../../lib/services/activityTypeService';
 import { getChildActivitiesForSession } from '../../lib/services/location/locationBlockTitle';
@@ -75,6 +76,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   const [isNature, setIsNature] = useState(false);
   const [showUsersEvidence, setShowUsersEvidence] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   // Location session data for pendant/location-anchored logs
   const locationSession = activity?.meta?.locationSession || null;
@@ -440,6 +442,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                 locationSession={locationSession}
                 location={location}
                 setLocation={setLocation}
+                onPressMap={() => setShowMap(true)}
               />
             ) : (
               <TextInput
@@ -556,6 +559,12 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         session={locationSession}
         title={logName || 'Location Timeline'}
         onClose={() => setShowTimeline(false)}
+      />
+
+      <LocationLogModal
+        visible={showMap}
+        session={locationSession}
+        onClose={() => setShowMap(false)}
       />
     </Modal>
   );

@@ -237,10 +237,21 @@ export async function speakKokoro(
     source.connect(audioCtx.destination);
     activeSource = source;
 
-    source.onended = () => {
-      activeSource = null;
+    let isDone = false;
+    const handleDone = () => {
+      if (isDone) return;
+      isDone = true;
+      if (activeSource === source) {
+        activeSource = null;
+      }
       onDone?.();
     };
+
+    source.onended = handleDone;
+    
+    // Safety net: react-native-audio-api doesn't always fire onended reliably on iOS
+    const durationMs = (waveform.length / 24000) * 1000;
+    setTimeout(handleDone, durationMs + 250);
 
     source.start();
     console.log(`[KokoroVoice] Playing ${(waveform.length / 24000).toFixed(1)}s of audio`);

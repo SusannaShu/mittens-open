@@ -1,139 +1,69 @@
 /**
  * ambient/types.ts -- Type definitions for the ambient intelligence pipeline.
  *
- * Covers scene lifecycle, capture cadence, and pendant integration types.
- * All pendant-triggered intelligence flows through these types.
+ * Simplified dual-classifier architecture:
+ *   - Each frame produces independent nutrition and activity signals
+ *   - No rigid scene-type taxonomy; activity type is free-form for display
+ *   - Quality gate decides frame legibility before classification
  */
 
-// ═══════════════════════════════════════
-// SCENE TYPES
-// ═══════════════════════════════════════
+// =============================================
+// QUALITY GATE
+// =============================================
 
-/** High-level scene classifications */
-export type SceneType =
-  | 'meal_prep'    // legacy: cooking, assembling food
-  | 'eating'       // legacy: actively consuming food
-  | 'cooking_at_home'
-  | 'eating_at_home'
-  | 'eating_out'
-  | 'work'         // desk work, laptop, reading
-  | 'exercise'     // physical activity
-  | 'commute'      // walking, biking, transit
-  | 'social'       // conversation, gathering
-  | 'rest'         // lounging, napping
-  | 'errands'      // shopping, chores
-  | 'grocery_shopping'
-  | 'unknown';
+/** Result from the quality gate (Phase 1) */
+export interface QualityGateResult {
+  /** Is the frame clear enough to analyze? */
+  legible: boolean;
+  /** Is this essentially the same scene as the last processed frame? */
+  sameAsBefore: boolean;
+  /** Brief explanation for the decision */
+  reason: string;
+}
 
-/** Sub-phases within a scene -- tracks progression */
-export type SubPhase =
-  | 'prep'         // meal_prep: gathering ingredients
-  | 'cook'         // meal_prep: actively cooking
-  | 'plate'        // meal_prep: plating / serving
-  | 'eat'          // eating: consuming
-  | 'cleanup'      // eating: washing dishes
-  | 'active'       // work/exercise/social: engaged
-  | 'break'        // work: on break
-  | 'transit'      // commute: moving
-  | 'idle';        // default / no specific phase
+// =============================================
+// DUAL CLASSIFIER
+// =============================================
 
-/** Reasons a scene can close */
-export type CloseReason =
-  | 'geofence_exit'   // left the location
-  | 'scene_change'    // new frame doesn't match this scene
-  | 'timeout'         // 30min safety net
-  | 'user';           // manual close
-
-// ═══════════════════════════════════════
-// SCENE DATA
-// ═══════════════════════════════════════
-
-/** Food items identified during a meal scene */
-export interface SceneFoodItem {
+/** Food/drink item detected in a frame */
+export interface DetectedFoodItem {
   name: string;
   qty?: number;
   unit?: string;
   confidence: number;
 }
 
-/** Food-specific data attached to meal scenes */
-export interface SceneFoodData {
-  ingredients: SceneFoodItem[];
-  method?: string;
-  cookStartAt?: number;
-  cookFinishAt?: number;
-  plateAt?: number;
-  methodRecommendation?: {
-    method: string;
-    score: number;
-    reason: string;
-  };
+/** Nutrition signal from the dual classifier */
+export interface NutritionSignal {
+  /** Whether food/drink/pantry items are visible */
+  detected: boolean;
+  /** Identified food items */
+  items: DetectedFoodItem[];
+  /** Free-form context (e.g. "snacking at desk", "cooking pasta") */
+  context?: string;
 }
 
-/** Eating context for metabolism estimation */
-export interface SceneEatingContext {
-  pace?: 'rushed' | 'moderate' | 'slow';
-  chewing?: 'minimal' | 'moderate' | 'thorough';
-  distraction?: 'focused' | 'some' | 'distracted';
-  stress?: 'calm' | 'moderate' | 'stressed';
-  social?: 'alone' | 'with_others';
-}
-
-/** Pantry changes detected during a scene */
-export interface PantryDelta {
-  name: string;
-  qtyChange: number;
-  unit: string;
-  confidence: 'high' | 'medium' | 'guess';
-  reason: string;
-  framePath?: string;
-}
-
-/** A single scene -- the core unit of ambient intelligence */
-export interface Scene {
-  id: string;
-  openedAt: number;
-  lastActiveAt: number;
-  closedAt?: number;
-  closeReason?: CloseReason;
-
-  type: SceneType;
-  subPhase: SubPhase;
-  place?: string;
-
-  /** Food-specific (populated when type involves food) */
-  food?: SceneFoodData;
-  eatingContext?: SceneEatingContext;
-  pantryDeltas: PantryDelta[];
-
-  /** People tracking */
-  detectedPeopleDetails?: Array<{
-    name: string;
-    timestamp: number;
-    imageUri: string;
-  }>;
-
-  /** Frames that built this scene */
-  frameCount: number;
-  framePaths: string[];
-  lastFramePath?: string;
-}
-
-// ═══════════════════════════════════════
-// CLASSIFIER TYPES
-// ═══════════════════════════════════════
-
-/** Output from scene classification (what the brain sees in a frame) */
-export interface SceneClassification {
-  sceneType: SceneType;
-  subPhase: SubPhase;
-  items: SceneFoodItem[];
-  confidence: number;
-  /** Free-text description from the brain */
+/** Activity signal from the dual classifier */
+export interface ActivitySignal {
+  /** Whether a recognizable activity is happening */
+  detected: boolean;
+  /** Free-form activity label for display (e.g. "working", "cooking", "gym") */
+  type?: string;
+  /** One-line description of what the person is doing */
   description?: string;
-  /** Number of people/faces detected in the frame */
-  detectedPeople: number;
-  /** Set when classification failed due to brain connectivity issues */
+  /** 0-1 confidence */
+  confidence: number;
+}
+
+/** Combined output from the dual classifier (Phase 2) */
+export interface FrameClassification {
+  nutrition: NutritionSignal;
+  activity: ActivitySignal;
+  /** Number of people/faces visible */
+  people: number;
+  /** One-line scene description */
+  description: string;
+  /** Set when classification failed due to brain connectivity */
   error?: string;
 }
 
@@ -141,13 +71,12 @@ export interface SceneClassification {
 export interface ClassifierContext {
   place?: string;
   motionType?: string;
-  currentScenes?: Array<{ type: SceneType; subPhase: SubPhase }>;
   recentMemory?: string;
 }
 
-// ═══════════════════════════════════════
+// =============================================
 // CAPTURE CADENCE
-// ═══════════════════════════════════════
+// =============================================
 
 /** Pendant capture mode (matches firmware modes) */
 export type CaptureMode = 'passive' | 'active';
@@ -164,15 +93,43 @@ export interface CaptureGateState {
   };
 }
 
-// ═══════════════════════════════════════
-// PIPELINE LOG
-// ═══════════════════════════════════════
+// =============================================
+// PANTRY
+// =============================================
 
-/** Result from a scene pipeline run, stored for debug trace */
-export interface ScenePipelineResult {
-  sceneId: string;
-  classification: SceneClassification;
-  action: 'opened' | 'extended' | 'closed' | 'ignored';
-  memoryTierUsed?: 1 | 2 | 3;
-  pantryDeltas?: PantryDelta[];
+/** Pantry changes detected during a scene */
+export interface PantryDelta {
+  name: string;
+  qtyChange: number;
+  unit: string;
+  confidence: 'high' | 'medium' | 'guess';
+  reason: string;
+  framePath?: string;
+}
+
+// =============================================
+// SLEEP NUDGE
+// =============================================
+
+/** Sleep nudge classification result */
+export interface SleepNudgeResult {
+  /** What the camera sees near bedtime */
+  scene: 'black' | 'screen_work' | 'winding_down' | 'other';
+  /** Whether to send a nudge */
+  nudge: boolean;
+  /** Custom nudge message (if nudge is true) */
+  message?: string;
+  /** Explanation */
+  reason: string;
+}
+
+// =============================================
+// PIPELINE LOG (kept for debug trace)
+// =============================================
+
+/** Result from a pipeline run, stored for debug trace */
+export interface PipelineResult {
+  classification: FrameClassification;
+  nutritionLogId?: number | null;
+  activityLogId?: number | null;
 }

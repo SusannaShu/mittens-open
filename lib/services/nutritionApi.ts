@@ -13,7 +13,7 @@ export const nutritionApi = baseApi.injectEndpoints({
       queryFn: (date) => {
         try {
           const db = getDb();
-          const localDate = date || new Date().toLocaleDateString('en-CA');
+          const localDate = date ? date.split('&')[0] : new Date().toLocaleDateString('en-CA');
           const rows = db.getAllSync(
             `SELECT * FROM nutrition_logs WHERE date(logged_at) = ? ORDER BY logged_at ASC`,
             [localDate]

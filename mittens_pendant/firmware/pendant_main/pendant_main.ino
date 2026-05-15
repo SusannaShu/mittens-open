@@ -153,7 +153,7 @@ bool handleMotion() {
     Serial.println("[FLOW] No frame captured, skipping");
     cameraDeinit();
     ledOff();
-    return true;
+    return false;
   }
 
   // Transfer frame over BLE
@@ -276,9 +276,11 @@ void enterProvisioningMode() {
 // ─── Volatile flags for ISR-safe interrupt handling ───
 volatile bool g_int1Fired = false;
 volatile bool g_int2Fired = false;
+volatile bool g_buttonPressed = false;
 
 void IRAM_ATTR onINT1() { g_int1Fired = true; }
 void IRAM_ATTR onINT2() { g_int2Fired = true; }
+void IRAM_ATTR onButtonISR() { g_buttonPressed = true; }
 
 // Capture mode: phone controls via BLE "mode:active" / "mode:passive" commands
 // PASSIVE (0) = IMU-driven captures (default, stationary)
@@ -317,6 +319,7 @@ void setup() {
 
   // Push-to-talk button (active low, internal pullup)
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), onButtonISR, FALLING);
 
   // Init I2C for IMU
   Wire.begin(IMU_SDA_PIN, IMU_SCL_PIN);
@@ -378,10 +381,12 @@ static const unsigned long EVENT_COOLDOWN_MS = 3000; // 3s between events
 
 void loop() {
   // --- Push-to-talk button (highest priority) ---
-  if (digitalRead(BUTTON_PIN) == LOW) {
-    // Debounce: wait 50ms and check again
-    delay(50);
-    if (digitalRead(BUTTON_PIN) == LOW) {
+  if (digitalRead(BUTTON_PIN) == LOW || g_buttonPressed) {
+    // Debounce: wait 50ms and check again (only if not from ISR)
+    if (!g_buttonPressed) delay(50);
+    
+    if (digitalRead(BUTTON_PIN) == LOW || g_buttonPressed) {
+      g_buttonPressed = false;
       Serial.println("[BTN] Button pressed -- starting push-to-talk");
       handlePushToTalk();
       lastEventTime = millis();

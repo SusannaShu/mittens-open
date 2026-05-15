@@ -128,8 +128,8 @@ export const activityApi = baseApi.injectEndpoints({
           const db = getDb();
           const now = body.loggedAt || new Date().toISOString();
           const result = db.runSync(
-            `INSERT INTO activity_logs (logged_at, activity_type, log_name, duration_min, intensity, outdoors, location, engagement, energy, mets, is_nature, is_strength, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO activity_logs (logged_at, activity_type, log_name, duration_min, intensity, outdoors, location, engagement, energy, mets, is_nature, is_strength, source, aeiou, life_categories, meta)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               now,
               body.activityType || 'other',
@@ -144,6 +144,9 @@ export const activityApi = baseApi.injectEndpoints({
               body.isNature ? 1 : 0,
               body.isStrength ? 1 : 0,
               body.source || 'manual',
+              body.aeiou ? JSON.stringify(body.aeiou) : null,
+              body.lifeCategories ? JSON.stringify(body.lifeCategories) : null,
+              body.meta ? JSON.stringify(body.meta) : null,
             ]
           );
           const id = (result as any).lastInsertRowId || 0;
@@ -194,6 +197,9 @@ export const activityApi = baseApi.injectEndpoints({
           if (body.location !== undefined) { sets.push('location = ?'); vals.push(body.location); }
           if (body.outdoors !== undefined) { sets.push('outdoors = ?'); vals.push(body.outdoors ? 1 : 0); }
           if (body.isNature !== undefined) { sets.push('is_nature = ?'); vals.push(body.isNature ? 1 : 0); }
+          if (body.aeiou !== undefined) { sets.push('aeiou = ?'); vals.push(body.aeiou ? JSON.stringify(body.aeiou) : null); }
+          if (body.lifeCategories !== undefined) { sets.push('life_categories = ?'); vals.push(body.lifeCategories ? JSON.stringify(body.lifeCategories) : null); }
+          if (body.meta !== undefined) { sets.push('meta = ?'); vals.push(body.meta ? JSON.stringify(body.meta) : null); }
           vals.push(id);
           db.runSync(`UPDATE activity_logs SET ${sets.join(', ')} WHERE id = ?`, vals);
           const row = db.getFirstSync('SELECT * FROM activity_logs WHERE id = ?', [id]);

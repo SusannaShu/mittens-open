@@ -88,7 +88,7 @@ export function buildMealPrompt(transcript: string | null, context: string): str
     '{ "action": "create"|"update"|"clarify",',
     '  "response": "natural conversational response to speak",',
     '  "targetLogId": number (for update only),',
-    '  "data": { "items": [{"name":"...", "quantity":1}], "logName": "..." } }',
+    '  "data": { "items": [{"name":"...", "quantity":1}], "logName": "...", "mealType": "breakfast"|"lunch"|"dinner"|"snack"|"drink" } }',
     '',
     'If a similar item was already logged recently and the request is ambiguous,',
     'use action "clarify" and ask about it conversationally.',
@@ -138,7 +138,7 @@ export function parseDispatchResponse(raw: string): DispatchResult {
 
 export async function executeMealAction(
   result: DispatchResult,
-): Promise<{ response: string; action: string; logId?: number | null }> {
+): Promise<{ response: string; action: string; logId?: number | null; items?: any[] }> {
   // Clarification needed -- use mittensAsk
   if (result.action === 'clarify') {
     try {
@@ -180,7 +180,7 @@ export async function executeMealAction(
         `UPDATE nutrition_logs SET items = ?, log_name = ?, updated_at = datetime('now') WHERE id = ?`,
         [JSON.stringify(merged), logName, result.targetLogId],
       );
-      return { response: result.response, action: 'update', logId: result.targetLogId };
+      return { response: result.response, action: 'update', logId: result.targetLogId, items: merged };
     } catch {
       return { response: 'I had trouble updating that meal log.', action: 'respond' };
     }
@@ -188,15 +188,16 @@ export async function executeMealAction(
 
   // Create new log
   try {
+    const mealType = result.data?.mealType || 'snack';
     const insertResult = db.runSync(
       `INSERT INTO nutrition_logs (
         logged_at, meal_type, log_name, items, source,
         entry_type, created_at, updated_at
-      ) VALUES (?, 'snack', ?, ?, 'voice', 'food', datetime('now'), datetime('now'))`,
-      [new Date().toISOString(), logName, JSON.stringify(items)],
+      ) VALUES (?, ?, ?, ?, 'voice', 'food', datetime('now'), datetime('now'))`,
+      [new Date().toISOString(), mealType, logName, JSON.stringify(items)],
     );
     const logId = insertResult?.lastInsertRowId ?? null;
-    return { response: result.response, action: 'create', logId };
+    return { response: result.response, action: 'create', logId, items };
   } catch {
     return { response: 'I had trouble creating that meal log.', action: 'respond' };
   }

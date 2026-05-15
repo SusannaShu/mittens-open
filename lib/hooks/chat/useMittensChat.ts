@@ -6,7 +6,7 @@
  * All data goes to local DB first, synced to Backend via sync engine.
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ChatMessage } from '../../../components/chat/ChatBubble';
@@ -224,6 +224,14 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
 
   const { startPipeline, restartFood, restartFoodPortion, addFood, removeFood } =
     useNutrientPipeline({ updateFood, updateAllFoods, onPipelineComplete });
+
+  useEffect(() => {
+    const { DeviceEventEmitter } = require('react-native');
+    const sub = DeviceEventEmitter.addListener('pendantStartPipeline', ({ messageId, foods }: any) => {
+      startPipeline(messageId, foods);
+    });
+    return () => sub.remove();
+  }, [startPipeline]);
 
   // ── Build context ──
   const ctx: ChatContext = {

@@ -197,17 +197,15 @@ export function summarizeResult(domain: string, phase: string, data: any): strin
       case 'watch:extract':
         return `${data?.length || 0} item(s) extracted`;
 
-      // Scene (ambient intelligence)
-      case 'scene:classify':
-        return `${data.sceneType} / ${data.subPhase} (conf: ${data.confidence})`;
-      case 'scene:extend':
-        return `Extended ${data.sceneType}, frame #${data.frameCount}`;
-      case 'scene:open':
-        return `Opened ${data.sceneType}/${data.subPhase} at ${data.place || 'unknown'}`;
-      case 'scene:close':
-        return `Closed: ${data.closeReason}, ${data.frameCount} frames`;
-      case 'scene:match':
-        return data.matched ? `Matched ${data.sceneType}` : 'No match';
+      // Ambient pipeline (dual classifier)
+      case 'gate:quality':
+        return data.reason || (data.skip ? 'Skipped' : 'Passed');
+      case 'classify:dual':
+        return data.description || JSON.stringify(data).slice(0, 80);
+      case 'log:write':
+        return data.logIds || data.resultSummary || JSON.stringify(data).slice(0, 80);
+      case 'face:recognition':
+        return data.name ? `Recognized: ${data.name}` : 'No known faces';
 
       // Memory retrieval
       case 'memory:retrieve':

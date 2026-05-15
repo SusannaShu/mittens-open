@@ -40,6 +40,16 @@ export async function mittensAsk(question: string): Promise<string | null> {
 
   console.log(`[MittensAsk] Asking: "${question}"`);
 
+  // Emit the question immediately so it shows in the chat UI right away
+  const { DeviceEventEmitter } = require('react-native');
+  DeviceEventEmitter.emit('pendantMessageAdded', {
+    id: `m-ask-${Date.now()}`,
+    role: 'mittens',
+    text: question,
+    timestamp: new Date(),
+    source: 'pendant',
+  });
+
   // 1. Speak the question via TTS
   const { speak } = require('../../services/ai/voiceService');
   await new Promise<void>((resolve) => {
@@ -48,13 +58,7 @@ export async function mittensAsk(question: string): Promise<string | null> {
 
   // 2. Arm listener and wait for response
   return new Promise<string | null>((resolve) => {
-    const timer = setTimeout(() => {
-      console.log('[MittensAsk] Timed out waiting for response');
-      pendingAsk = null;
-      resolve(null);
-    }, ASK_TIMEOUT_MS);
-
-    pendingAsk = { question, resolve, timer };
+    pendingAsk = { question, resolve, timer: setTimeout(()=>{}, 0) }; // Keep timer prop for types, but it does nothing
     console.log('[MittensAsk] Armed -- waiting for button tap + verbal response');
   });
 }

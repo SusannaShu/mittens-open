@@ -16,7 +16,8 @@ interface PendantBridgeOptions {
 }
 
 export function usePendantBridge(options?: PendantBridgeOptions) {
-  const processingRef = useRef(false);
+  const voiceProcessingRef = useRef(false);
+  const ambientProcessingRef = useRef(false);
 
   useEffect(() => {
     let unsubButtonPress: (() => void) | undefined;
@@ -53,30 +54,78 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         } catch { /* voice init is best-effort */ }
 
         // ─── Button Press: Audio + optional frame -> Brain -> TTS ───
-        unsubButtonPress = service.onButtonPress(async (audioPath: string, framePath?: string) => {
-          if (processingRef.current) {
-            console.log('[PendantBridge] Already processing, skipping');
-            return;
-          }
-          processingRef.current = true;
-
-          console.log('[PendantBridge] button-press received, audio:', audioPath.slice(-30));
-
+        unsubButtonPress = service.onButtonPress(async (audioPath?: string, framePath?: string) => {
           // Check if there's a pending mittensAsk -- route response to ask resolver
+          // Do this BEFORE the processingRef lock, otherwise the lock prevents us from answering!
           try {
-            const { hasPendingAsk, resolveAsk } = require('../../services/ambient/mittensAsk');
+            const { hasPendingAsk, resolveAsk, getPendingQuestion } = require('../../services/ambient/mittensAsk');
             if (hasPendingAsk()) {
+              const pendingQ = getPendingQuestion();
               console.log('[PendantBridge] Pending ask detected -- routing to resolveAsk');
               // Transcribe the response
               const { transcribeAudioFile } = require('../../services/ai/voiceService');
               const transcript = await transcribeAudioFile(audioPath);
               if (transcript) {
+                // Log intermediate steps to the chat UI and DB
+                const { DeviceEventEmitter } = require('react-native');
+
+                // Log User's answer
+                const pUserMsg = {
+                  id: `pendant-${Date.now()}`,
+                  role: 'user',
+                  text: transcript,
+                  audio: audioPath,
+                  timestamp: new Date(),
+                  source: 'pendant',
+                };
+                if (options?.addMessage) {
+                  options.addMessage(pUserMsg);
+                  options.scrollToEnd?.();
+                } else {
+                  DeviceEventEmitter.emit('pendantMessageAdded', pUserMsg);
+                }
+
+                try {
+                  const { getDataProvider } = require('../../providers/providerFactory');
+                  const dataProvider = await getDataProvider();
+                  if (pendingQ) {
+                    await dataProvider.saveMessage({
+                      role: 'mittens',
+                      text: pendingQ,
+                      metadata: { source: 'pendant' },
+                    });
+                  }
+                  await dataProvider.saveMessage({
+                    role: 'user',
+                    text: transcript,
+                    metadata: { source: 'pendant', audioPath },
+                  });
+                } catch { }
+
+                // Add to pendant store so it appears in the Capture feed
+                const pendantStore = require('../../services/pendant/pendantStore');
+                pendantStore.addCapture({
+                  type: 'BUTTON_PRESS',
+                  timestamp: Date.now(),
+                  framePath,
+                  audioPath,
+                  processed: true,
+                  brainResponse: `Answered question: "${transcript}"`,
+                });
+
                 resolveAsk(transcript);
               }
-              processingRef.current = false;
-              return;
+              return; // We resolved it, don't process this as a new chat message
             }
           } catch { /* mittensAsk not loaded */ }
+
+          if (voiceProcessingRef.current) {
+            console.log('[PendantBridge] Already processing, skipping');
+            return;
+          }
+          voiceProcessingRef.current = true;
+
+          console.log('[PendantBridge] button-press received, audio:', audioPath.slice(-30));
 
           // Save to pendant store for UI display
           const captureId = pendantStore.addCapture({
@@ -87,20 +136,6 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           });
 
           try {
-            if (options?.addMessage) {
-              options.addMessage({
-                id: `pendant-${Date.now()}`,
-                role: 'user',
-                text: '[Pendant] Voice message',
-                audio: audioPath,
-                timestamp: new Date(),
-                source: 'pendant',
-              });
-              options.scrollToEnd?.();
-            }
-
-            let responseText: string;
-
             // Transcribe audio if present (STT for non-native-audio brains)
             let transcript: string | null = null;
             if (audioPath) {
@@ -117,10 +152,27 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               throw new Error('Could not hear anything and no photo was captured.');
             }
 
+            const pInitMsg = {
+              id: `pendant-${Date.now()}`,
+              role: 'user',
+              text: transcript || (audioPath ? '[Voice Recording]' : '[Photo Capture]'),
+              audio: audioPath,
+              photos: framePath ? [framePath] : undefined,
+              timestamp: new Date(),
+              source: 'pendant',
+            };
+            if (options?.addMessage) {
+              options.addMessage(pInitMsg);
+              options.scrollToEnd?.();
+            } else {
+              const { DeviceEventEmitter } = require('react-native');
+              DeviceEventEmitter.emit('pendantMessageAdded', pInitMsg);
+            }
+
             // Two-stage brain triage: classify intent, load context, execute
             const { dispatchVoice } = require('../../services/ambient/pendantVoiceDispatch');
             const result = await dispatchVoice(transcript, framePath, audioPath);
-            responseText = result.response;
+            const responseText = result.response;
             console.log(`[PendantBridge] Dispatch: ${result.intent}/${result.action}`);
 
             console.log('[PendantBridge] Response:', responseText?.slice(0, 80));
@@ -131,15 +183,36 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               processed: true,
             });
 
+            const mRespMsg: any = {
+              id: `m-${Date.now()}`,
+              role: 'mittens',
+              text: responseText,
+              timestamp: new Date(),
+              source: 'pendant',
+            };
+
+            if (result.intent === 'meal' && Array.isArray(result.items) && result.items.length > 0) {
+              mRespMsg.pipelineFoods = result.items.map((i: any) => ({
+                name: i.name,
+                status: 'idle',
+                portionGrams: i.quantity ? i.quantity * 100 : 100, // rough placeholder
+              }));
+              mRespMsg.mealMetadata = {
+                logId: result.logId,
+                mealName: result.items[0]?.name || 'Meal',
+                mealType: 'snack',
+              };
+            }
+
             if (options?.addMessage) {
-              options.addMessage({
-                id: `m-${Date.now()}`,
-                role: 'mittens',
-                text: responseText,
-                timestamp: new Date(),
-                source: 'pendant',
-              });
+              options.addMessage(mRespMsg);
               options.scrollToEnd?.();
+            } else {
+              const { DeviceEventEmitter } = require('react-native');
+              DeviceEventEmitter.emit('pendantMessageAdded', mRespMsg);
+              if (mRespMsg.pipelineFoods) {
+                DeviceEventEmitter.emit('pendantStartPipeline', { messageId: mRespMsg.id, foods: mRespMsg.pipelineFoods });
+              }
             }
 
             if (responseText) {
@@ -152,8 +225,8 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               const dataProvider = await getDataProvider();
               await dataProvider.saveMessage({
                 role: 'user',
-                text: '[Pendant] Voice message',
-                metadata: { source: 'pendant', audioPath },
+                text: transcript || (audioPath ? '[Voice Recording]' : '[Photo Capture]'),
+                metadata: { source: 'pendant', audioPath, photos: framePath ? [framePath] : undefined },
               });
               await dataProvider.saveMessage({
                 role: 'mittens',
@@ -170,7 +243,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             pendantStore.updateCapture(captureId, { processed: true });
             try { speak("Sorry, I couldn't process that. Try again."); } catch { }
           } finally {
-            processingRef.current = false;
+            voiceProcessingRef.current = false;
           }
         });
 
@@ -188,7 +261,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
 
           // If we are actively processing a button press (voice), drop ambient vision frames
           // so they don't interrupt or conflict with the voice interaction.
-          if (processingRef.current) {
+          if (voiceProcessingRef.current) {
             console.log('[PendantBridge] Voice interaction active. Dropping motion frame to prioritize voice.');
             return;
           }

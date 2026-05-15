@@ -148,6 +148,18 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       sourceData: m,
     }));
 
+    const claimedLocationSessionIds = new Set<number>();
+    for (const act of activities) {
+      if (act.source === 'location' && act.meta) {
+        if (act.meta.locationSessionId) {
+          claimedLocationSessionIds.add(act.meta.locationSessionId);
+        }
+        if (Array.isArray(act.meta.trailSessions)) {
+          act.meta.trailSessions.forEach((id: number) => claimedLocationSessionIds.add(id));
+        }
+      }
+    }
+
     const linkedGoogleIds = new Set(
       activities.filter((a: ActivityEntry) => a.googleEventId).map((a: ActivityEntry) => a.googleEventId!)
     );
@@ -368,24 +380,27 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
           ? `${verbs[0]} commute` 
           : 'Transit';
 
-      locationActivityEvents.push({
-        id: 600000 + locationActivityEvents.length,
-        loggedAt: visibleStart.toISOString(),
-        title,
-        duration_min: durationMin,
-        icon: 'navigation',
-        location: null,
-        type: 'activity' as const,
-        sourceData: {
-          id: -(600000 + locationActivityEvents.length),
+      const isClaimed = trailGroup.some(ts => claimedLocationSessionIds.has(ts.id));
+      if (!isClaimed) {
+        locationActivityEvents.push({
+          id: 600000 + locationActivityEvents.length,
           loggedAt: visibleStart.toISOString(),
-          activityType: 'commute',
-          logName: title,
+          title,
           duration_min: durationMin,
-          source: 'location',
-          meta: { locationSession: mergedSession, trailSessions: trailGroup },
-        },
-      });
+          icon: 'navigation',
+          location: null,
+          type: 'activity' as const,
+          sourceData: {
+            id: -(600000 + locationActivityEvents.length),
+            loggedAt: visibleStart.toISOString(),
+            activityType: 'commute',
+            logName: title,
+            duration_min: durationMin,
+            source: 'location',
+            meta: { locationSession: mergedSession, trailSessions: trailGroup },
+          },
+        });
+      }
       trailGroup = [];
     };
 
@@ -436,41 +451,43 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
       });
 
       // 2. Add stationary session -> activity block with smart title
-      const childActs = getChildActivitiesForSession(s);
-      const smartTitle = generateLocationBlockTitle(s, childActs);
-      
-      let activityDurationMin = durationMin;
-      if (activityDurationMin < 30) activityDurationMin = 30; // Minimum 30 min block for stationary sessions
+      if (!claimedLocationSessionIds.has(s.id)) {
+        const childActs = getChildActivitiesForSession(s);
+        const smartTitle = generateLocationBlockTitle(s, childActs);
+        
+        let activityDurationMin = durationMin;
+        if (activityDurationMin < 30) activityDurationMin = 30; // Minimum 30 min block for stationary sessions
 
-      // Determine icon from dominant child activity
-      const dominantType = childActs.length > 0
-        ? childActs.sort((a, b) => (b.duration_min || 0) - (a.duration_min || 0))[0].activity_type
-        : 'other';
-      const ACTIVITY_ICONS: Record<string, string> = {
-        work: 'monitor', social: 'users', rest: 'moon', exercise: 'zap',
-        cooking: 'coffee', eating: 'coffee', reading: 'book-open',
-        commute: 'truck', walk: 'map-pin', workout: 'zap',
-      };
+        // Determine icon from dominant child activity
+        const dominantType = childActs.length > 0
+          ? childActs.sort((a, b) => (b.duration_min || 0) - (a.duration_min || 0))[0].activity_type
+          : 'other';
+        const ACTIVITY_ICONS: Record<string, string> = {
+          work: 'monitor', social: 'users', rest: 'moon', exercise: 'zap',
+          cooking: 'coffee', eating: 'coffee', reading: 'book-open',
+          commute: 'truck', walk: 'map-pin', workout: 'zap',
+        };
 
-      locationActivityEvents.push({
-        id: 600000 + locationActivityEvents.length,
-        loggedAt: visibleStart.toISOString(),
-        title: smartTitle,
-        duration_min: activityDurationMin,
-        icon: ACTIVITY_ICONS[dominantType] || 'map-pin',
-        location: s.placeName || null,
-        type: 'activity' as const,
-        sourceData: {
-          id: -(600000 + locationActivityEvents.length),
+        locationActivityEvents.push({
+          id: 600000 + locationActivityEvents.length,
           loggedAt: visibleStart.toISOString(),
-          activityType: dominantType,
-          logName: smartTitle,
+          title: smartTitle,
           duration_min: activityDurationMin,
-          location: s.placeName || undefined,
-          source: 'location',
-          meta: { locationSession: s },
-        },
-      });
+          icon: ACTIVITY_ICONS[dominantType] || 'map-pin',
+          location: s.placeName || null,
+          type: 'activity' as const,
+          sourceData: {
+            id: -(600000 + locationActivityEvents.length),
+            loggedAt: visibleStart.toISOString(),
+            activityType: dominantType,
+            logName: smartTitle,
+            duration_min: activityDurationMin,
+            location: s.placeName || undefined,
+            source: 'location',
+            meta: { locationSession: s },
+          },
+        });
+      }
     }
     // Flush remaining trail group
     flushTrailGroup();

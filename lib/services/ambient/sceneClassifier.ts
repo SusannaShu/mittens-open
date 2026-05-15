@@ -1,37 +1,31 @@
 /**
- * ambient/sceneClassifier.ts -- Vision-based scene classification.
+ * ambient/sceneClassifier.ts -- Dual-classifier for pendant frames.
  *
- * Wraps E2B vision() with a compact prompt to classify what the pendant sees.
- * Uses phone context (place, motion) to narrow classification.
- * Returns scene type, sub-phase, identified items, and confidence.
- *
- * Prompt stays minimal (~150 tokens) to fit E2B's effective context window.
- * Three-tier memory retrieval happens before classification when needed.
+ * Single VLM call that extracts BOTH nutrition and activity signals.
+ * A frame can produce both a nutrition log AND an activity log.
+ * No rigid scene-type enum -- activity type is free-form for display.
  */
 
 import type {
-  SceneClassification,
+  FrameClassification,
   ClassifierContext,
-  SceneType,
-  SubPhase,
 } from './types';
 
-/** Classify a pendant frame into a scene type */
+/** Classify a pendant frame into nutrition + activity signals */
 export async function classifyFrame(
   framePath: string,
   context: ClassifierContext,
-): Promise<SceneClassification> {
+): Promise<FrameClassification> {
   const { getBrain } = require('../../brain/selector');
   const brain = await getBrain();
 
   const prompt = buildPrompt(context);
 
-  const fallback: SceneClassification = {
-    sceneType: 'unknown',
-    subPhase: 'idle',
-    items: [],
-    confidence: 0,
-    detectedPeople: 0,
+  const fallback: FrameClassification = {
+    nutrition: { detected: false, items: [] },
+    activity: { detected: false, confidence: 0 },
+    people: 0,
+    description: '',
   };
 
   try {
@@ -39,7 +33,7 @@ export async function classifyFrame(
     return parseClassification(raw, fallback);
   } catch (err: any) {
     const msg = err?.message || String(err);
-    console.error('[SceneClassifier] Vision failed:', msg);
+    console.error('[Classifier] Vision failed:', msg);
 
     // Detect brain connectivity issues so the UI can surface them
     const isConnectivityError =
@@ -52,50 +46,44 @@ export async function classifyFrame(
       msg.includes('Model file not downloaded');
 
     if (isConnectivityError) {
-      return {
-        ...fallback,
-        error: `Brain offline: ${msg}`,
-      };
+      return { ...fallback, error: `Brain offline: ${msg}` };
     }
 
     return fallback;
   }
 }
 
-// ─── Prompt Construction ────────────────
+// --- Prompt Construction ---
 
 function buildPrompt(ctx: ClassifierContext): string {
   const parts: string[] = [
-    'Classify this photo. Respond JSON only.',
+    'Analyze this photo from a wearable camera. The person wearing the camera is the subject.',
+    'Respond JSON only:',
     '{',
-    '  "t": scene type (cooking_at_home|eating_at_home|eating_out|work|exercise|commute|social|rest|grocery_shopping|errands|unknown),',
-    '  "p": phase (prep|cook|plate|eat|cleanup|active|break|transit|idle),',
-    '  "items": [{name, qty, unit, conf}] if food visible else [],',
-    '  "ppl": number of people/faces visible (0 if none),',
-    '  "conf": 0-1 confidence,',
-    '  "desc": 1-line description',
+    '  "nutrition": {',
+    '    "detected": true/false (any food, drink, or snack visible?),',
+    '    "items": [{"name": "...", "qty": 1, "unit": "whole", "conf": 0.9}] or [],',
+    '    "context": "brief eating context" or null',
+    '  },',
+    '  "activity": {',
+    '    "detected": true/false (recognizable activity?),',
+    '    "type": "working" (free-form label: working, cooking, gym, resting, socializing, commuting, etc),',
+    '    "description": "one-line description",',
+    '    "conf": 0-1',
+    '  },',
+    '  "people": 0 (number of visible faces/people),',
+    '  "description": "one-line overall scene description"',
     '}',
   ];
 
-  // Add place context if known
   if (ctx.place) {
     parts.push(`Location: ${ctx.place}`);
   }
 
-  // Add motion context
   if (ctx.motionType) {
-    parts.push(`Motion: ${ctx.motionType}`);
+    parts.push(`Motion sensor: ${ctx.motionType}`);
   }
 
-  // Add active scene context so the brain can detect transitions
-  if (ctx.currentScenes && ctx.currentScenes.length > 0) {
-    const active = ctx.currentScenes
-      .map((s) => `${s.type}/${s.subPhase}`)
-      .join(', ');
-    parts.push(`Active scenes: ${active}`);
-  }
-
-  // Inject retrieved memory notes (from tier 1/2)
   if (ctx.recentMemory) {
     parts.push(`Notes: ${ctx.recentMemory}`);
   }
@@ -103,74 +91,52 @@ function buildPrompt(ctx: ClassifierContext): string {
   return parts.join('\n');
 }
 
-// ─── Response Parsing ───────────────────
+// --- Response Parsing ---
 
 function parseClassification(
   raw: string,
-  fallback: SceneClassification,
-): SceneClassification {
+  fallback: FrameClassification,
+): FrameClassification {
   try {
-    // Extract JSON from response
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallback;
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    const sceneType = normalizeSceneType(parsed.t || parsed.type || parsed.sceneType);
-    const subPhase = normalizeSubPhase(parsed.p || parsed.phase || parsed.subPhase);
+    // Parse nutrition signal
+    const rawNut = parsed.nutrition || {};
+    const nutrition = {
+      detected: Boolean(rawNut.detected),
+      items: Array.isArray(rawNut.items)
+        ? rawNut.items
+            .map((item: any) => ({
+              name: String(item.name || item.n || ''),
+              qty: item.qty || item.q || undefined,
+              unit: item.unit || item.u || undefined,
+              confidence: Number(item.conf || item.confidence || 0.5),
+            }))
+            .filter((item: any) => item.name.length > 0)
+        : [],
+      context: rawNut.context || undefined,
+    };
 
-    const items = Array.isArray(parsed.items)
-      ? parsed.items.map((item: any) => ({
-          name: String(item.name || item.n || ''),
-          qty: item.qty || item.q || undefined,
-          unit: item.unit || item.u || undefined,
-          confidence: Number(item.conf || item.confidence || 0.5),
-        })).filter((item: any) => item.name.length > 0)
-      : [];
+    // Parse activity signal
+    const rawAct = parsed.activity || {};
+    const activity = {
+      detected: Boolean(rawAct.detected),
+      type: rawAct.type || undefined,
+      description: rawAct.description || undefined,
+      confidence: Number(rawAct.conf || rawAct.confidence || 0),
+    };
 
     return {
-      sceneType,
-      subPhase,
-      items,
-      confidence: Number(parsed.conf || parsed.confidence || 0.5),
-      description: parsed.desc || parsed.description || undefined,
-      detectedPeople: Number(parsed.ppl || parsed.people || 0),
+      nutrition,
+      activity,
+      people: Number(parsed.people || parsed.ppl || 0),
+      description: parsed.description || parsed.desc || '',
     };
   } catch (err) {
-    console.warn('[SceneClassifier] Parse failed, using fallback');
+    console.warn('[Classifier] Parse failed, using fallback');
     return fallback;
   }
-}
-
-// ─── Normalization ──────────────────────
-
-const VALID_SCENE_TYPES: Set<string> = new Set([
-  'cooking_at_home', 'eating_at_home', 'eating_out', 'meal_prep', 'eating',
-  'work', 'exercise', 'commute', 'social', 'rest', 'grocery_shopping', 'errands', 'unknown',
-]);
-
-const VALID_SUB_PHASES: Set<string> = new Set([
-  'prep', 'cook', 'plate', 'eat', 'cleanup',
-  'active', 'break', 'transit', 'idle',
-]);
-
-function normalizeSceneType(raw: string): SceneType {
-  const cleaned = (raw || '').toLowerCase().trim();
-  if (VALID_SCENE_TYPES.has(cleaned)) return cleaned as SceneType;
-
-  // Common aliases
-  if (cleaned.includes('cook') || cleaned.includes('kitchen')) return 'cooking_at_home';
-  if (cleaned.includes('eat') || cleaned.includes('food') || cleaned.includes('meal')) return 'eating_out';
-  if (cleaned.includes('grocery') || cleaned.includes('market')) return 'grocery_shopping';
-  if (cleaned.includes('desk') || cleaned.includes('laptop') || cleaned.includes('office')) return 'work';
-  if (cleaned.includes('walk') || cleaned.includes('bike') || cleaned.includes('drive')) return 'commute';
-  if (cleaned.includes('gym') || cleaned.includes('run') || cleaned.includes('sport')) return 'exercise';
-
-  return 'unknown';
-}
-
-function normalizeSubPhase(raw: string): SubPhase {
-  const cleaned = (raw || '').toLowerCase().trim();
-  if (VALID_SUB_PHASES.has(cleaned)) return cleaned as SubPhase;
-  return 'active';
 }

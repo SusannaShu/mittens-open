@@ -166,7 +166,21 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
     if (!message.audio || isPlaying) return;
     try {
       setIsPlaying(true);
-      const { sound } = await Audio.Sound.createAsync({ uri: resolvePhotoUri(message.audio) });
+      
+      let playUri = resolvePhotoUri(message.audio);
+      if (playUri.endsWith('.pcm')) {
+        const { convertPcmToWav } = require('../../lib/utils/wavConverter');
+        playUri = await convertPcmToWav(playUri);
+      } else if (!playUri.startsWith('file://') && !playUri.startsWith('http')) {
+        playUri = `file://${playUri}`;
+      }
+
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+
+      const { sound } = await Audio.Sound.createAsync({ uri: playUri });
       await sound.playAsync();
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
@@ -244,20 +258,25 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
 
         {/* Audio Message */}
         {message.audio && (
-          <TouchableOpacity 
-            style={[
-              styles.audioBtn, 
-              isUser && styles.audioBtnUser,
-              { marginBottom: message.text ? -2 : 10 }
-            ]} 
-            onPress={handlePlayAudio} 
-            activeOpacity={0.8}
-          >
-            <Feather name={isPlaying ? "volume-2" : "play"} size={16} color={isUser ? '#000' : '#fff'} />
-            <Text style={[styles.audioBtnText, isUser && { color: '#000' }]}>
-              {isPlaying ? 'Playing...' : 'Play Audio'}
-            </Text>
-          </TouchableOpacity>
+          <View style={[styles.audioCard, isUser && styles.audioCardUser, { marginTop: photos.length > 0 ? 8 : 8, marginHorizontal: 12, marginBottom: message.text ? 0 : 8 }]}>
+            <TouchableOpacity style={[styles.playButton, isUser && styles.playButtonUser]} onPress={handlePlayAudio}>
+              <Feather name={isPlaying ? "square" : "play"} size={16} color={isUser ? '#000' : '#fff'} style={{ marginLeft: isPlaying ? 0 : 2 }} />
+            </TouchableOpacity>
+            <View style={styles.audioWaveform}>
+              {[3, 5, 8, 12, 7, 10, 6, 9, 4, 7, 11, 5, 8, 6, 10, 12, 8, 5, 3].map((h, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.waveBar,
+                    isUser && styles.waveBarUser,
+                    { height: h * 1.2 },
+                    isPlaying && { backgroundColor: isUser ? '#FFF' : colors.accent },
+                  ]}
+                />
+              ))}
+            </View>
+            <Text style={[styles.audioDuration, isUser && styles.audioDurationUser]}>00:05</Text>
+          </View>
         )}
 
         {/* Message text */}
@@ -527,25 +546,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  audioBtn: {
+  audioCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 14,
-    marginTop: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: '#000',
-    borderRadius: 8,
-    alignSelf: 'flex-start',
+    backgroundColor: 'transparent',
+    paddingVertical: 4,
   },
-  audioBtnUser: {
+  audioCardUser: {
+    backgroundColor: 'transparent',
+  },
+  playButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  playButtonUser: {
     backgroundColor: '#fff',
   },
-  audioBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+  audioWaveform: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    height: 24,
+  },
+  waveBar: {
+    width: 3,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 2,
+  },
+  waveBarUser: {
+    backgroundColor: 'rgba(255,255,255,0.4)',
+  },
+  audioDuration: {
+    fontSize: 12,
+    color: 'rgba(0,0,0,0.5)',
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  audioDurationUser: {
+    color: 'rgba(255,255,255,0.7)',
   },
   mapContainer: {
     height: 120,

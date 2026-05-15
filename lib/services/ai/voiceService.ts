@@ -42,7 +42,7 @@ export function abortListening() {
 }
 
 /** Convert raw PCM to WAV with 44-byte header for iOS speech recognition. */
-async function convertPcmToWav(pcmPath: string, sampleRate: number = 8000): Promise<string> {
+async function convertPcmToWav(pcmPath: string, sampleRate: number = 16000): Promise<string> {
   const FileSystem = require('expo-file-system/legacy');
   const base64js = require('base64-js');
   

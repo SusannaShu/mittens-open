@@ -66,8 +66,8 @@ export class PendantServer {
           console.error('[PendantServer] Socket error:', err?.message);
         });
 
-        // Timeout after 10 seconds for slow connections
-        socket.setTimeout(10000);
+        // Timeout after 60 seconds for slow connections
+        socket.setTimeout(60000);
         socket.on('timeout', () => {
           if (chunks.length > 0) {
             const totalLength = chunks.reduce((acc, val) => acc + val.length, 0);

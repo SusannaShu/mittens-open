@@ -78,7 +78,18 @@ camera_fb_t* captureFrame() {
   // Discard first frame (auto-exposure warmup)
   camera_fb_t *warmup = esp_camera_fb_get();
   if (warmup) esp_camera_fb_return(warmup);
+
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    Serial.println("[CAM] Capture aborted by button press");
+    return nullptr;
+  }
+
   delay(100);
+
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    Serial.println("[CAM] Capture aborted by button press");
+    return nullptr;
+  }
 
   // Real capture
   camera_fb_t *fb = esp_camera_fb_get();

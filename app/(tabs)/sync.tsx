@@ -292,17 +292,38 @@ export default function ReflectScreen() {
           } else if (id < 0 && h.editingActivity?.source === 'location') {
             const meta = h.editingActivity.meta as any;
             if (meta?.trailSessions) {
-              for (const ts of meta.trailSessions) {
-                await db.runAsync(
-                  'UPDATE location_sessions SET motion_type = ?, place_name = ? WHERE id = ?',
-                  [data.activityType || ts.motionType, data.location || ts.placeName, ts.id]
-                );
+              await h.logActivity({
+                activityType: data.activityType || 'commute',
+                logName: data.logName || 'Transit',
+                duration_min: data.duration_min,
+                loggedAt: meta.trailSessions[0].startedAt,
+                location: data.location,
+                aeiou: data.aeiou,
+                engagement: data.engagement,
+                energy: data.energy,
+                source: 'location',
+                meta: { trailSessions: meta.trailSessions.map((t: any) => t.id) }
+              }).unwrap();
+              if (data.location) {
+                const lastTs = meta.trailSessions[meta.trailSessions.length - 1];
+                await db.runAsync('UPDATE location_sessions SET place_name = ? WHERE id = ?', [data.location, lastTs.id]);
               }
             } else if (meta?.locationSession) {
-              await db.runAsync(
-                'UPDATE location_sessions SET motion_type = ?, place_name = ? WHERE id = ?',
-                [data.activityType || meta.locationSession.motionType, data.location || meta.locationSession.placeName, meta.locationSession.id]
-              );
+              await h.logActivity({
+                activityType: data.activityType || 'other',
+                logName: data.logName || meta.locationSession.placeName || 'Activity',
+                duration_min: data.duration_min,
+                loggedAt: meta.locationSession.startedAt,
+                location: data.location,
+                aeiou: data.aeiou,
+                engagement: data.engagement,
+                energy: data.energy,
+                source: 'location',
+                meta: { locationSessionId: meta.locationSession.id }
+              }).unwrap();
+              if (data.location) {
+                await db.runAsync('UPDATE location_sessions SET place_name = ? WHERE id = ?', [data.location, meta.locationSession.id]);
+              }
             }
           } else {
             await h.reflectActivity({ id, ...data }).unwrap();

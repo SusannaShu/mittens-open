@@ -26,6 +26,7 @@ export interface VoiceDispatchResult {
   intent: string;
   action: string;
   logId?: number | null;
+  items?: any[];
 }
 
 interface TriageResult {

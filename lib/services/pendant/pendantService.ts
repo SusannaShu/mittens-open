@@ -30,7 +30,7 @@ const STORAGE_WIFI_SSID = '@pendant_wifi_ssid';
 
 // ─── Event Callbacks ───
 
-type ButtonPressCallback = (audioPath: string, framePath?: string) => void;
+type ButtonPressCallback = (audioPath?: string, framePath?: string) => void;
 type SingleTapCallback = () => void;
 type MotionFrameCallback = (framePath: string) => void;
 type DisconnectCallback = () => void;
@@ -598,10 +598,8 @@ export class PendantService {
 
     switch (event.type) {
       case 'BUTTON_PRESS':
-        if (event.audioPath) {
-          for (const cb of this.buttonPressCbs) {
-            cb(event.audioPath, event.framePath);
-          }
+        for (const cb of this.buttonPressCbs) {
+          cb(event.audioPath, event.framePath);
         }
         break;
 

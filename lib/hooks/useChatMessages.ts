@@ -184,6 +184,15 @@ export function useChatMessages() {
     setMessages(prev => [...prev, msg]);
   }, []);
 
+  // Listen for pendant messages emitted globally
+  useEffect(() => {
+    const { DeviceEventEmitter } = require('react-native');
+    const sub = DeviceEventEmitter.addListener('pendantMessageAdded', (msg: ChatMessage) => {
+      addMessage(msg);
+    });
+    return () => sub.remove();
+  }, [addMessage]);
+
   /** Check if two dates are different days */
   const isDifferentDay = (a: Date, b: Date) => {
     return a.toDateString() !== b.toDateString();

@@ -10,13 +10,10 @@
  *
  * The harness:
  *   1. Loads the replay file
- *   2. Creates a fresh SceneStreamManager
+ *   2. Gets the SceneStreamManager singleton
  *   3. Feeds each frame at the specified time offset
  *   4. Collects PipelineLogger output for each frame
  *   5. Returns a structured result for assertion / visual inspection
- *
- * For unit-testing without real images, the classifier will receive
- * __MOCK__ paths and the brain stub should return preset classifications.
  */
 
 import { getSceneStreamManager } from '../../lib/services/ambient/sceneStreamManager';
@@ -31,14 +28,12 @@ interface ReplayFrame {
 interface ReplayResult {
   name: string;
   totalFrames: number;
-  scenesOpened: number;
-  scenesClosed: number;
-  finalOpenScenes: Array<{ type: string; subPhase: string; frameCount: number }>;
+  frameSummaries: string[];
   timeline: Array<{
     frameIndex: number;
     timeMs: number;
     description: string;
-    openSceneCount: number;
+    summary: string;
   }>;
   durationMs: number;
 }
@@ -63,6 +58,7 @@ export async function runReplay(name: string): Promise<ReplayResult> {
   const manager = getSceneStreamManager();
   const baseTime = Date.now();
   const timeline: ReplayResult['timeline'] = [];
+  const frameSummaries: string[] = [];
 
   // Feed each frame
   for (let i = 0; i < frames.length; i++) {
@@ -82,29 +78,23 @@ export async function runReplay(name: string): Promise<ReplayResult> {
       } catch { /* captureGate not loaded */ }
     }
 
-    await manager.onPendantFrame(frame.framePath, timestamp);
+    const result = await manager.onPendantFrame(frame.framePath, timestamp);
+    const summary = result?.summary || 'no result';
+    frameSummaries.push(summary);
 
-    const openScenes = manager.getOpenScenes();
     timeline.push({
       frameIndex: i,
       timeMs: frame.time,
       description: frame.description || frame.framePath,
-      openSceneCount: openScenes.length,
+      summary,
     });
   }
 
   // Collect results
-  const openScenes = manager.getOpenScenes();
   const result: ReplayResult = {
     name,
     totalFrames: frames.length,
-    scenesOpened: timeline.filter((t) => t.openSceneCount > 0).length,
-    scenesClosed: 0, // Would need scene close event tracking
-    finalOpenScenes: openScenes.map((s) => ({
-      type: s.type,
-      subPhase: s.subPhase,
-      frameCount: s.frameCount,
-    })),
+    frameSummaries,
     timeline,
     durationMs: frames[frames.length - 1]?.time || 0,
   };
@@ -113,9 +103,8 @@ export async function runReplay(name: string): Promise<ReplayResult> {
   console.log('\n[Replay] ========== RESULTS ==========');
   console.log(`[Replay] Scenario: ${name}`);
   console.log(`[Replay] Frames processed: ${result.totalFrames}`);
-  console.log(`[Replay] Open scenes at end: ${result.finalOpenScenes.length}`);
-  for (const scene of result.finalOpenScenes) {
-    console.log(`  - ${scene.type}/${scene.subPhase} (${scene.frameCount} frames)`);
+  for (let i = 0; i < frameSummaries.length; i++) {
+    console.log(`  Frame ${i + 1}: ${frameSummaries[i]}`);
   }
   console.log('[Replay] ================================\n');
 

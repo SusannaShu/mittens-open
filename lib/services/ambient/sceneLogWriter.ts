@@ -1,95 +1,105 @@
 /**
- * ambient/sceneLogWriter.ts -- Per-capture log creation and updates.
+ * ambient/sceneLogWriter.ts -- Log creation from dual classifier output.
  *
- * Creates or updates nutrition_logs and activity_logs based on triage decisions.
- * Handles dedup (update existing log vs create new), food pipeline dispatch
- * (identify + nutrients), auto-MET from activity type, and life design weights.
- *
- * Called per-frame by sceneStreamManager, NOT deferred to scene close.
+ * Creates nutrition_logs and/or activity_logs based on the FrameClassification.
+ * A single frame can produce BOTH a nutrition log AND an activity log.
+ * Handles dedup (update existing log within window vs create new).
  */
 
-import type { Scene, SceneClassification } from './types';
-import type { TriageDecision } from './ambientTriage';
+import type { FrameClassification } from './types';
 import type { PipelineLogger } from '../../pipelines/logger';
-import { runAEIOUPhases, guessMealType, aggregateNutrients, mergeItems } from './logWriterHelpers';
+import { guessMealType, aggregateNutrients, mergeItems } from './logWriterHelpers';
 
-// ─── MET Lookup Table ────
+// --- MET Lookup (approximate, for free-form activity types) ---
 
 const MET_TABLE: Record<string, number> = {
-  // Exercise sub-types
-  yoga: 2.5, dance: 4.0, walk: 3.5, hike: 6.0, bike: 7.5,
-  run: 8.0, gym: 5.0, swim: 7.0, climb: 8.0,
-  // Scene types
-  work: 1.3, social: 1.5, commute: 1.3, rest: 1.0,
-  exercise: 5.0, meal_prep: 2.0, eating: 1.3, errands: 2.5,
+  working: 1.3, resting: 1.0, reading: 1.3,
+  cooking: 2.0, cleaning: 2.5, errands: 2.5,
+  walking: 3.5, hiking: 6.0, cycling: 7.5,
+  running: 8.0, gym: 5.0, swimming: 7.0,
+  yoga: 2.5, dancing: 4.0, climbing: 8.0,
+  socializing: 1.5, commuting: 1.3, driving: 1.3,
 };
 
-// ─── Main Dispatch ────
+/** Dedup window: prefer updating an existing log within this window */
+const DEDUP_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
-/**
- * Execute the triage decision: create or update the appropriate log.
- */
-export async function executeLogDecision(
-  decision: TriageDecision,
-  classification: SceneClassification,
-  framePath: string,
-  scene: Scene | null,
-  logger: PipelineLogger,
-): Promise<{ logId: number | null }> {
-  if (decision.action === 'skip') {
-    return { logId: null };
-  }
+// --- Main Dispatch ---
 
-  if (decision.pipeline === 'food') {
-    if (decision.action === 'create') {
-      return createMealLog(classification, framePath, scene, decision.phases, logger);
-    }
-    return updateMealLog(decision.existingLogId!, classification, framePath, scene, decision.phases, logger);
-  }
-
-  if (decision.pipeline === 'activity') {
-    if (decision.action === 'create') {
-      return createActivityLog(classification, framePath, scene, decision.phases, logger);
-    }
-    return updateActivityLog(decision.existingLogId!, classification, framePath, scene, decision.phases, logger);
-  }
-
-  return { logId: null };
+interface LogResult {
+  nutritionLogId: number | null;
+  activityLogId: number | null;
 }
 
-// ─── Meal Log: Create ────
-
-async function createMealLog(
-  classification: SceneClassification,
+/**
+ * Create or update logs based on dual classifier output.
+ * Both nutrition and activity can fire for the same frame.
+ */
+export async function executeLogDecision(
+  classification: FrameClassification,
   framePath: string,
-  scene: Scene | null,
-  phases: string[],
   logger: PipelineLogger,
-): Promise<{ logId: number | null }> {
+): Promise<LogResult> {
+  let nutritionLogId: number | null = null;
+  let activityLogId: number | null = null;
+
+  // Nutrition pipeline
+  if (classification.nutrition.detected) {
+    nutritionLogId = await handleNutrition(classification, framePath, logger);
+  }
+
+  // Activity pipeline
+  if (classification.activity.detected) {
+    activityLogId = await handleActivity(classification, framePath, logger);
+  }
+
+  return { nutritionLogId, activityLogId };
+}
+
+// --- Nutrition Pipeline ---
+
+async function handleNutrition(
+  classification: FrameClassification,
+  framePath: string,
+  logger: PipelineLogger,
+): Promise<number | null> {
   const { getDb } = require('../../database');
   const db = getDb();
 
+  // Check for recent nutrition log to update
+  const recentLog = findRecentLog(db, 'nutrition_logs');
+
+  if (recentLog) {
+    return updateNutritionLog(recentLog.id, classification, framePath, db, logger);
+  }
+  return createNutritionLog(classification, framePath, db, logger);
+}
+
+async function createNutritionLog(
+  classification: FrameClassification,
+  framePath: string,
+  db: any,
+  logger: PipelineLogger,
+): Promise<number | null> {
   const mealType = guessMealType(Date.now());
   let identifiedFoods: any[] = [];
   let nutrientTotals: Record<string, number> = {};
-  let eatingCtx: any = null;
 
-  // Phase: identify foods
-  if (phases.includes('identify') && framePath) {
+  // Phase: identify foods via vision
+  if (classification.nutrition.items.length > 0 && framePath) {
     const idx = logger.startPhase('food', 'identify');
     try {
       const { identifyFoods } = require('../../pipelines/food/identify');
       const result = await identifyFoods([framePath]);
       identifiedFoods = result.foods || [];
       logger.completePhase(idx, `${identifiedFoods.length} foods: ${identifiedFoods.map((f: any) => f.name).join(', ')}`);
-      logger.logPhaseIO?.(idx, `vision([${framePath}])`, JSON.stringify(result).slice(0, 200));
     } catch (err: any) {
       logger.failPhase(idx, err?.message);
     }
   }
 
   // Phase: nutrients
-  if (phases.includes('nutrients') && identifiedFoods.length > 0) {
+  if (identifiedFoods.length > 0) {
     const idx = logger.startPhase('food', 'nutrients');
     try {
       const { estimateNutrients } = require('../../pipelines/food/nutrients');
@@ -111,37 +121,11 @@ async function createMealLog(
     }
   }
 
-  // Phase: eating context (only when detected)
-  if (phases.includes('eatingContext') && framePath) {
-    const idx = logger.startPhase('food', 'eatingContext');
-    try {
-      const { inferEatingContext } = require('../../pipelines/food/eatingContext');
-      eatingCtx = await inferEatingContext({ photos: [framePath] });
-      logger.completePhase(idx, `pace: ${eatingCtx.pace}, social: ${eatingCtx.social}`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
-  }
-
-  // Phase: pantryDelta
-  if (phases.includes('pantryDelta') && framePath && scene) {
-    const idx = logger.startPhase('food', 'pantryDelta');
-    try {
-      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
-      const result = await extractPantryDeltas({ photos: [framePath] });
-      const deltas = result.deltas || [];
-      deltas.forEach((d: any) => {
-        d.framePath = framePath;
-        scene.pantryDeltas.push(d);
-      });
-      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
-  }
+  // Phase: pantry delta (if at home)
+  await runPantryDelta(framePath, logger);
 
   // Use identified foods or fall back to classifier items
-  const finalItems = identifiedFoods.length > 0 ? identifiedFoods : classification.items;
+  const finalItems = identifiedFoods.length > 0 ? identifiedFoods : classification.nutrition.items;
   const logName = finalItems.length > 0
     ? finalItems.map((i: any) => i.name || i.n).join(', ')
     : `${mealType} (pendant)`;
@@ -149,44 +133,35 @@ async function createMealLog(
   const result = db.runSync(
     `INSERT INTO nutrition_logs (
       logged_at, meal_type, log_name, items, nutrients,
-      eating_context, source, image_uris,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'pendant', ?, datetime('now'), datetime('now'))`,
+      source, image_uris, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'pendant', ?, datetime('now'), datetime('now'))`,
     [
       new Date().toISOString(),
       mealType, logName,
       JSON.stringify(finalItems),
       Object.keys(nutrientTotals).length > 0 ? JSON.stringify(nutrientTotals) : null,
-      eatingCtx ? JSON.stringify(eatingCtx) : null,
       JSON.stringify([framePath]),
     ],
   );
 
   const logId = result?.lastInsertRowId ?? null;
-  console.log(`[LogWriter] Created meal log #${logId}: ${logName}`);
-  return { logId };
+  console.log(`[LogWriter] Created nutrition log #${logId}: ${logName}`);
+  return logId;
 }
 
-// ─── Meal Log: Update ────
-
-async function updateMealLog(
+async function updateNutritionLog(
   logId: number,
-  classification: SceneClassification,
+  classification: FrameClassification,
   framePath: string,
-  scene: Scene | null,
-  phases: string[],
+  db: any,
   logger: PipelineLogger,
-): Promise<{ logId: number | null }> {
-  const { getDb } = require('../../database');
-  const db = getDb();
-
-  // Always update end time and append frame
+): Promise<number | null> {
   const existing = db.getFirstSync(
     'SELECT items, image_uris, nutrients FROM nutrition_logs WHERE id = ?',
     [logId],
   ) as any;
 
-  // Append frame to image list
+  // Append frame
   const existingImages = existing?.image_uris ? JSON.parse(existing.image_uris) : [];
   existingImages.push(framePath);
 
@@ -194,7 +169,7 @@ async function updateMealLog(
   let updatedNutrients = existing?.nutrients ? JSON.parse(existing.nutrients) : {};
 
   // Re-run identify if new items detected
-  if (phases.includes('identify') && framePath) {
+  if (classification.nutrition.items.length > 0 && framePath) {
     const idx = logger.startPhase('food', 'identify');
     try {
       const { identifyFoods } = require('../../pipelines/food/identify');
@@ -208,7 +183,7 @@ async function updateMealLog(
   }
 
   // Re-run nutrients if items changed
-  if (phases.includes('nutrients') && updatedItems.length > 0) {
+  if (updatedItems.length > 0) {
     const idx = logger.startPhase('food', 'nutrients');
     try {
       const { estimateNutrients } = require('../../pipelines/food/nutrients');
@@ -230,22 +205,7 @@ async function updateMealLog(
     }
   }
 
-  // Phase: pantryDelta
-  if (phases.includes('pantryDelta') && framePath && scene) {
-    const idx = logger.startPhase('food', 'pantryDelta');
-    try {
-      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
-      const result = await extractPantryDeltas({ photos: [framePath] });
-      const deltas = result.deltas || [];
-      deltas.forEach((d: any) => {
-        d.framePath = framePath;
-        scene.pantryDeltas.push(d);
-      });
-      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
-  }
+  await runPantryDelta(framePath, logger);
 
   const logName = updatedItems.length > 0
     ? updatedItems.map((i: any) => i.name || i.n).join(', ')
@@ -265,124 +225,102 @@ async function updateMealLog(
     ],
   );
 
-  console.log(`[LogWriter] Updated meal log #${logId}`);
-  return { logId };
+  console.log(`[LogWriter] Updated nutrition log #${logId}`);
+  return logId;
 }
 
-// ─── Activity Log: Create ────
+// --- Activity Pipeline ---
 
-async function createActivityLog(
-  classification: SceneClassification,
+async function handleActivity(
+  classification: FrameClassification,
   framePath: string,
-  scene: Scene | null,
-  phases: string[],
   logger: PipelineLogger,
-): Promise<{ logId: number | null }> {
+): Promise<number | null> {
   const { getDb } = require('../../database');
   const db = getDb();
 
-  const logName = `${classification.sceneType} (pendant)`;
-  let metValue = MET_TABLE[classification.sceneType] ?? 1.3;
-  let lifeDesignWeights: Record<string, number> | null = null;
-  let aeiou: Record<string, string> = {};
+  // Check for active trail (movement session with linked activity log)
+  let trailLogId: number | null = null;
+  try {
+    const { getActiveTrailLogId } = require('./trailActivityBridge');
+    trailLogId = getActiveTrailLogId();
+  } catch { /* trailActivityBridge not loaded */ }
 
-  // Phase: detect (MET from activity type)
-  if (phases.includes('detect')) {
-    const idx = logger.startPhase('activity', 'detect');
-    try {
-      const { ActivityTypeService } = require('../activityTypeService');
-      const typeDef = await ActivityTypeService.getByKey(classification.sceneType);
-      if (typeDef?.defaultMets) metValue = typeDef.defaultMets;
-      logger.completePhase(idx, `${classification.sceneType}: ${metValue} MET`);
-    } catch (err: any) {
-      logger.completePhase(idx, `Fallback MET: ${metValue}`);
-    }
+  // If trail is active, update it instead of creating a new log
+  if (trailLogId != null) {
+    return updateActivityLog(trailLogId, classification, framePath, db, logger);
   }
+
+  // Check for recent activity log to update
+  const recentLog = findRecentLog(db, 'activity_logs');
+  if (recentLog) {
+    return updateActivityLog(recentLog.id, classification, framePath, db, logger);
+  }
+  return createActivityLog(classification, framePath, db, logger);
+}
+
+async function createActivityLog(
+  classification: FrameClassification,
+  framePath: string,
+  db: any,
+  logger: PipelineLogger,
+): Promise<number | null> {
+  const actType = classification.activity.type || 'unknown';
+  const logName = `${actType} (pendant)`;
+  const metValue = lookupMET(actType);
+  let lifeDesignWeights: Record<string, number> | null = null;
 
   // Phase: lifeDesign
-  if (phases.includes('lifeDesign')) {
-    const idx = logger.startPhase('activity', 'lifeDesign');
-    try {
-      const { inferLifeDesign } = require('../../pipelines/activity/lifeDesign');
-      const result = await inferLifeDesign(
-        { photos: framePath ? [framePath] : [] },
-        { activityType: classification.sceneType, logName },
-      );
-      lifeDesignWeights = result.lifeCategories;
-      if (result.aeiou?.users) aeiou.users = result.aeiou.users;
-      logger.completePhase(idx,
-        `W:${result.lifeCategories?.work ?? '?'} H:${result.lifeCategories?.health ?? '?'} P:${result.lifeCategories?.play ?? '?'} L:${result.lifeCategories?.love ?? '?'}`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
+  const ldIdx = logger.startPhase('activity', 'lifeDesign');
+  try {
+    const { inferLifeDesign } = require('../../pipelines/activity/lifeDesign');
+    const result = await inferLifeDesign(
+      { photos: framePath ? [framePath] : [] },
+      { activityType: actType, logName },
+    );
+    lifeDesignWeights = result.lifeCategories;
+    logger.completePhase(ldIdx,
+      `W:${result.lifeCategories?.work ?? '?'} H:${result.lifeCategories?.health ?? '?'} P:${result.lifeCategories?.play ?? '?'} L:${result.lifeCategories?.love ?? '?'}`);
+  } catch (err: any) {
+    logger.failPhase(ldIdx, err?.message);
   }
 
-  // AEIOU phases: only run when detected
-  await runAEIOUPhases(phases, framePath, classification, aeiou, logger);
-
-  // Phase: pantryDelta (for grocery_shopping)
-  if (phases.includes('pantryDelta') && framePath && scene) {
-    const idx = logger.startPhase('activity', 'pantryDelta');
-    try {
-      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
-      const result = await extractPantryDeltas({ photos: [framePath] });
-      const deltas = result.deltas || [];
-      deltas.forEach((d: any) => {
-        d.framePath = framePath;
-        scene.pantryDeltas.push(d);
-      });
-      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
-  }
-
-  // People from Face Recognition pipeline
-  let meta: any = {};
-  if (scene?.detectedPeopleDetails && scene.detectedPeopleDetails.length > 0) {
-    meta.detectedPeopleDetails = scene.detectedPeopleDetails;
-    aeiou.users = Array.from(new Set(scene.detectedPeopleDetails.map(p => p.name))).join(', ');
-  }
+  // Resolve place name
+  let placeName: string | null = null;
+  try {
+    const { getCurrentPlace } = require('../location/locationService');
+    placeName = getCurrentPlace() || null;
+  } catch { /* location not available */ }
 
   const result = db.runSync(
     `INSERT INTO activity_logs (
       logged_at, log_name, activity_type, duration_min, mets,
-      life_categories, aeiou, meta, source, location, image_uris,
+      life_categories, source, location, image_uris,
       created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, 0, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
     [
       new Date().toISOString(),
-      logName,
-      classification.sceneType,
-      metValue,
+      logName, actType, metValue,
       lifeDesignWeights ? JSON.stringify(lifeDesignWeights) : null,
-      Object.keys(aeiou).length > 0 ? JSON.stringify(aeiou) : null,
-      Object.keys(meta).length > 0 ? JSON.stringify(meta) : null,
-      scene?.place || null,
+      placeName,
       framePath ? JSON.stringify([framePath]) : null,
     ],
   );
 
   const logId = result?.lastInsertRowId ?? null;
   console.log(`[LogWriter] Created activity log #${logId}: ${logName} (${metValue} MET)`);
-  return { logId };
+  return logId;
 }
-
-// ─── Activity Log: Update ────
 
 async function updateActivityLog(
   logId: number,
-  classification: SceneClassification,
+  classification: FrameClassification,
   framePath: string,
-  scene: Scene | null,
-  phases: string[],
+  db: any,
   logger: PipelineLogger,
-): Promise<{ logId: number | null }> {
-  const { getDb } = require('../../database');
-  const db = getDb();
-
+): Promise<number | null> {
   const existing = db.getFirstSync(
-    'SELECT logged_at, image_uris, aeiou, life_categories, meta FROM activity_logs WHERE id = ?',
+    'SELECT logged_at, image_uris, life_categories FROM activity_logs WHERE id = ?',
     [logId],
   ) as any;
 
@@ -394,74 +332,83 @@ async function updateActivityLog(
   const existingImages = existing?.image_uris ? JSON.parse(existing.image_uris) : [];
   existingImages.push(framePath);
 
-  // Merge AEIOU from new phase evidence
-  let aeiou = existing?.aeiou ? JSON.parse(existing.aeiou) : {};
-  await runAEIOUPhases(phases, framePath, classification, aeiou, logger);
-
-  // Phase: pantryDelta (for grocery_shopping)
-  if (phases.includes('pantryDelta') && framePath && scene) {
-    const idx = logger.startPhase('activity', 'pantryDelta');
-    try {
-      const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
-      const result = await extractPantryDeltas({ photos: [framePath] });
-      const deltas = result.deltas || [];
-      deltas.forEach((d: any) => {
-        d.framePath = framePath;
-        scene.pantryDeltas.push(d);
-      });
-      logger.completePhase(idx, `Extracted ${deltas.length} pantry deltas`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
-  }
-
-  // Weighted average life design (keep running average)
+  // Weighted average life design
   let lifeCategories = existing?.life_categories ? JSON.parse(existing.life_categories) : null;
-  if (phases.includes('lifeDesign') && lifeCategories) {
-    const idx = logger.startPhase('activity', 'lifeDesign');
+  if (lifeCategories) {
+    const ldIdx = logger.startPhase('activity', 'lifeDesign');
     try {
       const { inferLifeDesign } = require('../../pipelines/activity/lifeDesign');
       const result = await inferLifeDesign(
         { photos: framePath ? [framePath] : [] },
-        { activityType: classification.sceneType },
+        { activityType: classification.activity.type || 'unknown' },
       );
       if (result.lifeCategories) {
-        // Weighted average: (existing * frameCount + new) / (frameCount + 1)
         const frameN = existingImages.length;
         for (const k of Object.keys(result.lifeCategories)) {
           const prev = lifeCategories[k] ?? 0;
           lifeCategories[k] = Math.round(((prev * (frameN - 1) + result.lifeCategories[k]) / frameN) * 100) / 100;
         }
       }
-      logger.completePhase(idx, `Weighted avg over ${existingImages.length} frames`);
+      logger.completePhase(ldIdx, `Weighted avg over ${existingImages.length} frames`);
     } catch (err: any) {
-      logger.failPhase(idx, err?.message);
+      logger.failPhase(ldIdx, err?.message);
     }
-  }
-
-  // People from Face Recognition pipeline
-  let meta = existing?.meta ? JSON.parse(existing.meta) : {};
-  if (scene?.detectedPeopleDetails && scene.detectedPeopleDetails.length > 0) {
-    meta.detectedPeopleDetails = scene.detectedPeopleDetails;
-    aeiou.users = Array.from(new Set(scene.detectedPeopleDetails.map(p => p.name))).join(', ');
   }
 
   db.runSync(
     `UPDATE activity_logs SET
-      duration_min = ?, image_uris = ?, aeiou = ?,
-      life_categories = ?, meta = ?, updated_at = datetime('now')
+      duration_min = ?, image_uris = ?,
+      life_categories = ?, updated_at = datetime('now')
     WHERE id = ?`,
     [
       durationMin,
       JSON.stringify(existingImages),
-      Object.keys(aeiou).length > 0 ? JSON.stringify(aeiou) : null,
       lifeCategories ? JSON.stringify(lifeCategories) : null,
-      Object.keys(meta).length > 0 ? JSON.stringify(meta) : null,
       logId,
     ],
   );
 
   console.log(`[LogWriter] Updated activity log #${logId} (${durationMin}min, ${existingImages.length} frames)`);
-  return { logId };
+  return logId;
 }
 
+// --- Helpers ---
+
+function lookupMET(activityType: string): number {
+  const key = activityType.toLowerCase().trim();
+  return MET_TABLE[key] ?? 1.3;
+}
+
+async function runPantryDelta(framePath: string, logger: PipelineLogger): Promise<void> {
+  if (!framePath) return;
+  const idx = logger.startPhase('food', 'pantryDelta');
+  try {
+    const { extractPantryDeltas } = require('../../pipelines/food/pantryDelta');
+    const result = await extractPantryDeltas({ photos: [framePath] });
+    const deltas = result.deltas || [];
+    if (deltas.length > 0) {
+      const { applyPantryDeltas } = require('./smartPantry');
+      applyPantryDeltas(deltas.map((d: any) => ({ ...d, framePath })));
+    }
+    logger.completePhase(idx, `${deltas.length} pantry deltas`);
+  } catch (err: any) {
+    logger.failPhase(idx, err?.message);
+  }
+}
+
+interface RecentLogRow { id: number; logged_at: string; }
+
+function findRecentLog(db: any, table: 'nutrition_logs' | 'activity_logs'): RecentLogRow | null {
+  try {
+    const cutoff = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
+    const row = db.getFirstSync(
+      `SELECT id, logged_at FROM ${table}
+       WHERE source IN ('pendant', 'trail') AND logged_at >= ?
+       ORDER BY logged_at DESC LIMIT 1`,
+      [cutoff],
+    ) as RecentLogRow | null;
+    return row;
+  } catch {
+    return null;
+  }
+}

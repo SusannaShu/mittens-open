@@ -31,6 +31,7 @@ export type NudgeType =
   | 'cook_done'
   | 'meal_remind'
   | 'bedtime'
+  | 'sleep_nudge'
   | 'low_pantry';
 
 interface NudgeRequest {
@@ -105,10 +106,10 @@ export function nudgeMealRemind(mealType: string): boolean {
   });
 }
 
-export function nudgeBedtime(): boolean {
+export function nudgeBedtime(customMessage?: string): boolean {
   return deliverNudge({
     type: 'bedtime',
-    message: 'Time to start winding down. Consider dimming the lights and putting screens away.',
+    message: customMessage || 'Time to start winding down. Consider dimming the lights and putting screens away.',
   });
 }
 

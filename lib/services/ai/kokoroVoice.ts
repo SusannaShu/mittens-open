@@ -38,7 +38,7 @@ export const KOKORO_VOICES: KokoroVoiceOption[] = [
   { id: 'bm_daniel', label: 'Daniel (GB)', gender: 'male', style: 'British, formal' },
 ];
 
-export const DEFAULT_VOICE: KokoroVoiceId = 'af_heart';
+export const DEFAULT_VOICE: KokoroVoiceId = 'af_river';
 
 // ─── Voice Constant Mapping ───
 

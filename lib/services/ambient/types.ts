@@ -94,6 +94,60 @@ export interface CaptureGateState {
 }
 
 // =============================================
+// FOOD CONTEXT
+// =============================================
+
+/** What the person is doing with the food */
+export type FoodContext = 'eating' | 'grocery' | 'cooking';
+
+/** Grocery session state */
+export interface GrocerySession {
+  id: number;
+  startedAt: string;
+  placeName?: string;
+  items: GroceryItem[];
+  status: 'active' | 'checkout' | 'closed';
+}
+
+export interface GroceryItem {
+  name: string;
+  qty: number;
+  unit: string;
+  freshness?: 'fresh' | 'good' | 'near_expiry';
+  confidence: number;
+  framePath?: string;
+  detectedAt: string;
+}
+
+/** Cooking session state */
+export interface CookingSession {
+  id: number;
+  startedAt: string;
+  ingredients: CookingIngredient[];
+  timers: CookingTimer[];
+  status: 'active' | 'plating' | 'closed';
+}
+
+export interface CookingIngredient {
+  name: string;
+  qty: number;
+  unit: string;
+  confidence: number;
+  framePath?: string;
+}
+
+export interface CookingTimer {
+  ingredient: string;
+  /** Cooking method: "steaming", "boiling", "baking", etc. */
+  method: string;
+  /** Brain-estimated optimal cook time in seconds */
+  durationSec: number;
+  /** Epoch ms when timer started */
+  startedAt: number;
+  cancelled: boolean;
+}
+
+// =============================================
 // PANTRY
 // =============================================
 

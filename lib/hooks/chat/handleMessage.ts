@@ -529,7 +529,7 @@ export async function handleMessage(
       results.push({ status: 'fulfilled', value: result });
 
       // MEAL: After eating context, run food identification + nutrient pipeline
-      if (intent.pipeline === 'meal' && photos.length > 0) {
+      if (intent.pipeline === 'meal') {
         try {
           updateIntentStatus('meal', 'running', {
             identify: { status: 'running' },
@@ -547,43 +547,41 @@ export async function handleMessage(
             identify: { status: 'complete', result: `${foodResult.foods.length} items` },
           });
 
-          if (foodResult.foods.length > 0) {
-            // Convert to pipeline items and attach to progress message
-            const pipelineFoods = foodIdToPipeline(foodResult);
+          // Convert to pipeline items and attach to progress message
+          const pipelineFoods = foodIdToPipeline(foodResult);
 
-            ctx.setMessages(prev => prev.map(m => {
-              if (m.id !== progressMsgId) return m;
-              return { 
-                ...m, 
-                pipelineFoods,
-                mealMetadata: {
-                  mealName: foodResult.dishName || foodResult.foods.map((f: any) => f.name).slice(0, 3).join(', '),
-                  mealType: foodResult.mealType || intent.context?.mealType || 'snack',
-                  photoTimestamp: photoTime ? photoTime.toISOString() : undefined,
-                  source: photos.length > 0 ? 'vision' : 'manual'
-                }
-              };
-            }));
+          ctx.setMessages(prev => prev.map(m => {
+            if (m.id !== progressMsgId) return m;
+            return { 
+              ...m, 
+              pipelineFoods,
+              mealMetadata: {
+                mealName: foodResult.dishName || foodResult.foods.map((f: any) => f.name).slice(0, 3).join(', ') || 'Meal',
+                mealType: foodResult.mealType || intent.context?.mealType || 'snack',
+                photoTimestamp: photoTime ? photoTime.toISOString() : undefined,
+                source: photos.length > 0 ? 'vision' : 'manual'
+              }
+            };
+          }));
 
-            // Start nutrient estimation pipeline in background
-            updateIntentStatus('meal', 'running', {
-              nutrients: { status: 'running' },
-            });
+          // Start nutrient estimation pipeline in background
+          updateIntentStatus('meal', 'running', {
+            nutrients: { status: 'running' },
+          });
 
-            setTimeout(() => {
-              ctx.startPipeline(progressMsgId, pipelineFoods);
-            }, 300);
+          setTimeout(() => {
+            ctx.startPipeline(progressMsgId, pipelineFoods);
+          }, 300);
 
-            // Update the meal result with food data for composeReply
-            const lastResult = results[results.length - 1];
-            if (lastResult.status === 'fulfilled') {
-              lastResult.value.data = {
-                ...lastResult.value.data,
-                foods: foodResult.foods,
-                mealName: foodResult.dishName || foodResult.foods.map((f: any) => f.name).slice(0, 3).join(', '),
-                mealType: foodResult.mealType || intent.context?.mealType,
-              };
-            }
+          // Update the meal result with food data for composeReply
+          const lastResult = results[results.length - 1];
+          if (lastResult.status === 'fulfilled') {
+            lastResult.value.data = {
+              ...lastResult.value.data,
+              foods: foodResult.foods,
+              mealName: foodResult.dishName || foodResult.foods.map((f: any) => f.name).slice(0, 3).join(', ') || 'Meal',
+              mealType: foodResult.mealType || intent.context?.mealType,
+            };
           }
         } catch (foodErr: any) {
           console.error('[Pipeline] Food identification failed:', foodErr?.message);

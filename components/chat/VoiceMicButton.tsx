@@ -6,7 +6,7 @@
  * with transcript via onTranscript callback.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   TouchableOpacity,
   StyleSheet,
@@ -49,6 +49,7 @@ export default function VoiceMicButton({
 }: VoiceMicButtonProps) {
   const [listening, setListening] = useState(false);
   const [permissionChecked, setPermissionChecked] = useState(false);
+  const initiatedHere = useRef(false);
 
   // Pulse animation
   const pulseScale = useSharedValue(1);
@@ -88,16 +89,24 @@ export default function VoiceMicButton({
 
   // Speech recognition event listeners
   useSpeechRecognitionEvent('start', () => {
-    setListening(true);
+    if (initiatedHere.current) {
+      setListening(true);
+    }
   });
 
   useSpeechRecognitionEvent('end', () => {
-    setListening(false);
+    if (initiatedHere.current) {
+      setListening(false);
+      initiatedHere.current = false;
+    }
   });
 
   useSpeechRecognitionEvent('result', (event) => {
+    if (!initiatedHere.current) return;
     const transcript = event.results[0]?.transcript || '';
     if (event.isFinal) {
+      initiatedHere.current = false;
+      stopListening();
       onFinalResult(transcript);
     } else {
       onTranscript(transcript);
@@ -105,7 +114,9 @@ export default function VoiceMicButton({
   });
 
   useSpeechRecognitionEvent('error', (event) => {
+    if (!initiatedHere.current) return;
     setListening(false);
+    initiatedHere.current = false;
     // "no-speech" is normal -- user tapped mic but didn't say anything
     if (event.error !== 'no-speech') {
       console.warn('[voice] Recognition error:', event.error, event.message);
@@ -117,6 +128,7 @@ export default function VoiceMicButton({
 
     if (listening) {
       // Stop listening
+      initiatedHere.current = false;
       stopListening();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       return;
@@ -136,6 +148,7 @@ export default function VoiceMicButton({
     }
 
     // Start listening
+    initiatedHere.current = true;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     startListening();
   }, [listening, disabled, permissionChecked, onTranscript, onFinalResult]);

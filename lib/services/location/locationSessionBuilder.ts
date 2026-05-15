@@ -40,11 +40,12 @@ const DISTANCE_JUMP_M = 200;
 // scattered points. A 35-minute "transit" with only 3 points is GPS drift.
 const MIN_POINTS_PER_10MIN = 3;
 
-// Movement confirmation: how long (ms) sustained non-stationary readings
-// must persist before we break out of a stationary session.
-// Mirrors MIN_STATIONARY_DWELL_MS symmetrically: 3min to enter, 3min to leave.
-// GPS jitter creates isolated spikes, not sustained 3-minute movement patterns.
-const MIN_MOVEMENT_DWELL_MS = 3 * 60 * 1000;
+// Movement confirmation: require this many CONSECUTIVE non-stationary
+// readings before transitioning out of a stationary session.
+// GPS jitter produces isolated spikes; real movement produces consistent
+// non-stationary readings. 10 consecutive is ~1-2 min of real movement
+// but impossible for random jitter to sustain.
+const MIN_CONSECUTIVE_MOVEMENT = 10;
 
 // Track when the classifier first reported "stationary" during a moving session.
 // We keep adding points to the trail until this exceeds MIN_STATIONARY_DWELL_MS,
@@ -52,10 +53,10 @@ const MIN_MOVEMENT_DWELL_MS = 3 * 60 * 1000;
 let stationarySince: { time: number; lat: number; lon: number } | null = null;
 let stationaryDwellTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Movement confirmation tracker: when the first non-stationary reading
-// arrives during a stationary session, record the time. Only transition
-// once movement has been sustained for MIN_MOVEMENT_DWELL_MS.
-let movementSince: { time: number; lat: number; lon: number; motion: string } | null = null;
+// Movement confirmation counter: tracks consecutive non-stationary readings
+// while in a stationary session. Resets to 0 on any stationary/unknown reading.
+let consecutiveMovement = 0;
+let firstMovement: { time: number; lat: number; lon: number; motion: string } | null = null;
 
 function clearDwellTimer() {
   if (stationaryDwellTimer) {
@@ -243,53 +244,53 @@ export function recordLocationPoint(entry: {
       return;
     }
 
-    // Stationary -> moving: require 3 minutes of sustained movement.
-    // Mirrors the stationary dwell tracker: 3min to enter stationary, 3min to leave.
-    // A single GPS jitter point (or even a few) should NOT break out of stationary.
+    // Stationary -> moving: require 10 consecutive non-stationary readings.
+    // GPS jitter never sustains 10 consecutive movement readings without
+    // a stationary/unknown reading interrupting. Real movement does.
     if (currentMotion === 'stationary' && motionType !== 'stationary' && motionType !== 'unknown') {
-      if (!movementSince) {
-        movementSince = { time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType };
-        console.log(`[sessionBuilder] Movement detected during stationary, tracking sustained movement...`);
-        return; // Don't transition yet, absorb the point
+      consecutiveMovement++;
+      if (!firstMovement) {
+        firstMovement = { time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType };
+      }
+      // Update dominant motion to latest
+      firstMovement.motion = motionType;
+
+      if (consecutiveMovement < MIN_CONSECUTIVE_MOVEMENT) {
+        console.log(`[sessionBuilder] Movement reading ${consecutiveMovement}/${MIN_CONSECUTIVE_MOVEMENT}`);
+        return; // Absorb the point, keep counting
       }
 
-      // Update the motion type to the latest reading
-      movementSince.motion = motionType;
-
-      const movementDwell = nowMs - movementSince.time;
-      if (movementDwell < MIN_MOVEMENT_DWELL_MS) {
-        console.log(`[sessionBuilder] Movement sustained for ${Math.round(movementDwell / 1000)}s / ${Math.round(MIN_MOVEMENT_DWELL_MS / 1000)}s, waiting...`);
-        return; // Not enough sustained movement yet
-      }
-
-      // Check displacement from the stationary anchor -- even after 3min,
-      // if we haven't moved far, it's persistent jitter not real movement.
+      // Check displacement -- even with 10 readings, if we haven't moved
+      // 80m from anchor, it's persistent oscillation not real movement.
       const anchorLat = activeSession.start_lat;
       const anchorLon = activeSession.start_lon;
       const displacement = haversineMeters(anchorLat, anchorLon, entry.latitude, entry.longitude);
 
       if (displacement < 80) {
-        console.log(`[sessionBuilder] 3min of movement but displacement only ${displacement.toFixed(0)}m -- persistent jitter, resetting`);
-        movementSince = null;
+        console.log(`[sessionBuilder] ${consecutiveMovement} readings but displacement only ${displacement.toFixed(0)}m -- jitter, resetting`);
+        consecutiveMovement = 0;
+        firstMovement = null;
         return;
       }
 
-      // Confirmed real movement -- transition using the first detection time
-      const transitionTime = new Date(movementSince.time).toISOString();
-      const startLat = movementSince.lat;
-      const startLon = movementSince.lon;
-      console.log(`[sessionBuilder] Movement CONFIRMED: ${Math.round(movementDwell / 1000)}s sustained, ${displacement.toFixed(0)}m displacement, transitioning to '${motionType}'`);
-      movementSince = null;
+      // Confirmed real movement
+      const transitionTime = new Date(firstMovement.time).toISOString();
+      const startLat = firstMovement.lat;
+      const startLon = firstMovement.lon;
+      console.log(`[sessionBuilder] Movement CONFIRMED: ${consecutiveMovement} consecutive readings, ${displacement.toFixed(0)}m displacement, transitioning to '${motionType}'`);
+      consecutiveMovement = 0;
+      firstMovement = null;
       closeSession(db, activeSession.id, transitionTime);
       startNewSession(db, startLat, startLon, motionType, transitionTime);
       stationarySince = null;
       clearDwellTimer();
       return;
-    } else if (currentMotion === 'stationary' && (motionType === 'stationary' || motionType === 'unknown')) {
-      // Still stationary -- any pending movement is interrupted, reset
-      if (movementSince) {
-        console.log(`[sessionBuilder] Stationary reading received, clearing movement tracker (was ${Math.round((nowMs - movementSince.time) / 1000)}s)`);
-        movementSince = null;
+    } else if (currentMotion === 'stationary') {
+      // Stationary or unknown reading -- reset the consecutive counter
+      if (consecutiveMovement > 0) {
+        console.log(`[sessionBuilder] Stationary reading, resetting movement counter (was ${consecutiveMovement})`);
+        consecutiveMovement = 0;
+        firstMovement = null;
       }
     }
 

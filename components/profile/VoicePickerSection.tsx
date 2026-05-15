@@ -69,22 +69,22 @@ export function VoicePickerSection({ collapsed, onToggle }: Props) {
 
   const handleSelectVoice = useCallback(async (voiceId: KokoroVoiceId) => {
     setSelectedVoice(voiceId);
-    setKokoroVoice(voiceId);
+    await setKokoroVoice(voiceId);
     try {
       await AsyncStorage.setItem(STORAGE_KEY, voiceId);
     } catch { /* ignore */ }
   }, []);
 
-  const handlePreview = useCallback((voice: KokoroVoiceOption) => {
+  const handlePreview = useCallback(async (voice: KokoroVoiceOption) => {
     setPreviewing(voice.id);
     const phrase = PREVIEW_PHRASES[voice.id] || "Hello, I'm Mittens.";
 
     // Temporarily set this voice for the preview
-    setKokoroVoice(voice.id);
-    speak(phrase, () => {
+    await setKokoroVoice(voice.id);
+    speak(phrase, async () => {
       setPreviewing(null);
       // Restore the actual selected voice after preview
-      setKokoroVoice(selectedVoice);
+      await setKokoroVoice(selectedVoice);
     });
   }, [selectedVoice]);
 

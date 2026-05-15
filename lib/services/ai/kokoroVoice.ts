@@ -85,14 +85,14 @@ let activeSource: any = null;
 
 // ─── Configuration ───
 
-/** Set the active Kokoro voice. */
-export function setKokoroVoice(voiceId: KokoroVoiceId) {
+/** Set the active Kokoro voice. Returns a Promise that resolves when the module is ready. */
+export async function setKokoroVoice(voiceId: KokoroVoiceId): Promise<void> {
   currentVoice = voiceId;
-  // If the voice changes, we need to reload the TTS module with the new voice
-  if (ttsModule) {
-    reloadTtsModule();
-  }
   console.log(`[KokoroVoice] Voice set to: ${voiceId}`);
+  // If the voice changes, we need to reload the TTS module with the new voice
+  if (ttsModule || kokoroReady) {
+    await reloadTtsModule();
+  }
 }
 
 /** Get the current voice ID. */

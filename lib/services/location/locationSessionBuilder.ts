@@ -23,8 +23,7 @@ const MIN_TRAIL_POINT_DISTANCE_M = 15;
 
 // GPS jitter suppression radius for stationary sessions (meters).
 // Points within this radius of a stationary session's start are silently dropped.
-// Indoor GPS can drift 50-150m easily, so we use a generous radius.
-const STATIONARY_SUPPRESSION_M = 100;
+const STATIONARY_SUPPRESSION_M = 50;
 
 // Minimum dwell time (ms) before we split a moving session into a stationary one.
 // If the user stops for less than this, the stationary points stay in the trail.
@@ -34,18 +33,32 @@ const MIN_STATIONARY_DWELL_MS = 3 * 60 * 1000;
 // When a stationary session sees a point this far away, it means
 // the user traveled while the app was backgrounded. We bridge with
 // a transit session rather than discarding the movement.
-const DISTANCE_JUMP_M = 350;
+const DISTANCE_JUMP_M = 200;
 
 // Minimum trail points required per 10 minutes of transit duration.
 // Real movement generates consistent GPS samples; jitter creates sparse,
 // scattered points. A 35-minute "transit" with only 3 points is GPS drift.
 const MIN_POINTS_PER_10MIN = 3;
 
+// Movement confirmation: how many consecutive non-stationary readings
+// are needed before we break out of a stationary session.
+// This prevents a single GPS jitter point from creating a false trail.
+const MIN_MOVEMENT_READINGS = 2;
+// At a known place, require even more evidence (GPS jitters more indoors)
+const MIN_MOVEMENT_READINGS_KNOWN = 3;
+// Max time window (ms) for movement readings to be considered consecutive
+const MOVEMENT_WINDOW_MS = 90_000;
+
 // Track when the classifier first reported "stationary" during a moving session.
 // We keep adding points to the trail until this exceeds MIN_STATIONARY_DWELL_MS,
 // at which point we close the moving session and create a stationary one.
 let stationarySince: { time: number; lat: number; lon: number } | null = null;
 let stationaryDwellTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Movement confirmation buffer: accumulates non-stationary readings.
+// Only when enough consecutive readings arrive within MOVEMENT_WINDOW_MS
+// do we actually transition from stationary to moving.
+let movementBuffer: { time: number; lat: number; lon: number; motion: string }[] = [];
 
 function clearDwellTimer() {
   if (stationaryDwellTimer) {
@@ -151,6 +164,16 @@ export function recordLocationPoint(entry: {
     const distFromLast = haversineMeters(lastLat, lastLon, entry.latitude, entry.longitude);
 
     if (distFromLast > DISTANCE_JUMP_M) {
+      const currentMotionCheck = activeSession.motion_type || 'unknown';
+      const isAtKnownPlace = currentMotionCheck === 'stationary' && !!activeSession.place_name;
+
+      // When stationary at a known place (Home, D12, etc.), large GPS jumps
+      // are always indoor drift -- silently absorb them instead of bridging.
+      if (isAtKnownPlace) {
+        console.log(`[sessionBuilder] GPS jump ${distFromLast.toFixed(0)}m at known place '${activeSession.place_name}' -- suppressing jitter`);
+        return;
+      }
+
       const transitMotion = resolveTransitMotion(motionType, distFromLast);
       console.log(`[sessionBuilder] Distance jump ${distFromLast.toFixed(0)}m: bridging with '${transitMotion}' session`);
 
@@ -223,14 +246,54 @@ export function recordLocationPoint(entry: {
       return;
     }
 
-    // Stationary → moving: close the stationary session and start moving
+    // Stationary -> moving: require sustained evidence before transitioning.
+    // A single GPS jitter point should NOT break out of stationary.
     if (currentMotion === 'stationary' && motionType !== 'stationary' && motionType !== 'unknown') {
-      console.log(`[sessionBuilder] Motion started: '${currentMotion}' -> '${motionType}'`);
-      closeSession(db, activeSession.id, now);
-      startNewSession(db, entry.latitude, entry.longitude, motionType, now);
+      // Prune stale readings from the movement buffer
+      movementBuffer = movementBuffer.filter(r => nowMs - r.time < MOVEMENT_WINDOW_MS);
+      movementBuffer.push({ time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType });
+
+      // Check displacement from the stationary anchor -- if all "movement" readings
+      // are still near the anchor, it's jitter, not real movement.
+      const anchorLat = activeSession.start_lat;
+      const anchorLon = activeSession.start_lon;
+      const maxDisplacement = Math.max(
+        ...movementBuffer.map(r => haversineMeters(anchorLat, anchorLon, r.lat, r.lon))
+      );
+
+      // Determine how many readings we need based on whether we're at a known place
+      const isKnownPlace = !!activeSession.place_name;
+      const requiredReadings = isKnownPlace ? MIN_MOVEMENT_READINGS_KNOWN : MIN_MOVEMENT_READINGS;
+
+      if (movementBuffer.length < requiredReadings) {
+        console.log(`[sessionBuilder] Movement reading ${movementBuffer.length}/${requiredReadings} (disp=${maxDisplacement.toFixed(0)}m, known=${isKnownPlace}), waiting...`);
+        return; // Absorb the point, wait for more evidence
+      }
+
+      // If displacement is tiny (< 80m), all the "movement" is just jitter
+      if (maxDisplacement < 80) {
+        console.log(`[sessionBuilder] Movement buffer full but displacement only ${maxDisplacement.toFixed(0)}m -- jitter, ignoring`);
+        movementBuffer = [];
+        return;
+      }
+
+      // Confirmed real movement -- transition
+      const firstMovement = movementBuffer[0];
+      const transitionTime = new Date(firstMovement.time).toISOString();
+      const dominantMotion = movementBuffer[movementBuffer.length - 1].motion;
+      console.log(`[sessionBuilder] Movement CONFIRMED: ${movementBuffer.length} readings, ${maxDisplacement.toFixed(0)}m displacement, transitioning to '${dominantMotion}'`);
+      movementBuffer = [];
+      closeSession(db, activeSession.id, transitionTime);
+      startNewSession(db, firstMovement.lat, firstMovement.lon, dominantMotion, transitionTime);
       stationarySince = null;
       clearDwellTimer();
       return;
+    } else if (currentMotion === 'stationary' && (motionType === 'stationary' || motionType === 'unknown')) {
+      // Still stationary -- clear any pending movement buffer
+      if (movementBuffer.length > 0) {
+        console.log(`[sessionBuilder] Stationary confirmed, clearing ${movementBuffer.length} pending movement readings`);
+        movementBuffer = [];
+      }
     }
 
     // Same motion type (or stationary within dwell window) — extend the session

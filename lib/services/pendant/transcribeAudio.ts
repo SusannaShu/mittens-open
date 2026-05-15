@@ -97,7 +97,7 @@ export async function transcribeAudio(
         audioSource: {
           uri,
           audioChannels: options?.audioChannels ?? 1,
-          sampleRate: options?.sampleRate ?? 16000,
+          sampleRate: options?.sampleRate ?? 8000,
         },
       });
     } catch (err: any) {

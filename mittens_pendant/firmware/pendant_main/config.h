@@ -64,11 +64,11 @@
 
 // ─── Audio ───
 
-#define AUDIO_SAMPLE_RATE 16000 // 16kHz mono
+#define AUDIO_SAMPLE_RATE 8000 // 8kHz mono
 #define AUDIO_DURATION_SEC                                                     \
-  10 // max seconds (push-to-talk stops early on release)
+  60 // max seconds (push-to-talk stops early on release)
 #define AUDIO_BUFFER_BYTES                                                     \
-  (AUDIO_SAMPLE_RATE * 2 * AUDIO_DURATION_SEC) // 320KB max
+  (AUDIO_SAMPLE_RATE * 2 * AUDIO_DURATION_SEC) // 960KB max
 
 // ─── Network ───
 

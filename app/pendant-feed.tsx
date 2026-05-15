@@ -233,8 +233,8 @@ export default function PendantFeedScreen() {
               {tf === 'today'
                 ? 'Today'
                 : tf === 'yesterday'
-                ? 'Yesterday'
-                : customLabel}
+                  ? 'Yesterday'
+                  : customLabel}
             </Text>
           </TouchableOpacity>
         ))}
@@ -249,12 +249,12 @@ export default function PendantFeedScreen() {
         {timeFilter === 'today'
           ? 'No captures today'
           : timeFilter === 'yesterday'
-          ? 'No captures yesterday'
-          : 'No captures in this range'}
+            ? 'No captures yesterday'
+            : 'No captures in this range'}
       </Text>
       <Text style={styles.emptyBody}>
         Your Mittens pendant will capture frames on motion and audio on
-        double-tap. They will appear here in real time.
+        button-press. They will appear here in real time.
       </Text>
     </View>
   ), [timeFilter]);

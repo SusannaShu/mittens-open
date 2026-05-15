@@ -121,11 +121,11 @@ E2B context is small (~8K tokens). Can't dump all memory. Most kitchen frames ar
 
 When Mittens asks a question:
 1. `speak(question)` via TTS
-2. Arm a one-shot listener for the next pendant double-tap event (push-to-talk)
+2. Arm a one-shot listener for the next pendant button-press event (push-to-talk)
 3. User presses pendant button and speaks -> existing bridge handles audio -> brain processes
 4. Listener registers transcript as answer; auto-deregisters after 60s if no press
 
-**Zero firmware change.** Reuses existing double-tap flow entirely. The user physically presses the button to respond -- preserves user agency, no hot-mic surprise.
+**Zero firmware change.** Reuses existing button-press flow entirely. The user physically presses the button to respond -- preserves user agency, no hot-mic surprise.
 
 ### 8. Pre-meal nudges for all three meals
 
@@ -296,7 +296,7 @@ The "brain" of the ambient loop. Tracks all open scenes. On each new frame:
 5. On scene close -> route to existing pipelines (food/activity/pantry) to create actual log entries
 
 #### [NEW] `lib/services/ambient/mittensAsk.ts`
-The proactive question primitive. `ask(question, timeoutMs = 60000)`: speak via TTS, arm one-shot listener for next double-tap, return Promise that resolves with the audio response or rejects on timeout. Reuses existing `onButtonPress` callback.
+The proactive question primitive. `ask(question, timeoutMs = 60000)`: speak via TTS, arm one-shot listener for next button-press, return Promise that resolves with the audio response or rejects on timeout. Reuses existing `onButtonPress` callback.
 
 #### [NEW] `lib/services/ambient/memoryUpsert.ts`
 `upsert(transcript, signalType)`: asks brain (small prompt) "is there a stable preference here? category?" and appends to `profile.memory[category]`. Checks for near-duplicates before adding.
@@ -420,7 +420,7 @@ Smallest change, biggest unlock. Modify `usePendantBridge.ts` line 192 to also f
 `memoryUpsert.ts`. Needed before clarifier answers ("I always get kefir") make sense as persistent knowledge.
 
 ### Step 5: mittensAsk (~1 day, mostly testing)
-`mittensAsk.ts`. The proactive question primitive. Wraps TTS + double-tap listener. Test with the kefir/yogurt scenario.
+`mittensAsk.ts`. The proactive question primitive. Wraps TTS + button-press listener. Test with the kefir/yogurt scenario.
 
 **Unlocks:** UC2 clarifier, any future proactive question.
 

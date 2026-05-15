@@ -652,12 +652,12 @@ export class PendantService {
   // ─── Testing ───
 
   /**
-   * Simulate a double-tap event for testing.
+   * Simulate a button-press event for testing.
    * Records audio from the phone mic for `durationMs` using
    * expo-speech-recognition, then feeds it through the pendant pipeline.
    */
   async simulateButtonPress(durationMs = 5000): Promise<void> {
-    console.log(`[Pendant] Simulating double-tap (${durationMs}ms)...`);
+    console.log(`[Pendant] Simulating button-press (${durationMs}ms)...`);
 
     try {
       const ExpoSpeechRecognition = require('expo-speech-recognition');

@@ -155,7 +155,7 @@ The good news: most of the pipeline plumbing is built. The hard part is **routin
 | Pendant BLE protocol (BUTTON_PRESS, SINGLE_TAP, MOTION, COMMAND) | `lib/services/pendant/pendantProtocol.ts` | done |
 | Pendant service lifecycle + BLE/HTTP | `lib/services/pendant/pendantService.ts` | done |
 | Firmware: IMU wake + button wake from deep sleep | `mittens_pendant/firmware/pendant_main/*.ino` | done |
-| Pendant → chat bridge (double-tap → brain → TTS) | `lib/hooks/pendant/usePendantBridge.ts` | done for voice; **motion frames currently dropped into a store, NOT piped to triage** |
+| Pendant → chat bridge (button-press → brain → TTS) | `lib/hooks/pendant/usePendantBridge.ts` | done for voice; **motion frames currently dropped into a store, NOT piped to triage** |
 | Triage (one input → many pipelines, with phase gating) | `lib/pipelines/triage.ts` | done |
 | Pipeline runner + per-phase logging | `lib/pipelines/runner.ts` + `logger.ts` | done |
 | Food pipeline (identify → nutrients → bio → validate) | `lib/pipelines/food/*` | done |
@@ -241,11 +241,11 @@ This is the **most complex** use case and several other ones reuse its machinery
 - `triage()` with images → already classifies meal vs pantry.
 - `food/identify.ts` — already produces `FoodItem[]` with confidence.
 - `parseJsonResponse` + `memoryRetrieval.getRelevantMemory()` already prime food prompts with preferences (so once "kefir" is in memory, subsequent identify passes should bias toward it).
-- `usePendantBridge` double-tap path (audio + frame) — reuse the listen-then-respond flow as the clarifier response handler.
+- `usePendantBridge` button-press path (audio + frame) — reuse the listen-then-respond flow as the clarifier response handler.
 
 **What to build:**
 1. **`MealStream` service** (`lib/services/food/mealStream.ts`): opens an active meal session keyed by location (= kitchen) and time. Methods: `openOrExtend(frame, items)`, `closeIfIdle()`. Persists into existing meal log table.
-2. **`mittensAsk()` helper** (`lib/services/pendant/mittensAsk.ts`): `speak(question)` + arm a one-shot callback that listens for the *next* double-tap audio (push-to-talk button press). The pendant does NOT auto-record after a question — user still presses the button to answer. This is intentional: avoids hot-mic ambiguity, keeps the same UX as the existing double-tap flow, and means no firmware change is needed. The callback times out after ~60s if no button press arrives.
+2. **`mittensAsk()` helper** (`lib/services/pendant/mittensAsk.ts`): `speak(question)` + arm a one-shot callback that listens for the *next* button-press audio (push-to-talk button press). The pendant does NOT auto-record after a question — user still presses the button to answer. This is intentional: avoids hot-mic ambiguity, keeps the same UX as the existing button-press flow, and means no firmware change is needed. The callback times out after ~60s if no button press arrives.
 3. **Confidence-gated clarifier** in food pipeline: after `identify`, if `max(confidence) < 0.75` AND `items.length === 1`, ask. Generic enough to reuse anywhere.
 4. **Memory persister** (`lib/services/profile/memoryUpsert.ts`): given a transcript + topic, decide whether to add a note. "I always get kefir" → category `preferences`, note `"always picks kefir over yogurt"`.
 
@@ -541,11 +541,11 @@ Lives in `lib/services/streams/LogStream.ts`. Used by `MealStream` and `Activity
 
 The key proactive primitive. The user still drives the conversation:
 1. `speak(question)` via TTS.
-2. Arm a one-shot listener for the next pendant double-tap event (push-to-talk audio + frame).
+2. Arm a one-shot listener for the next pendant button-press event (push-to-talk audio + frame).
 3. When the user presses the pendant button and speaks, the existing bridge path handles transcription and routing.
 4. The listener registers the resulting transcript as the answer to the open question; auto-deregister after ~60s if no press arrives, with a follow-up "no answer received" log entry.
 
-**No firmware change.** Reuses the existing double-tap flow end-to-end. Trade-off: the user has to physically press the pendant to respond, which we decided is the right behavior — no hot-mic, no listening surprise, and zero new BLE/firmware surface area.
+**No firmware change.** Reuses the existing button-press flow end-to-end. Trade-off: the user has to physically press the pendant to respond, which we decided is the right behavior — no hot-mic, no listening surprise, and zero new BLE/firmware surface area.
 
 ### D. Memory write-back
 

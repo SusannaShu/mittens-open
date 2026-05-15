@@ -49,7 +49,7 @@ const lastGreetTimes: Map<number, number> = new Map();
 /**
  * Register a new person or add embeddings to an existing one.
  *
- * Called when the user says "this is [Name]" during a double-tap.
+ * Called when the user says "this is [Name]" during a button-press.
  * Extracts face embeddings from the frame and saves them.
  */
 export async function introducePerson(

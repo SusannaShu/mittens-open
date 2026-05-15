@@ -46,7 +46,7 @@ export const DEFAULT_VOICE: KokoroVoiceId = 'af_heart';
  * Maps our voice ID strings to the react-native-executorch constants.
  * These constants are URLs to the voice style files on HuggingFace.
  */
-function getVoiceConstant(voiceId: KokoroVoiceId): string {
+function getVoiceConstant(voiceId: KokoroVoiceId): any {
   try {
     const ET = require('react-native-executorch');
     const map: Record<string, any> = {
@@ -65,7 +65,7 @@ function getVoiceConstant(voiceId: KokoroVoiceId): string {
   }
 }
 
-function getModelConstant(): string {
+function getModelConstant(): any {
   try {
     const ET = require('react-native-executorch');
     return ET.KOKORO_MEDIUM;
@@ -79,7 +79,7 @@ function getModelConstant(): string {
 let currentVoice: KokoroVoiceId = DEFAULT_VOICE;
 let kokoroReady = false;
 let kokoroFailed = false;
-let ttsInstance: any = null;
+let ttsModule: any = null;
 let audioCtx: any = null;
 let activeSource: any = null;
 
@@ -88,7 +88,10 @@ let activeSource: any = null;
 /** Set the active Kokoro voice. */
 export function setKokoroVoice(voiceId: KokoroVoiceId) {
   currentVoice = voiceId;
-  // If TTS is already initialized, it will pick up the new voice on next speak call
+  // If the voice changes, we need to reload the TTS module with the new voice
+  if (ttsModule) {
+    reloadTtsModule();
+  }
   console.log(`[KokoroVoice] Voice set to: ${voiceId}`);
 }
 
@@ -100,6 +103,39 @@ export function getKokoroVoice(): KokoroVoiceId {
 /** Check if Kokoro is ready for synthesis. */
 export function isKokoroReady(): boolean {
   return kokoroReady && !kokoroFailed;
+}
+
+// ─── TTS Module Management ───
+
+/** Load or reload the TTS module with current voice settings. */
+async function reloadTtsModule(): Promise<boolean> {
+  try {
+    // Clean up previous instance
+    if (ttsModule) {
+      try { ttsModule.delete(); } catch { /* best effort */ }
+      ttsModule = null;
+    }
+
+    const { TextToSpeechModule } = require('react-native-executorch');
+    const model = getModelConstant();
+    const voice = getVoiceConstant(currentVoice);
+
+    console.log(`[KokoroVoice] Loading TTS module with voice: ${currentVoice}`);
+    ttsModule = await TextToSpeechModule.fromModelName(
+      { model, voice },
+      (progress: number) => {
+        if (progress < 1) {
+          console.log(`[KokoroVoice] Downloading model: ${(progress * 100).toFixed(0)}%`);
+        }
+      },
+    );
+    console.log('[KokoroVoice] TTS module loaded successfully.');
+    return true;
+  } catch (err: any) {
+    console.warn('[KokoroVoice] Failed to load TTS module:', err?.message);
+    ttsModule = null;
+    return false;
+  }
 }
 
 // ─── Initialization ───
@@ -124,19 +160,19 @@ export async function initKokoro(): Promise<boolean> {
       }
     } catch { /* ignore storage errors */ }
 
-    // Lazy-import to avoid crash if the native module is not linked
-    const { useTextToSpeech } = require('react-native-executorch');
-    const { AudioContext } = require('react-native-audio-api');
-
-    // Note: useTextToSpeech is a React hook and cannot be called outside
-    // a component. We use a different approach below for non-hook usage.
-    // This init just validates the modules are available.
-
     // Create audio context for playback (24kHz for Kokoro output)
+    const { AudioContext } = require('react-native-audio-api');
     audioCtx = new AudioContext({ sampleRate: 24000 });
 
+    // Load the TTS module instance
+    const loaded = await reloadTtsModule();
+    if (!loaded) {
+      kokoroFailed = true;
+      return false;
+    }
+
     kokoroReady = true;
-    console.log('[KokoroVoice] Kokoro modules loaded successfully.');
+    console.log('[KokoroVoice] Kokoro ready for synthesis.');
     return true;
   } catch (err: any) {
     console.warn('[KokoroVoice] Init failed (will use native TTS):', err?.message);
@@ -167,10 +203,9 @@ export async function speakKokoro(
   text: string,
   onDone?: () => void,
 ): Promise<boolean> {
-  if (!kokoroReady || kokoroFailed) return false;
+  if (!kokoroReady || kokoroFailed || !ttsModule) return false;
 
   try {
-    const ET = require('react-native-executorch');
     const { AudioContext } = require('react-native-audio-api');
 
     // Ensure audio context exists
@@ -183,13 +218,8 @@ export async function speakKokoro(
 
     console.log(`[KokoroVoice] Synthesizing (${currentVoice}): "${text.slice(0, 50)}..."`);
 
-    // Generate waveform using the ExecuTorch Kokoro model
-    const waveform = await ET.generate(
-      getModelConstant(),
-      text,
-      getVoiceConstant(currentVoice),
-      1.0,
-    );
+    // Generate waveform using the TextToSpeechModule instance
+    const waveform = await ttsModule.forward(text, 1.0);
 
     if (!waveform || waveform.length === 0) {
       console.warn('[KokoroVoice] Empty waveform returned');

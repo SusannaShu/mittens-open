@@ -64,7 +64,7 @@ XIAO ESP32S3 Sense          LSM6DS3
 D4 (GPIO5)  ───────────── SDA
 D5 (GPIO6)  ───────────── SCL
 D2 (GPIO3)  ───────────── INT1  (wake-up motion, deep sleep wake source)
-D3 (GPIO4)  ───────────── INT2  (double-tap detection)
+D3 (GPIO4)  ───────────── INT2  (button-press detection)
 3V3         ───────────── VCC
 GND         ───────────── GND
                           SA0 -> VCC (address 0x6B)
@@ -80,7 +80,7 @@ D1          ───────────── One leg
 GND         ───────────── Other leg  (uses internal pullup)
 ```
 
-> The LED lights up whenever the pendant captures a photo (motion) or records audio (double-tap/button).
+> The LED lights up whenever the pendant captures a photo (motion) or records audio (button-press/button).
 > The button is used for **push-to-talk**: hold to record, release to stop and send.
 
 ## 6. First Flash

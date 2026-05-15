@@ -4,12 +4,12 @@
  *
  * Uses two interrupt pins for clean event separation:
  *   INT1 (D2 / GPIO3) -- Wake-up motion only. This is the deep sleep wake
- * source. INT2 (D3 / GPIO4) -- Double-tap only. Checked after wake to
+ * source. INT2 (D3 / GPIO4) -- button-press only. Checked after wake to
  * distinguish events.
  *
  * After waking from deep sleep (always via INT1), the firmware reads both
  * TAP_SRC and WAKE_UP_SRC to classify: if INT2 is also high, it was a
- * double-tap. Otherwise it was general motion.
+ * button-press. Otherwise it was general motion.
  */
 
 #include "config.h"
@@ -69,7 +69,7 @@ bool lsmInit() {
 
 // ─── Wake Classification ───
 // After deep sleep wake (always via INT1 = motion), wait for the
-// double-tap detection window to close, then check INT2 to see if
+// button-press detection window to close, then check INT2 to see if
 // a tap also fired. A tap always causes motion too (you're hitting
 // the device), so INT1 fires first and we need to wait for INT2.
 WakeReason classifyWake() {
@@ -77,9 +77,9 @@ WakeReason classifyWake() {
   pinMode(IMU_INT1_PIN, INPUT);
   pinMode(IMU_INT2_PIN, INPUT);
 
-  // Wait for double-tap detection window to complete.
+  // Wait for button-press detection window to complete.
   // INT_DUR2 DUR=4 at 416Hz -> ~307ms window. A tap wakes the ESP32
-  // via INT1 (motion), but the second tap of a double-tap might not
+  // via INT1 (motion), but the second tap of a button-press might not
   // have happened yet. Wait long enough for the full window + margin.
   delay(450);
 
@@ -96,7 +96,7 @@ WakeReason classifyWake() {
   Serial.printf("[IMU] INT1=%d, INT2=%d, TAP_SRC=0x%02X, WAKE_UP_SRC=0x%02X\n",
                 int1State, int2State, tapSrc, wuSrc);
 
-  // Double-tap: INT2 high OR TAP_SRC double-tap bit (bit 4)
+  // button-press: INT2 high OR TAP_SRC button-press bit (bit 4)
   if (int2State == HIGH || (tapSrc & 0x10)) {
     return WAKE_BUTTON_PRESS;
   }
@@ -137,7 +137,7 @@ void lsmConfigureWake() {
   lsmWrite(LSM6DS3_TAP_THS_6D, 0x06);
 
   // INT_DUR2: DUR=4 (~330ms window), QUIET=2, SHOCK=2
-  // 0x42 = tested working value for reliable double-tap
+  // 0x42 = tested working value for reliable button-press
   lsmWrite(LSM6DS3_INT_DUR2, 0x42);
 
   // Enable single + Button Press detection, set wake-up threshold
@@ -151,7 +151,7 @@ void lsmConfigureWake() {
   // 0x20 = INT1_WU
   lsmWrite(LSM6DS3_MD1_CFG, 0x20);
 
-  // Route ONLY double-tap to INT2 -- checked after wake to classify event
+  // Route ONLY button-press to INT2 -- checked after wake to classify event
   // 0x08 = INT2_BUTTON_PRESS
   lsmWrite(LSM6DS3_MD2_CFG, 0x08);
 

@@ -60,7 +60,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           }
           processingRef.current = true;
 
-          console.log('[PendantBridge] Double-tap received, audio:', audioPath.slice(-30));
+          console.log('[PendantBridge] button-press received, audio:', audioPath.slice(-30));
 
           // Check if there's a pending mittensAsk -- route response to ask resolver
           try {

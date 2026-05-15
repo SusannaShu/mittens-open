@@ -50,7 +50,8 @@ export async function initializeDatabase(): Promise<void> {
       items TEXT,
       summary_nutrients TEXT,
       estimation_status TEXT DEFAULT 'complete' CHECK(estimation_status IN ('pending','estimating','partial','complete')),
-      source TEXT DEFAULT 'vision' CHECK(source IN ('vision','manual','pendant')),
+      source TEXT DEFAULT 'vision' CHECK(source IN ('vision','manual','pendant','voice')),
+      deleted_at TEXT,
       entry_type TEXT DEFAULT 'food' CHECK(entry_type IN ('food','activity')),
       activity_meta TEXT,
       energy INTEGER,
@@ -460,6 +461,56 @@ export async function initializeDatabase(): Promise<void> {
     }
   } catch (e) {
     console.warn('Failed to migrate people table:', e);
+  }
+
+  // Handle nutrition_logs CHECK constraint: add 'voice' source + deleted_at column
+  try {
+    const nutritionSchema = database.getFirstSync(`SELECT sql FROM sqlite_master WHERE type='table' AND name='nutrition_logs'`) as any;
+    if (nutritionSchema && !nutritionSchema.sql.includes("'voice'")) {
+      database.execSync(`
+        CREATE TABLE nutrition_logs_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          logged_at TEXT NOT NULL,
+          meal_type TEXT CHECK(meal_type IN ('breakfast','lunch','dinner','snack','drink','activity')),
+          food_name TEXT,
+          portion_g REAL,
+          cooking TEXT,
+          nutrients TEXT,
+          log_name TEXT,
+          items TEXT,
+          summary_nutrients TEXT,
+          estimation_status TEXT DEFAULT 'complete' CHECK(estimation_status IN ('pending','estimating','partial','complete')),
+          source TEXT DEFAULT 'vision' CHECK(source IN ('vision','manual','pendant','voice')),
+          deleted_at TEXT,
+          entry_type TEXT DEFAULT 'food' CHECK(entry_type IN ('food','activity')),
+          activity_meta TEXT,
+          energy INTEGER,
+          eating_context TEXT,
+          image_uris TEXT,
+          user_id INTEGER,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          synced_at TEXT,
+          pipeline_log TEXT
+        );
+        INSERT INTO nutrition_logs_new (
+          id, logged_at, meal_type, food_name, portion_g, cooking, nutrients,
+          log_name, items, summary_nutrients, estimation_status, source,
+          entry_type, activity_meta, energy, eating_context, image_uris,
+          user_id, created_at, updated_at, synced_at
+        ) SELECT
+          id, logged_at, meal_type, food_name, portion_g, cooking, nutrients,
+          log_name, items, summary_nutrients, estimation_status, source,
+          entry_type, activity_meta, energy, eating_context, image_uris,
+          user_id, created_at, updated_at, synced_at
+        FROM nutrition_logs;
+        DROP TABLE nutrition_logs;
+        ALTER TABLE nutrition_logs_new RENAME TO nutrition_logs;
+        CREATE INDEX IF NOT EXISTS idx_nutrition_logged ON nutrition_logs(logged_at);
+      `);
+    }
+  } catch (e) {
+    console.warn('Failed to migrate nutrition_logs table:', e);
   }
 }
 

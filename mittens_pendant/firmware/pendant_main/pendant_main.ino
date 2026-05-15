@@ -5,7 +5,7 @@
  *
  * Deep sleep with IMU wake-on-motion via dual interrupts:
  *   INT1 (D2) = motion wake -- deep sleep wake source
- *   INT2 (D3) = double-tap -- checked after wake to classify event
+ *   INT2 (D3) = button-press -- checked after wake to classify event
  *
  *   BUTTON_PRESS -> record 5s PDM audio + capture JPEG -> BLE transfer
  *   MOTION     -> capture JPEG -> BLE transfer
@@ -106,7 +106,7 @@ bool handlePushToTalk() {
 
   // 3. Signal and transfer
   bleSignalEvent(
-      "BUTTON_PRESS"); // Same event type as double-tap for app compatibility
+      "BUTTON_PRESS"); // Same event type as button-press for app compatibility
   delay(200);
 
   bool ok = bleTransferAndWait(
@@ -124,7 +124,7 @@ bool handlePushToTalk() {
 }
 
 bool handleButtonPress() {
-  // Double-tap now just calls push-to-talk with a fixed 3s recording
+  // button-press now just calls push-to-talk with a fixed 3s recording
   Serial.println("[FLOW] === Button Press ===");
   return handlePushToTalk();
 }

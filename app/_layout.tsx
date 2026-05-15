@@ -7,8 +7,13 @@ import { store } from '../lib/store';
 import { colors } from '../lib/theme';
 import { usePendantBridge } from '../lib/hooks/pendant/usePendantBridge';
 import { setBackendUser } from '../lib/userContext';
+import { initExecutorch } from 'react-native-executorch';
+import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
 
 SplashScreen.preventAutoHideAsync();
+
+// Initialize Executorch so models can be downloaded properly
+initExecutorch({ resourceFetcher: ExpoResourceFetcher });
 
 let hasInitializedSession = false;
 

@@ -3,12 +3,12 @@
  *
  * When the ambient pipeline encounters ambiguity (e.g., "yogurt or kefir?",
  * confidence < 0.7), it can ask the user via TTS and arm a one-shot
- * listener for the pendant's double-tap button to capture the verbal response.
+ * listener for the pendant's button-press button to capture the verbal response.
  *
  * Flow:
  *   1. Pipeline calls mittensAsk("Is that yogurt or kefir?")
  *   2. TTS speaks the question aloud
- *   3. Arms the pendant double-tap listener for 30s
+ *   3. Arms the pendant button-press listener for 30s
  *   4. User taps button and speaks response
  *   5. Response is transcribed and returned to the pipeline
  *   6. If no response within 30s, returns null (question unanswered)
@@ -61,7 +61,7 @@ export async function mittensAsk(question: string): Promise<string | null> {
 
 /**
  * Called by usePendantBridge when user responds to an armed ask.
- * The double-tap handler should check if there's a pending ask
+ * The button-press handler should check if there's a pending ask
  * and route the transcribed response here.
  */
 export function resolveAsk(answer: string): void {

@@ -244,9 +244,8 @@ export function recordLocationPoint(entry: {
       return;
     }
 
-    // Stationary -> moving: require 10 consecutive non-stationary readings.
-    // GPS jitter never sustains 10 consecutive movement readings without
-    // a stationary/unknown reading interrupting. Real movement does.
+    // Stationary -> moving: require BOTH 10 consecutive non-stationary readings
+    // AND 3 minutes of sustained movement. Both gates must pass.
     if (currentMotion === 'stationary' && motionType !== 'stationary' && motionType !== 'unknown') {
       consecutiveMovement++;
       if (!firstMovement) {
@@ -255,29 +254,36 @@ export function recordLocationPoint(entry: {
       // Update dominant motion to latest
       firstMovement.motion = motionType;
 
+      // Gate 1: consecutive readings
       if (consecutiveMovement < MIN_CONSECUTIVE_MOVEMENT) {
         console.log(`[sessionBuilder] Movement reading ${consecutiveMovement}/${MIN_CONSECUTIVE_MOVEMENT}`);
-        return; // Absorb the point, keep counting
+        return;
       }
 
-      // Check displacement -- even with 10 readings, if we haven't moved
-      // 80m from anchor, it's persistent oscillation not real movement.
+      // Gate 2: sustained time (3 minutes from first movement reading)
+      const movementDuration = nowMs - firstMovement.time;
+      if (movementDuration < MIN_STATIONARY_DWELL_MS) {
+        console.log(`[sessionBuilder] ${consecutiveMovement} readings but only ${Math.round(movementDuration / 1000)}s / ${Math.round(MIN_STATIONARY_DWELL_MS / 1000)}s elapsed`);
+        return;
+      }
+
+      // Gate 3: displacement from anchor (catches persistent oscillation)
       const anchorLat = activeSession.start_lat;
       const anchorLon = activeSession.start_lon;
       const displacement = haversineMeters(anchorLat, anchorLon, entry.latitude, entry.longitude);
 
       if (displacement < 80) {
-        console.log(`[sessionBuilder] ${consecutiveMovement} readings but displacement only ${displacement.toFixed(0)}m -- jitter, resetting`);
+        console.log(`[sessionBuilder] ${consecutiveMovement} readings, ${Math.round(movementDuration / 1000)}s, but displacement only ${displacement.toFixed(0)}m -- jitter, resetting`);
         consecutiveMovement = 0;
         firstMovement = null;
         return;
       }
 
-      // Confirmed real movement
+      // All gates passed -- confirmed real movement
       const transitionTime = new Date(firstMovement.time).toISOString();
       const startLat = firstMovement.lat;
       const startLon = firstMovement.lon;
-      console.log(`[sessionBuilder] Movement CONFIRMED: ${consecutiveMovement} consecutive readings, ${displacement.toFixed(0)}m displacement, transitioning to '${motionType}'`);
+      console.log(`[sessionBuilder] Movement CONFIRMED: ${consecutiveMovement} readings, ${Math.round(movementDuration / 1000)}s, ${displacement.toFixed(0)}m displacement -> '${motionType}'`);
       consecutiveMovement = 0;
       firstMovement = null;
       closeSession(db, activeSession.id, transitionTime);

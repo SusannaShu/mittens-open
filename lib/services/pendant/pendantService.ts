@@ -373,7 +373,11 @@ export class PendantService {
       if (signal.type === 'DATA_READY') {
         console.log('[Pendant] Data ready -- pulling over BLE...');
         this.pullDataOverBLE().catch((err) => {
-          console.error('[Pendant] BLE data pull failed:', err?.message || err);
+          if (err?.message?.includes('aborted')) {
+            console.log('[Pendant] BLE data pull aborted cleanly.');
+          } else {
+            console.error('[Pendant] BLE data pull failed:', err?.message || err);
+          }
         });
       }
 
@@ -394,6 +398,7 @@ export class PendantService {
    * 6. Save to disk and emit event
    */
   private isPulling = false;
+  private currentPullReject: ((err: Error) => void) | null = null;
 
   private async pullDataOverBLE(): Promise<void> {
     if (!this.bleDevice) {
@@ -401,10 +406,19 @@ export class PendantService {
       return;
     }
 
-    // Prevent concurrent pulls -- multiple signals can trigger this
+    // Prevent concurrent pulls -- if one is in progress, abort it so the new one can start
     if (this.isPulling) {
-      console.log('[Pendant] Pull already in progress, skipping');
-      return;
+      console.log('[Pendant] Pull already in progress, aborting old pull to start new one');
+      if (this.currentPullReject) {
+        this.currentPullReject(new Error('Pull aborted by new request'));
+        this.currentPullReject = null;
+      }
+      // Wait for the old pull to clean up and set isPulling to false
+      let waitCount = 0;
+      while (this.isPulling && waitCount < 10) {
+        await new Promise(r => setTimeout(r, 100));
+        waitCount++;
+      }
     }
     this.isPulling = true;
 
@@ -445,6 +459,7 @@ export class PendantService {
 
       // Create a promise that resolves when all bytes are received
       const transferComplete = new Promise<void>((resolve, reject) => {
+        this.currentPullReject = reject;
         const timeout = setTimeout(() => {
           reject(new Error(`BLE transfer timeout (received ${receivedBytes}/${totalLen})`));
         }, 30000); // 30s timeout
@@ -574,6 +589,7 @@ export class PendantService {
         streamSub.remove();
       }
       this.isPulling = false;
+      this.currentPullReject = null;
     }
   }
 

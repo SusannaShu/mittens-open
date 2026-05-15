@@ -5,24 +5,40 @@
  * and asks the user for a receipt photo at exit to bulk-update pantry.
  *
  * Lifecycle:
- *   1. Frame detected as grocery -> open/resume session
+ *   1. User is dwelling (GPS not moving much for 3+ min) AND
+ *      consecutive frames classify as grocery -> open session
  *   2. Each frame: VLM detects items picked up, appends to timeline
- *   3. Exit detected (no grocery context for 3+ frames):
- *      - Mittens asks: "Can you take a receipt photo or want to hear what I saw?"
+ *   3. GPS shows sustained movement (left store) for 3+ min:
+ *      - Close session and ask for receipt photo or readout
  *   4. Receipt photo -> OCR + pantry bulk add
  *      OR readout -> TTS list + confirm -> pantry add
  */
 
 import type { GrocerySession, GroceryItem, DetectedFoodItem } from './types';
 import type { PipelineLogger } from '../../pipelines/logger';
+import { emitGroceryExitMessage, armReceiptListener } from './groceryCheckout';
 
 // --- Singleton Session State ---
 
 let activeSession: GrocerySession | null = null;
-let noGroceryFrameCount = 0;
 
-/** Threshold: how many non-grocery frames before closing session */
-const EXIT_FRAME_THRESHOLD = 3;
+/** GPS anchor of the store -- set when session opens */
+let storeAnchor: { lat: number; lon: number } | null = null;
+
+/** Consecutive grocery-classified frames (before session starts) */
+let consecutiveGroceryFrames = 0;
+
+/** Timestamp when movement away from store started (for 3-min exit gate) */
+let movementStartedAt: number | null = null;
+
+/** How many consecutive grocery frames needed to open a session */
+const GROCERY_FRAME_CONFIRM = 3;
+
+/** How long the user must be moving away before we close (ms) */
+const EXIT_MOVEMENT_MS = 3 * 60 * 1000; // 3 minutes
+
+/** Distance in meters to consider "left the store" */
+const EXIT_DISTANCE_M = 100;
 
 // --- Public API ---
 
@@ -32,23 +48,50 @@ export function getActiveGrocerySession(): GrocerySession | null {
 
 /**
  * Process a frame classified as grocery context.
- * Opens a session if none active, then tracks items.
+ * Only opens a session if user is dwelling (GPS-stationary).
+ * If session already active, tracks items.
  */
 export async function handleGroceryFrame(
   framePath: string,
   detectedItems: DetectedFoodItem[],
   logger: PipelineLogger,
 ): Promise<GroceryFrameResult> {
-  noGroceryFrameCount = 0; // Reset exit counter
+  // Reset movement exit tracker since we're still seeing grocery
+  movementStartedAt = null;
 
   if (!activeSession) {
+    // Only open session if user is dwelling (not in transit)
+    if (!isDwelling()) {
+      consecutiveGroceryFrames = 0;
+      return {
+        sessionId: 0,
+        totalItems: 0,
+        newItems: [],
+        summary: 'Grocery detected but not dwelling yet.',
+      };
+    }
+
+    consecutiveGroceryFrames++;
+
+    if (consecutiveGroceryFrames < GROCERY_FRAME_CONFIRM) {
+      return {
+        sessionId: 0,
+        totalItems: 0,
+        newItems: [],
+        summary: `Grocery detected (${consecutiveGroceryFrames}/${GROCERY_FRAME_CONFIRM} to confirm).`,
+      };
+    }
+
+    // Confirmed: dwelling + consecutive grocery frames -> open session
     activeSession = openSession();
-    logger.startPhase('grocery', 'openSession');
-    logger.completePhase(0, `Opened grocery session #${activeSession.id}`);
+    consecutiveGroceryFrames = 0;
+
+    const openIdx = logger.startPhase('grocery', 'openSession');
+    logger.completePhase(openIdx, `Opened grocery session #${activeSession.id} at ${activeSession.placeName || 'unknown'}`);
     createGroceryActivity(activeSession);
   }
 
-  // Detect items in this frame
+  // Track items in this frame
   const trackIdx = logger.startPhase('grocery', 'trackItems');
   const newItems = await detectGroceryItems(framePath, detectedItems);
 
@@ -77,20 +120,98 @@ export async function handleGroceryFrame(
 }
 
 /**
- * Called when a non-grocery frame arrives while a session is active.
- * After EXIT_FRAME_THRESHOLD consecutive non-grocery frames, close the session.
+ * Check if the user has left the store.
+ * Called on every frame when a grocery session is active (even non-grocery frames).
+ *
+ * Exit condition: GPS shows sustained movement away from the store anchor
+ * for EXIT_MOVEMENT_MS (3 minutes). This means the user has left and is in
+ * transit, not just walking around inside the store.
  */
 export async function checkGroceryExit(logger: PipelineLogger): Promise<boolean> {
   if (!activeSession) return false;
 
-  noGroceryFrameCount++;
-
-  if (noGroceryFrameCount >= EXIT_FRAME_THRESHOLD) {
-    await closeSession(logger);
-    return true;
+  // Check if user has moved away from the store
+  if (!hasLeftStore()) {
+    movementStartedAt = null;
+    return false;
   }
 
-  return false;
+  // User is away from store -- start or check the movement timer
+  if (!movementStartedAt) {
+    movementStartedAt = Date.now();
+    return false;
+  }
+
+  const movingDuration = Date.now() - movementStartedAt;
+  if (movingDuration < EXIT_MOVEMENT_MS) {
+    return false; // Not 3 minutes yet
+  }
+
+  // 3+ minutes of movement away from store -> close session
+  console.log(`[GroceryPipeline] User left store (${Math.round(movingDuration / 1000)}s of movement)`);
+  await closeSession(logger);
+  return true;
+}
+
+// --- GPS Helpers ---
+
+/**
+ * Check if user is dwelling (GPS not moving much).
+ * Uses the location service's motion type -- stationary or very slow movement.
+ */
+function isDwelling(): boolean {
+  try {
+    const { getLastMotionType } = require('../location/locationService');
+    const motionType = getLastMotionType();
+
+    // Stationary = clearly dwelling
+    // Walking could be walking around a store, which is fine
+    // Driving/cycling/running = definitely not shopping
+    return motionType === 'stationary' || motionType === 'walking' || motionType === null;
+  } catch {
+    // If location service unavailable, allow session to start based on frames alone
+    return true;
+  }
+}
+
+/**
+ * Check if the user has physically left the store area.
+ * Compares current GPS against the store anchor.
+ */
+function hasLeftStore(): boolean {
+  if (!storeAnchor) return false;
+
+  try {
+    const { getCurrentLocation, getLastMotionType } = require('../location/locationService');
+    const loc = getCurrentLocation();
+    if (!loc) return false;
+
+    const motionType = getLastMotionType();
+
+    // Must be actively moving (not just GPS drift)
+    const isMoving = motionType !== 'stationary' && motionType !== null;
+    if (!isMoving) return false;
+
+    // Check distance from store anchor
+    const dist = haversineMeters(storeAnchor.lat, storeAnchor.lon, loc.lat, loc.lon);
+    return dist > EXIT_DISTANCE_M;
+  } catch {
+    return false;
+  }
+}
+
+function haversineMeters(
+  lat1: number, lon1: number, lat2: number, lon2: number,
+): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // --- Session Lifecycle ---
@@ -98,8 +219,14 @@ export async function checkGroceryExit(logger: PipelineLogger): Promise<boolean>
 function openSession(): GrocerySession {
   let placeName: string | undefined;
   try {
-    const { getCurrentPlace } = require('../location/locationService');
+    const { getCurrentPlace, getCurrentLocation } = require('../location/locationService');
     placeName = getCurrentPlace() || undefined;
+
+    // Anchor the store location for exit detection
+    const loc = getCurrentLocation();
+    if (loc) {
+      storeAnchor = { lat: loc.lat, lon: loc.lon };
+    }
   } catch { /* location not available */ }
 
   return {
@@ -117,7 +244,9 @@ async function closeSession(logger: PipelineLogger): Promise<void> {
   activeSession.status = 'closed';
   const session = activeSession;
   activeSession = null;
-  noGroceryFrameCount = 0;
+  storeAnchor = null;
+  movementStartedAt = null;
+  consecutiveGroceryFrames = 0;
 
   const closeIdx = logger.startPhase('grocery', 'closeSession');
 
@@ -216,124 +345,6 @@ function createGroceryActivity(session: GrocerySession): void {
   }
 }
 
-// --- Chat Messages ---
-
-function emitGroceryExitMessage(session: GrocerySession): void {
-  const count = session.items.length;
-  const itemPreview = session.items
-    .slice(0, 5)
-    .map(i => `${i.qty} ${i.name}`)
-    .join(', ');
-  const more = count > 5 ? ` and ${count - 5} more` : '';
-
-  const text = [
-    `Done shopping! I spotted ${count} items: ${itemPreview}${more}.`,
-    'Can you take a photo of your receipt for me to log accurately?',
-    'Or I can read out what I saw and add them to your pantry.',
-  ].join(' ');
-
-  // TTS
-  try {
-    const { speak } = require('../voice/ttsService');
-    speak(text);
-  } catch { /* TTS not available */ }
-
-  // Chat message
-  try {
-    const { DeviceEventEmitter } = require('react-native');
-    DeviceEventEmitter.emit('pendantMessageAdded', {
-      id: `m-grocery-${Date.now()}`,
-      role: 'mittens',
-      text,
-      timestamp: new Date(),
-      source: 'pendant',
-      grocerySession: {
-        items: session.items,
-        placeName: session.placeName,
-      },
-    });
-  } catch { /* emit not available */ }
-
-  console.log(`[GroceryPipeline] Exit message sent (${count} items)`);
-}
-
-/**
- * Arm a listener for receipt photo capture.
- * When the user takes a photo after the grocery exit prompt,
- * route it to the receipt scanner instead of normal frame processing.
- */
-function armReceiptListener(session: GrocerySession): void {
-  try {
-    const { DeviceEventEmitter } = require('react-native');
-
-    const sub = DeviceEventEmitter.addListener(
-      'groceryReceiptPhoto',
-      async (event: { framePath: string }) => {
-        sub.remove();
-        await processReceipt(event.framePath, session);
-      },
-    );
-
-    // Auto-disarm after 5 minutes
-    setTimeout(() => {
-      sub.remove();
-      // If no receipt, add visual items with lower confidence
-      addVisualItemsToPantry(session);
-    }, 5 * 60 * 1000);
-  } catch { /* event system not available */ }
-}
-
-async function processReceipt(
-  framePath: string,
-  session: GrocerySession,
-): Promise<void> {
-  try {
-    const { scanReceipt } = require('./receiptScanner');
-    const result = await scanReceipt(framePath, session.items);
-    const { addToPantry } = require('./smartPantry');
-
-    for (const item of result.items) {
-      addToPantry(item.name, item.qty, item.unit, 'high');
-    }
-
-    const names = result.items.map((i: any) => i.name).join(', ');
-    emitSimpleMessage(
-      `Updated pantry with ${result.items.length} items from your receipt: ${names}.`,
-    );
-  } catch (err: any) {
-    console.warn('[GroceryPipeline] Receipt processing failed:', err?.message);
-    addVisualItemsToPantry(session);
-  }
-}
-
-function addVisualItemsToPantry(session: GrocerySession): void {
-  if (session.items.length === 0) return;
-  try {
-    const { addToPantry } = require('./smartPantry');
-    for (const item of session.items) {
-      addToPantry(item.name, item.qty, item.unit, 'medium');
-    }
-    emitSimpleMessage(
-      `Added ${session.items.length} items to pantry based on what I saw. You can correct in Pantry.`,
-    );
-  } catch (err: any) {
-    console.warn('[GroceryPipeline] Visual pantry add failed:', err?.message);
-  }
-}
-
-function emitSimpleMessage(text: string): void {
-  try {
-    const { DeviceEventEmitter } = require('react-native');
-    DeviceEventEmitter.emit('pendantMessageAdded', {
-      id: `m-grocery-${Date.now()}`,
-      role: 'mittens',
-      text,
-      timestamp: new Date(),
-      source: 'pendant',
-    });
-  } catch { /* emit not available */ }
-}
-
 // --- Types ---
 
 export interface GroceryFrameResult {
@@ -342,3 +353,5 @@ export interface GroceryFrameResult {
   newItems: GroceryItem[];
   summary: string;
 }
+
+

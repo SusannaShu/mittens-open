@@ -182,23 +182,29 @@ export function DateRangePicker({ visible, onClose, onSelect }: Props) {
                 style={[
                   styles.dayCell,
                   isInRange && !isStart && !isEnd && styles.dayCellInRange,
-                  (isStart || isEnd) && styles.dayCellSelected,
                 ]}
                 onPress={() => handleDayPress(day)}
                 disabled={isFuture}
                 activeOpacity={0.6}
               >
-                <Text
+                <View
                   style={[
-                    styles.dayText,
-                    isFuture && styles.dayTextDisabled,
-                    isToday && styles.dayTextToday,
-                    (isStart || isEnd) && styles.dayTextSelected,
-                    isInRange && !isStart && !isEnd && styles.dayTextInRange,
+                    styles.dayCircle,
+                    (isStart || isEnd) && styles.dayCircleSelected,
                   ]}
                 >
-                  {day.getDate()}
-                </Text>
+                  <Text
+                    style={[
+                      styles.dayText,
+                      isFuture && styles.dayTextDisabled,
+                      isToday && styles.dayTextToday,
+                      (isStart || isEnd) && styles.dayTextSelected,
+                      isInRange && !isStart && !isEnd && styles.dayTextInRange,
+                    ]}
+                  >
+                    {day.getDate()}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -301,8 +307,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dayCellSelected: {
+    // no longer used -- selected state is on the inner circle
+  },
+  dayCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCircleSelected: {
     backgroundColor: colors.textPrimary,
-    borderRadius: radius.full,
   },
   dayCellInRange: {
     backgroundColor: 'rgba(0,0,0,0.06)',

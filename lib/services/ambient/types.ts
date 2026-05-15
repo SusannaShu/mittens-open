@@ -98,7 +98,7 @@ export interface CaptureGateState {
 // =============================================
 
 /** What the person is doing with the food */
-export type FoodContext = 'eating' | 'grocery' | 'cooking';
+export type FoodContext = 'eating' | 'grocery' | 'cooking' | 'pantry';
 
 /** Grocery session state */
 export interface GrocerySession {

@@ -34,6 +34,7 @@ import {
   updateNutritionLog,
   type NutritionResult,
 } from './eatingLogWriter';
+import { handlePantryFrame } from './pantryScanPrompt';
 
 // --- Main Dispatch ---
 
@@ -117,6 +118,9 @@ async function handleNutrition(
 
     case 'cooking':
       return handleCookingContext(classification, framePath, foodCtx.cookingAction, logger);
+
+    case 'pantry':
+      return handlePantryContext(classification, framePath, logger);
 
     case 'eating':
     default:
@@ -224,4 +228,22 @@ async function handleCookingContext(
   };
 }
 
+// --- Pantry Context ---
 
+async function handlePantryContext(
+  classification: FrameClassification,
+  framePath: string,
+  logger: PipelineLogger,
+): Promise<NutritionResult> {
+  const result = await handlePantryFrame(
+    framePath, classification.nutrition.items, logger,
+  );
+
+  return {
+    logId: null, // Pantry view doesn't create nutrition logs
+    summary: result.summary,
+    pipelineFoods: null,
+    logName: null,
+    mealType: null,
+  };
+}

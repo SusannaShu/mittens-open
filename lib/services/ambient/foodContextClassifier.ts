@@ -54,7 +54,7 @@ function buildPrompt(items: DetectedFoodItem[], place?: string): string {
     '',
     'Classify what the person is doing with the food. Respond JSON only:',
     '{',
-    '  "context": "eating" | "grocery" | "cooking",',
+    '  "context": "eating" | "grocery" | "cooking" | "pantry",',
     '  "confidence": 0-1,',
     '  "cookingAction": "steaming salmon" (only if cooking, null otherwise)',
     '}',
@@ -67,6 +67,9 @@ function buildPrompt(items: DetectedFoodItem[], place?: string): string {
     '- "cooking": Person is preparing food. Cutting, mixing, stirring, using stove,',
     '  oven, steamer, microwave, blender. Raw ingredients on counter being prepped.',
     '  Include the specific action in cookingAction.',
+    '- "pantry": Person is looking at a fridge, freezer, pantry shelf, or food storage',
+    '  area. Door is open, items visible on shelves. They are NOT eating, cooking, or',
+    '  shopping. They are checking, organizing, or browsing their stored food.',
   ];
 
   return parts.filter(Boolean).join('\n');
@@ -80,7 +83,7 @@ function parseResponse(raw: string): FoodContextResult {
     if (!jsonMatch) return { context: 'eating', confidence: 0.5 };
 
     const parsed = JSON.parse(jsonMatch[0]);
-    const validContexts: FoodContext[] = ['eating', 'grocery', 'cooking'];
+    const validContexts: FoodContext[] = ['eating', 'grocery', 'cooking', 'pantry'];
     const context = validContexts.includes(parsed.context) ? parsed.context : 'eating';
 
     return {

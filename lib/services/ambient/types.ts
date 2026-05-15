@@ -132,4 +132,13 @@ export interface PipelineResult {
   classification: FrameClassification;
   nutritionLogId?: number | null;
   activityLogId?: number | null;
+  /** Natural language summary of what the nutrition pipeline did */
+  nutritionSummary?: string | null;
+  /** Food items for MealPipelineCard in chat */
+  pipelineFoods?: any[] | null;
+  /** Log name for meal metadata */
+  logName?: string | null;
+  /** Meal type for meal metadata */
+  mealType?: string | null;
 }
+

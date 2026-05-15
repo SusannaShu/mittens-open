@@ -142,14 +142,39 @@ class SceneStreamManager {
 
     // Phase 3: Log Creation
     const logIdx = logger.startPhase('log', 'write');
+    let logResult: Awaited<ReturnType<typeof executeLogDecision>> | null = null;
     try {
-      const result = await executeLogDecision(classification, framePath, logger);
+      logResult = await executeLogDecision(classification, framePath, logger);
       const parts: string[] = [];
-      if (result.nutritionLogId) parts.push(`meal #${result.nutritionLogId}`);
-      if (result.activityLogId) parts.push(`activity #${result.activityLogId}`);
-      logger.completePhase(logIdx, parts.join(' + ') || 'No logs created');
+      if (logResult.nutritionLogId) parts.push(`meal #${logResult.nutritionLogId}`);
+      if (logResult.activityLogId) parts.push(`activity #${logResult.activityLogId}`);
+      logger.completePhase(logIdx, parts.join(' + ') || logResult.nutritionSummary || 'No logs created');
     } catch (err: any) {
       logger.failPhase(logIdx, err?.message);
+    }
+
+    // Emit chat message for nutrition logs (photo + MealPipelineCard)
+    if (logResult?.nutritionLogId && logResult.pipelineFoods) {
+      try {
+        const { DeviceEventEmitter } = require('react-native');
+        DeviceEventEmitter.emit('pendantMessageAdded', {
+          id: `m-nut-${Date.now()}`,
+          role: 'mittens',
+          text: logResult.nutritionSummary || 'Food detected.',
+          photos: [framePath],
+          timestamp: new Date(),
+          source: 'pendant',
+          pipelineFoods: logResult.pipelineFoods,
+          mealMetadata: {
+            mealName: logResult.logName,
+            mealType: logResult.mealType,
+            logId: logResult.nutritionLogId,
+            source: 'pendant',
+          },
+        });
+      } catch (emitErr: any) {
+        console.warn('[SceneStream] Chat emit failed:', emitErr?.message);
+      }
     }
 
     // Phase 4: Face Recognition (gated by people > 0)
@@ -166,14 +191,16 @@ class SceneStreamManager {
 
     // Build summary for UI
     const summaryParts: string[] = [];
-    if (classification.nutrition.detected) {
+    if (logResult?.nutritionSummary) {
+      summaryParts.push(logResult.nutritionSummary);
+    } else if (classification.nutrition.detected) {
       const names = classification.nutrition.items.map(i => i.name).join(', ');
       summaryParts.push(names || 'food detected');
     }
     if (classification.activity.detected) {
       summaryParts.push(classification.activity.type || 'activity');
     }
-    const summary = `[${pipelines.join('+')}] ${summaryParts.join(' + ')}`;
+    const summary = `[${pipelines.join('+')}] ${summaryParts.join(' | ')}`;
 
     const log = logger.finalize();
     return { summary, log };

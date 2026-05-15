@@ -3,32 +3,31 @@
  *
  * Creates nutrition_logs and/or activity_logs based on the FrameClassification.
  * A single frame can produce BOTH a nutrition log AND an activity log.
- * Handles dedup (update existing log within window vs create new).
+ *
+ * Nutrition dedup is VLM-based: the brain sees the new frame + recent log
+ * history and decides skip / add to existing / new log.
+ *
+ * Activity logic lives in activityLogWriter.ts.
  */
 
 import type { FrameClassification } from './types';
 import type { PipelineLogger } from '../../pipelines/logger';
 import { guessMealType, aggregateNutrients, mergeItems } from './logWriterHelpers';
-
-// --- MET Lookup (approximate, for free-form activity types) ---
-
-const MET_TABLE: Record<string, number> = {
-  working: 1.3, resting: 1.0, reading: 1.3,
-  cooking: 2.0, cleaning: 2.5, errands: 2.5,
-  walking: 3.5, hiking: 6.0, cycling: 7.5,
-  running: 8.0, gym: 5.0, swimming: 7.0,
-  yoga: 2.5, dancing: 4.0, climbing: 8.0,
-  socializing: 1.5, commuting: 1.3, driving: 1.3,
-};
-
-/** Dedup window: prefer updating an existing log within this window */
-const DEDUP_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+import { dedupNutrition } from './nutritionDedup';
+import { handleActivity } from './activityLogWriter';
 
 // --- Main Dispatch ---
 
-interface LogResult {
+export interface LogResult {
   nutritionLogId: number | null;
   activityLogId: number | null;
+  /** Natural language summary of what the pipeline did */
+  nutritionSummary: string | null;
+  /** Identified food items for MealPipelineCard */
+  pipelineFoods: any[] | null;
+  /** Meal metadata for chat message persistence */
+  logName: string | null;
+  mealType: string | null;
 }
 
 /**
@@ -42,46 +41,79 @@ export async function executeLogDecision(
 ): Promise<LogResult> {
   let nutritionLogId: number | null = null;
   let activityLogId: number | null = null;
+  let nutritionSummary: string | null = null;
+  let pipelineFoods: any[] | null = null;
+  let logName: string | null = null;
+  let mealType: string | null = null;
 
-  // Nutrition pipeline
+  // Nutrition pipeline (with VLM dedup)
   if (classification.nutrition.detected) {
-    nutritionLogId = await handleNutrition(classification, framePath, logger);
+    const result = await handleNutrition(classification, framePath, logger);
+    nutritionLogId = result.logId;
+    nutritionSummary = result.summary;
+    pipelineFoods = result.pipelineFoods;
+    logName = result.logName;
+    mealType = result.mealType;
   }
 
-  // Activity pipeline
+  // Activity pipeline (delegated to activityLogWriter)
   if (classification.activity.detected) {
     activityLogId = await handleActivity(classification, framePath, logger);
   }
 
-  return { nutritionLogId, activityLogId };
+  return { nutritionLogId, activityLogId, nutritionSummary, pipelineFoods, logName, mealType };
 }
 
 // --- Nutrition Pipeline ---
+
+interface NutritionResult {
+  logId: number | null;
+  summary: string;
+  pipelineFoods: any[] | null;
+  logName: string | null;
+  mealType: string | null;
+}
 
 async function handleNutrition(
   classification: FrameClassification,
   framePath: string,
   logger: PipelineLogger,
-): Promise<number | null> {
+): Promise<NutritionResult> {
+  // Phase: VLM Dedup
+  const dedupIdx = logger.startPhase('food', 'dedup');
+  const dedupResult = await dedupNutrition(framePath, classification.nutrition.items);
+  logger.completePhase(dedupIdx, `${dedupResult.action}: ${dedupResult.reason}`);
+
+  if (dedupResult.action === 'skip') {
+    return {
+      logId: null,
+      summary: `Skipped -- ${dedupResult.reason}`,
+      pipelineFoods: null,
+      logName: null,
+      mealType: null,
+    };
+  }
+
   const { getDb } = require('../../database');
   const db = getDb();
 
-  // Check for recent nutrition log to update
-  const recentLog = findRecentLog(db, 'nutrition_logs');
-
-  if (recentLog) {
-    return updateNutritionLog(recentLog.id, classification, framePath, db, logger);
+  if (dedupResult.action === 'add' && dedupResult.targetLogId) {
+    return updateNutritionLog(dedupResult.targetLogId, classification, framePath, db, logger);
   }
+
   return createNutritionLog(classification, framePath, db, logger);
 }
+
+// --- Create Nutrition Log ---
 
 async function createNutritionLog(
   classification: FrameClassification,
   framePath: string,
   db: any,
   logger: PipelineLogger,
-): Promise<number | null> {
+): Promise<NutritionResult> {
   const mealType = guessMealType(Date.now());
+  const summaryParts: string[] = [];
   let identifiedFoods: any[] = [];
   let nutrientTotals: Record<string, number> = {};
 
@@ -92,39 +124,26 @@ async function createNutritionLog(
       const { identifyFoods } = require('../../pipelines/food/identify');
       const result = await identifyFoods([framePath]);
       identifiedFoods = result.foods || [];
-      logger.completePhase(idx, `${identifiedFoods.length} foods: ${identifiedFoods.map((f: any) => f.name).join(', ')}`);
+      const names = identifiedFoods.map((f: any) => f.name).join(', ');
+      logger.completePhase(idx, `${identifiedFoods.length} foods: ${names}`);
+      summaryParts.push(`Identified ${identifiedFoods.length} item${identifiedFoods.length !== 1 ? 's' : ''}: ${names}`);
     } catch (err: any) {
       logger.failPhase(idx, err?.message);
+      summaryParts.push('Food identification failed');
     }
   }
 
   // Phase: nutrients
   if (identifiedFoods.length > 0) {
-    const idx = logger.startPhase('food', 'nutrients');
-    try {
-      const { estimateNutrients } = require('../../pipelines/food/nutrients');
-      const results = await Promise.all(
-        identifiedFoods.map(async (food: any) => {
-          try {
-            return await estimateNutrients({
-              name: food.name,
-              portion_g: food.portion_g || 100,
-              cooking: food.cooking || '',
-            });
-          } catch { return null; }
-        }),
-      );
-      nutrientTotals = aggregateNutrients(results.filter(Boolean));
-      logger.completePhase(idx, `${results.filter(Boolean).length} items analyzed`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
+    const nutrResult = await runNutrientEstimation(identifiedFoods, logger);
+    nutrientTotals = nutrResult.totals;
+    if (nutrResult.calStr) summaryParts.push(nutrResult.calStr);
   }
 
-  // Phase: pantry delta (if at home)
+  // Phase: pantry delta
   await runPantryDelta(framePath, logger);
 
-  // Use identified foods or fall back to classifier items
+  // Build log entry
   const finalItems = identifiedFoods.length > 0 ? identifiedFoods : classification.nutrition.items;
   const logName = finalItems.length > 0
     ? finalItems.map((i: any) => i.name || i.n).join(', ')
@@ -146,8 +165,14 @@ async function createNutritionLog(
 
   const logId = result?.lastInsertRowId ?? null;
   console.log(`[LogWriter] Created nutrition log #${logId}: ${logName}`);
-  return logId;
+
+  const summary = buildNutritionSummary('new', logName, mealType, summaryParts);
+  const pipelineFoods = buildPipelineFoods(finalItems);
+
+  return { logId, summary, pipelineFoods, logName, mealType };
 }
+
+// --- Update Nutrition Log ---
 
 async function updateNutritionLog(
   logId: number,
@@ -155,11 +180,13 @@ async function updateNutritionLog(
   framePath: string,
   db: any,
   logger: PipelineLogger,
-): Promise<number | null> {
+): Promise<NutritionResult> {
   const existing = db.getFirstSync(
-    'SELECT items, image_uris, nutrients FROM nutrition_logs WHERE id = ?',
+    'SELECT items, image_uris, nutrients, meal_type, log_name FROM nutrition_logs WHERE id = ?',
     [logId],
   ) as any;
+
+  const summaryParts: string[] = [];
 
   // Append frame
   const existingImages = existing?.image_uris ? JSON.parse(existing.image_uris) : [];
@@ -168,48 +195,40 @@ async function updateNutritionLog(
   let updatedItems = existing?.items ? JSON.parse(existing.items) : [];
   let updatedNutrients = existing?.nutrients ? JSON.parse(existing.nutrients) : {};
 
-  // Re-run identify if new items detected
+  // Re-run identify to find new items
   if (classification.nutrition.items.length > 0 && framePath) {
     const idx = logger.startPhase('food', 'identify');
     try {
       const { identifyFoods } = require('../../pipelines/food/identify');
       const result = await identifyFoods([framePath]);
       const newFoods = result.foods || [];
+      const beforeCount = updatedItems.length;
       updatedItems = mergeItems(updatedItems, newFoods);
-      logger.completePhase(idx, `Merged: ${newFoods.length} new -> ${updatedItems.length} total`);
+      const addedCount = updatedItems.length - beforeCount;
+      logger.completePhase(idx, `Merged: ${newFoods.length} detected, ${addedCount} new`);
+      if (addedCount > 0) {
+        const addedNames = newFoods
+          .filter((nf: any) => !existing?.items?.includes(nf.name))
+          .map((nf: any) => nf.name)
+          .join(', ');
+        summaryParts.push(`Added ${addedCount} new item${addedCount !== 1 ? 's' : ''}: ${addedNames}`);
+      }
     } catch (err: any) {
       logger.failPhase(idx, err?.message);
     }
   }
 
-  // Re-run nutrients if items changed
+  // Re-run nutrients with full item list
   if (updatedItems.length > 0) {
-    const idx = logger.startPhase('food', 'nutrients');
-    try {
-      const { estimateNutrients } = require('../../pipelines/food/nutrients');
-      const results = await Promise.all(
-        updatedItems.map(async (food: any) => {
-          try {
-            return await estimateNutrients({
-              name: food.name,
-              portion_g: food.portion_g || 100,
-              cooking: food.cooking || '',
-            });
-          } catch { return null; }
-        }),
-      );
-      updatedNutrients = aggregateNutrients(results.filter(Boolean));
-      logger.completePhase(idx, `Re-analyzed ${results.filter(Boolean).length} items`);
-    } catch (err: any) {
-      logger.failPhase(idx, err?.message);
-    }
+    const nutrResult = await runNutrientEstimation(updatedItems, logger);
+    updatedNutrients = nutrResult.totals;
   }
 
   await runPantryDelta(framePath, logger);
 
   const logName = updatedItems.length > 0
     ? updatedItems.map((i: any) => i.name || i.n).join(', ')
-    : undefined;
+    : existing?.log_name;
 
   db.runSync(
     `UPDATE nutrition_logs SET
@@ -226,157 +245,42 @@ async function updateNutritionLog(
   );
 
   console.log(`[LogWriter] Updated nutrition log #${logId}`);
-  return logId;
+
+  const mealType = existing?.meal_type || guessMealType(Date.now());
+  const summary = buildNutritionSummary('add', logName, mealType, summaryParts);
+  const pipelineFoods = buildPipelineFoods(updatedItems);
+
+  return { logId, summary, pipelineFoods, logName, mealType };
 }
 
-// --- Activity Pipeline ---
+// --- Shared Helpers ---
 
-async function handleActivity(
-  classification: FrameClassification,
-  framePath: string,
+async function runNutrientEstimation(
+  foods: any[],
   logger: PipelineLogger,
-): Promise<number | null> {
-  const { getDb } = require('../../database');
-  const db = getDb();
-
-  // Check for active trail (movement session with linked activity log)
-  let trailLogId: number | null = null;
+): Promise<{ totals: Record<string, number>; calStr: string }> {
+  const idx = logger.startPhase('food', 'nutrients');
   try {
-    const { getActiveTrailLogId } = require('./trailActivityBridge');
-    trailLogId = getActiveTrailLogId();
-  } catch { /* trailActivityBridge not loaded */ }
-
-  // If trail is active, update it instead of creating a new log
-  if (trailLogId != null) {
-    return updateActivityLog(trailLogId, classification, framePath, db, logger);
-  }
-
-  // Check for recent activity log to update
-  const recentLog = findRecentLog(db, 'activity_logs');
-  if (recentLog) {
-    return updateActivityLog(recentLog.id, classification, framePath, db, logger);
-  }
-  return createActivityLog(classification, framePath, db, logger);
-}
-
-async function createActivityLog(
-  classification: FrameClassification,
-  framePath: string,
-  db: any,
-  logger: PipelineLogger,
-): Promise<number | null> {
-  const actType = classification.activity.type || 'unknown';
-  const logName = `${actType} (pendant)`;
-  const metValue = lookupMET(actType);
-  let lifeDesignWeights: Record<string, number> | null = null;
-
-  // Phase: lifeDesign
-  const ldIdx = logger.startPhase('activity', 'lifeDesign');
-  try {
-    const { inferLifeDesign } = require('../../pipelines/activity/lifeDesign');
-    const result = await inferLifeDesign(
-      { photos: framePath ? [framePath] : [] },
-      { activityType: actType, logName },
+    const { estimateNutrients } = require('../../pipelines/food/nutrients');
+    const results = await Promise.all(
+      foods.map(async (food: any) => {
+        try {
+          return await estimateNutrients({
+            name: food.name,
+            portion_g: food.portion_g || 100,
+            cooking: food.cooking || '',
+          });
+        } catch { return null; }
+      }),
     );
-    lifeDesignWeights = result.lifeCategories;
-    logger.completePhase(ldIdx,
-      `W:${result.lifeCategories?.work ?? '?'} H:${result.lifeCategories?.health ?? '?'} P:${result.lifeCategories?.play ?? '?'} L:${result.lifeCategories?.love ?? '?'}`);
+    const totals = aggregateNutrients(results.filter(Boolean));
+    const calStr = totals.calories ? `${Math.round(totals.calories)} cal` : '';
+    logger.completePhase(idx, `${results.filter(Boolean).length} items analyzed${calStr ? `, ${calStr}` : ''}`);
+    return { totals, calStr };
   } catch (err: any) {
-    logger.failPhase(ldIdx, err?.message);
+    logger.failPhase(idx, err?.message);
+    return { totals: {}, calStr: '' };
   }
-
-  // Resolve place name
-  let placeName: string | null = null;
-  try {
-    const { getCurrentPlace } = require('../location/locationService');
-    placeName = getCurrentPlace() || null;
-  } catch { /* location not available */ }
-
-  const result = db.runSync(
-    `INSERT INTO activity_logs (
-      logged_at, log_name, activity_type, duration_min, mets,
-      life_categories, source, location, image_uris,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
-    [
-      new Date().toISOString(),
-      logName, actType, metValue,
-      lifeDesignWeights ? JSON.stringify(lifeDesignWeights) : null,
-      placeName,
-      framePath ? JSON.stringify([framePath]) : null,
-    ],
-  );
-
-  const logId = result?.lastInsertRowId ?? null;
-  console.log(`[LogWriter] Created activity log #${logId}: ${logName} (${metValue} MET)`);
-  return logId;
-}
-
-async function updateActivityLog(
-  logId: number,
-  classification: FrameClassification,
-  framePath: string,
-  db: any,
-  logger: PipelineLogger,
-): Promise<number | null> {
-  const existing = db.getFirstSync(
-    'SELECT logged_at, image_uris, life_categories FROM activity_logs WHERE id = ?',
-    [logId],
-  ) as any;
-
-  // Update duration based on elapsed time
-  const loggedAt = new Date(existing?.logged_at || Date.now());
-  const durationMin = Math.round((Date.now() - loggedAt.getTime()) / 60000);
-
-  // Append frame
-  const existingImages = existing?.image_uris ? JSON.parse(existing.image_uris) : [];
-  existingImages.push(framePath);
-
-  // Weighted average life design
-  let lifeCategories = existing?.life_categories ? JSON.parse(existing.life_categories) : null;
-  if (lifeCategories) {
-    const ldIdx = logger.startPhase('activity', 'lifeDesign');
-    try {
-      const { inferLifeDesign } = require('../../pipelines/activity/lifeDesign');
-      const result = await inferLifeDesign(
-        { photos: framePath ? [framePath] : [] },
-        { activityType: classification.activity.type || 'unknown' },
-      );
-      if (result.lifeCategories) {
-        const frameN = existingImages.length;
-        for (const k of Object.keys(result.lifeCategories)) {
-          const prev = lifeCategories[k] ?? 0;
-          lifeCategories[k] = Math.round(((prev * (frameN - 1) + result.lifeCategories[k]) / frameN) * 100) / 100;
-        }
-      }
-      logger.completePhase(ldIdx, `Weighted avg over ${existingImages.length} frames`);
-    } catch (err: any) {
-      logger.failPhase(ldIdx, err?.message);
-    }
-  }
-
-  db.runSync(
-    `UPDATE activity_logs SET
-      duration_min = ?, image_uris = ?,
-      life_categories = ?, updated_at = datetime('now')
-    WHERE id = ?`,
-    [
-      durationMin,
-      JSON.stringify(existingImages),
-      lifeCategories ? JSON.stringify(lifeCategories) : null,
-      logId,
-    ],
-  );
-
-  console.log(`[LogWriter] Updated activity log #${logId} (${durationMin}min, ${existingImages.length} frames)`);
-  return logId;
-}
-
-// --- Helpers ---
-
-function lookupMET(activityType: string): number {
-  const key = activityType.toLowerCase().trim();
-  return MET_TABLE[key] ?? 1.3;
 }
 
 async function runPantryDelta(framePath: string, logger: PipelineLogger): Promise<void> {
@@ -396,19 +300,38 @@ async function runPantryDelta(framePath: string, logger: PipelineLogger): Promis
   }
 }
 
-interface RecentLogRow { id: number; logged_at: string; }
+function buildPipelineFoods(items: any[]): any[] {
+  return items.map((item: any) => ({
+    name: item.name || item.n,
+    portion_g: item.portion_g || item.g || 100,
+    household_portion: item.household_portion || item.hp,
+    cooking: item.cooking || item.k,
+    confidence: item.confidence || item.c || 0.8,
+    status: 'complete' as const,
+  }));
+}
 
-function findRecentLog(db: any, table: 'nutrition_logs' | 'activity_logs'): RecentLogRow | null {
-  try {
-    const cutoff = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
-    const row = db.getFirstSync(
-      `SELECT id, logged_at FROM ${table}
-       WHERE source IN ('pendant', 'trail') AND logged_at >= ?
-       ORDER BY logged_at DESC LIMIT 1`,
-      [cutoff],
-    ) as RecentLogRow | null;
-    return row;
-  } catch {
-    return null;
+/**
+ * Build a natural language summary of what the nutrition pipeline did.
+ * Spoken by Mittens and displayed as the chat message text.
+ */
+function buildNutritionSummary(
+  action: 'new' | 'add',
+  logName: string | null,
+  mealType: string | null,
+  phaseSummaries: string[],
+): string {
+  const parts: string[] = [];
+
+  if (action === 'new') {
+    parts.push(`Logging ${logName || 'food'} as ${mealType || 'snack'}.`);
+  } else {
+    parts.push(`Adding to your current ${mealType || 'meal'}: ${logName || 'food'}.`);
   }
+
+  for (const phase of phaseSummaries) {
+    parts.push(phase + '.');
+  }
+
+  return parts.join(' ');
 }

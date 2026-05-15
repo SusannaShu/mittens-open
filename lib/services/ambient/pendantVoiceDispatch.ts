@@ -221,7 +221,10 @@ async function handleMealIntent(
   framePath?: string,
 ): Promise<VoiceDispatchResult> {
   const context = buildMealContext();
-  const prompt = buildMealPrompt(transcript, context);
+
+  // Add recent pendant log context for corrections
+  const pendantContext = buildPendantNutritionContext();
+  const prompt = buildMealPrompt(transcript, context + pendantContext);
 
   let raw: string;
   if (framePath && brain.supportsVision) {
@@ -231,8 +234,91 @@ async function handleMealIntent(
   }
 
   const result = parseDispatchResponse(raw);
+
+  // Handle pendant correction actions
+  if (result.action === 'update' && result.data?.correction) {
+    return handlePendantCorrection(result);
+  }
+
   const executed = await executeMealAction(result);
   return { ...executed, intent: 'meal' };
+}
+
+/**
+ * Build context about the most recent pendant-auto-logged meal.
+ * Enables corrections like "no that's a carrot" or "I'm not eating it".
+ */
+function buildPendantNutritionContext(): string {
+  try {
+    const { getDb } = require('../../database');
+    const db = getDb();
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    const recent = db.getFirstSync(
+      `SELECT id, log_name, items, logged_at
+       FROM nutrition_logs
+       WHERE source = 'pendant' AND logged_at >= ? AND deleted_at IS NULL
+       ORDER BY logged_at DESC LIMIT 1`,
+      [fiveMinAgo],
+    ) as any;
+
+    if (!recent) return '';
+
+    const time = new Date(recent.logged_at).toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+
+    return [
+      '',
+      '',
+      `RECENT AUTO-LOG: The pendant camera just auto-logged "${recent.log_name}" at ${time} (log #${recent.id}).`,
+      'If the user is CORRECTING this (e.g., "no that\'s a carrot", "I\'m not eating it"),',
+      'set action to "update" with targetLogId=' + recent.id + ' and data.correction=true.',
+      'If they say to remove it, set data.remove=true.',
+      'If they say it\'s something else, set data.replaceItems=[{name:"correct item"}].',
+    ].join('\n');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Handle corrections to pendant-auto-logged nutrition.
+ */
+async function handlePendantCorrection(result: any): Promise<VoiceDispatchResult> {
+  const logId = result.targetLogId;
+  if (!logId) {
+    return { response: result.response || 'Got it.', intent: 'meal', action: 'respond' };
+  }
+
+  try {
+    if (result.data?.remove) {
+      const { removeNutritionLog } = require('./nutritionCorrection');
+      removeNutritionLog(logId);
+      return {
+        response: result.response || 'Removed that from your log.',
+        intent: 'meal', action: 'delete', logId,
+      };
+    }
+
+    if (result.data?.replaceItems?.length > 0) {
+      const { replaceNutritionLogItems } = require('./nutritionCorrection');
+      await replaceNutritionLogItems(logId, result.data.replaceItems);
+      const names = result.data.replaceItems.map((i: any) => i.name).join(', ');
+      return {
+        response: result.response || `Updated to ${names}.`,
+        intent: 'meal', action: 'update', logId,
+      };
+    }
+
+    return { response: result.response || 'Got it.', intent: 'meal', action: 'respond' };
+  } catch (err: any) {
+    console.warn('[VoiceDispatch] Pendant correction failed:', err?.message);
+    return {
+      response: 'Sorry, I had trouble updating that.',
+      intent: 'meal', action: 'respond',
+    };
+  }
 }
 
 // ─── Activity Update ────

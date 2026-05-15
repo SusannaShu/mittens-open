@@ -50,8 +50,16 @@ class SceneStreamManager {
   /**
    * Main entry point: a new pendant frame arrived.
    * Called from usePendantBridge.ts on each motion frame.
+   *
+   * @param onQueueResult -- callback invoked for each queued frame after it
+   *   finishes processing in the background drain loop. Without this, queued
+   *   frames would process but never update the UI.
    */
-  async onPendantFrame(framePath: string, timestamp: number): Promise<{ summary: string, log?: PipelineLog } | null> {
+  async onPendantFrame(
+    framePath: string,
+    timestamp: number,
+    onQueueResult?: (framePath: string, result: { summary: string, log?: PipelineLog }) => void,
+  ): Promise<{ summary: string, log?: PipelineLog } | null> {
     // Queue if already processing
     if (this.processing) {
       this.pendingFrames.push({ framePath, timestamp });
@@ -68,12 +76,18 @@ class SceneStreamManager {
       result = { summary: 'Error during processing' };
     }
 
-    // Drain queued frames in background
+    // Drain queued frames in background, notifying the caller of each result
     (async () => {
       try {
         while (this.pendingFrames.length > 0) {
           const next = this.pendingFrames.shift()!;
-          await this.processFrame(next.framePath, next.timestamp);
+          try {
+            const queuedResult = await this.processFrame(next.framePath, next.timestamp);
+            onQueueResult?.(next.framePath, queuedResult);
+          } catch (err: any) {
+            console.error('[SceneStream] Queued frame error:', err?.message);
+            onQueueResult?.(next.framePath, { summary: `Error: ${err?.message}` });
+          }
         }
       } finally {
         this.processing = false;
@@ -139,6 +153,13 @@ class SceneStreamManager {
       `/${classification.subPhase} conf=${classification.confidence}` +
       ` items=${classification.items.length} ppl=${classification.detectedPeople}`,
     );
+
+    // 2.9. Brain offline -- surface error instead of silently classifying as unknown
+    if (classification.error) {
+      console.warn('[SceneStream] Brain error:', classification.error);
+      logger.skipPhase('scene', 'match', classification.error);
+      return { summary: classification.error, log: logger.finalize() };
+    }
 
     // 3. Skip low-confidence unknown frames
     if (

@@ -180,6 +180,9 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         });
 
         // ─── Motion Frame ───
+        // Track framePath -> captureId so queued frames can update the store
+        const frameCaptures = new Map<string, string>();
+
         unsubMotion = service.onMotionFrame(async (framePath: string) => {
           console.log('[PendantBridge] Motion frame:', framePath.slice(-30));
 
@@ -203,15 +206,55 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             framePath,
           });
 
+          // Track mapping so queue drain can update the correct capture
+          frameCaptures.set(framePath, captureId);
+
+          // Callback for queued frames: updates pendantStore when they finish
+          const onQueueResult = (queuedFramePath: string, queuedResult: { summary: string, log?: any }) => {
+            const queuedCaptureId = frameCaptures.get(queuedFramePath);
+            if (!queuedCaptureId) return;
+            frameCaptures.delete(queuedFramePath);
+
+            if (queuedResult.summary.toLowerCase().includes('skipped')) {
+              pendantStore.removeCapture(queuedCaptureId);
+            } else if (queuedResult.summary.startsWith('Brain offline:')) {
+              // Brain not connected -- keep the capture, show the error
+              pendantStore.updateCapture(queuedCaptureId, {
+                processed: true,
+                brainResponse: queuedResult.summary,
+                pipelineLog: queuedResult.log,
+              });
+            } else {
+              pendantStore.updateCapture(queuedCaptureId, {
+                processed: true,
+                brainResponse: queuedResult.summary,
+                pipelineLog: queuedResult.log,
+              });
+            }
+          };
+
           // Route through ambient intelligence pipeline
           try {
             const { getSceneStreamManager } = require('../../services/ambient/sceneStreamManager');
             const manager = getSceneStreamManager();
-            const result = await manager.onPendantFrame(framePath, Date.now());
+            const result = await manager.onPendantFrame(framePath, Date.now(), onQueueResult);
 
             if (result) {
+              // Clean up the mapping for the directly-processed frame
+              frameCaptures.delete(framePath);
+
               if (result.summary.toLowerCase().includes('skipped')) {
                 pendantStore.removeCapture(captureId);
+              } else if (result.summary.startsWith('Brain offline:')) {
+                // Brain not connected -- keep the capture, show the error
+                pendantStore.updateCapture(captureId, {
+                  processed: true,
+                  brainResponse: result.summary,
+                  pipelineLog: result.log,
+                });
+              } else if (result.summary === 'Queued for processing...') {
+                // Frame was queued -- leave it as unprocessed, callback will handle it
+                // Do NOT mark processed: true here
               } else {
                 pendantStore.updateCapture(captureId, {
                   processed: true,
@@ -222,6 +265,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             }
           } catch (err: any) {
             console.warn('[PendantBridge] Ambient pipeline error (non-blocking):', err?.message);
+            frameCaptures.delete(framePath);
             pendantStore.updateCapture(captureId, {
               processed: true,
               brainResponse: `Pipeline Error: ${err?.message}`,

@@ -38,7 +38,26 @@ export async function classifyFrame(
     const raw = await brain.vision(prompt, [framePath]);
     return parseClassification(raw, fallback);
   } catch (err: any) {
-    console.error('[SceneClassifier] Vision failed:', err?.message || err);
+    const msg = err?.message || String(err);
+    console.error('[SceneClassifier] Vision failed:', msg);
+
+    // Detect brain connectivity issues so the UI can surface them
+    const isConnectivityError =
+      err?.name === 'ConnectionError' ||
+      msg.includes('Network request failed') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('ECONNREFUSED') ||
+      msg.includes('Cannot reach') ||
+      msg.includes('AbortError') ||
+      msg.includes('Model file not downloaded');
+
+    if (isConnectivityError) {
+      return {
+        ...fallback,
+        error: `Brain offline: ${msg}`,
+      };
+    }
+
     return fallback;
   }
 }

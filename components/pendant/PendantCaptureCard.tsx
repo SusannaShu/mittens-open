@@ -101,9 +101,16 @@ export function PendantCaptureCard({
 
         {/* Brain response */}
         {capture.brainResponse ? (
-          <Text style={styles.response} numberOfLines={2}>
-            {capture.brainResponse}
-          </Text>
+          capture.brainResponse.startsWith('Brain offline:') ? (
+            <View style={styles.offlineRow}>
+              <Feather name="wifi-off" size={12} color="#D97706" />
+              <Text style={styles.offlineText}>Brain not connected</Text>
+            </View>
+          ) : (
+            <Text style={styles.response} numberOfLines={2}>
+              {capture.brainResponse}
+            </Text>
+          )
         ) : (
           <Text style={styles.pending}>
             {capture.processed ? 'Tap to view' : 'Processing...'}
@@ -202,5 +209,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     fontStyle: 'italic',
+  },
+  offlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  offlineText: {
+    fontSize: 11,
+    color: '#D97706',
+    fontWeight: '600',
   },
 });

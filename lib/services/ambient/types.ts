@@ -133,6 +133,8 @@ export interface SceneClassification {
   description?: string;
   /** Number of people/faces detected in the frame */
   detectedPeople: number;
+  /** Set when classification failed due to brain connectivity issues */
+  error?: string;
 }
 
 /** Context provided to the classifier alongside the frame */

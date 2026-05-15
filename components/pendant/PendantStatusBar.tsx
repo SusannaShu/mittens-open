@@ -62,13 +62,13 @@ export function PendantStatusBar({
         <View style={styles.stat}>
           <Feather name="camera" size={12} color={colors.textMuted} />
           <Text style={styles.statValue}>{todayMotionCount}</Text>
-          <Text style={styles.statLabel}>frames</Text>
+          <Text style={styles.statLabel}>vision</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.stat}>
           <Feather name="mic" size={12} color={colors.textMuted} />
           <Text style={styles.statValue}>{todayAudioCount}</Text>
-          <Text style={styles.statLabel}>recordings</Text>
+          <Text style={styles.statLabel}>voice</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.stat}>

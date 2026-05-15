@@ -26,7 +26,7 @@ export interface PendantCapture {
 // ─── Constants ───
 
 const STORAGE_KEY = '@mittens_pendant_captures';
-const AUTO_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 1 day
+const AUTO_CLEANUP_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ─── State ───
 

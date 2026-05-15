@@ -3,9 +3,13 @@
  *
  * Shows all pendant captures (frames + audio) in reverse chronological order.
  * Accessible from the Profile tab's Pendant section.
+ *
+ * Filtering:
+ *   - Stat cards (Vision / Voice / Total) act as type filters
+ *   - Time buttons (Today / Yesterday / Custom) act as date filters
  */
 
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,8 +17,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
-  Image,
   Alert,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
@@ -24,23 +28,79 @@ import { usePendantFeed } from '../lib/hooks/pendant/usePendantFeed';
 import { PendantCaptureCard } from '../components/pendant/PendantCaptureCard';
 import { CaptureDetailModal } from '../components/pendant/CaptureDetailModal';
 import { PendantCapture, removeCaptures } from '../lib/services/pendant/pendantStore';
+import { DateRangePicker } from '../components/pendant/DateRangePicker';
 
-type FilterType = 'all' | 'vision' | 'voice';
+type TypeFilter = 'all' | 'vision' | 'voice';
+type TimeFilter = 'today' | 'yesterday' | 'custom';
+
+/** Get midnight timestamp for the start of today */
+function getStartOfDay(date: Date): number {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Get end-of-day timestamp (23:59:59.999) */
+function getEndOfDay(date: Date): number {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
 
 export default function PendantFeedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { captures, todayStats, isLoading } = usePendantFeed();
-  const [filter, setFilter] = React.useState<FilterType>('all');
+  const { captures, isLoading } = usePendantFeed();
+
+  // Type filter (from tapping stat cards)
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  // Time filter
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('today');
+  const [customRange, setCustomRange] = useState<{ start: number; end: number } | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [selectedCapture, setSelectedCapture] = useState<PendantCapture | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Compute time range based on timeFilter
+  const timeRange = useMemo(() => {
+    const now = new Date();
+    if (timeFilter === 'today') {
+      return { start: getStartOfDay(now), end: getEndOfDay(now) };
+    }
+    if (timeFilter === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { start: getStartOfDay(yesterday), end: getEndOfDay(yesterday) };
+    }
+    if (timeFilter === 'custom' && customRange) {
+      return customRange;
+    }
+    // Fallback: show everything
+    return { start: 0, end: Date.now() };
+  }, [timeFilter, customRange]);
+
+  // Filter by time first
+  const timeFilteredCaptures = useMemo(() => {
+    return captures.filter(
+      (c) => c.timestamp >= timeRange.start && c.timestamp <= timeRange.end
+    );
+  }, [captures, timeRange]);
+
+  // Compute stats from the time-filtered set (not type-filtered)
+  const stats = useMemo(() => {
+    const vision = timeFilteredCaptures.filter((c) => c.type === 'MOTION').length;
+    const voice = timeFilteredCaptures.filter((c) => c.type === 'BUTTON_PRESS').length;
+    return { vision, voice, total: vision + voice };
+  }, [timeFilteredCaptures]);
+
+  // Then filter by type
   const filteredCaptures = useMemo(() => {
-    if (filter === 'vision') return captures.filter((c) => c.type === 'MOTION');
-    if (filter === 'voice') return captures.filter((c) => c.type === 'BUTTON_PRESS');
-    return captures;
-  }, [captures, filter]);
+    if (typeFilter === 'vision') return timeFilteredCaptures.filter((c) => c.type === 'MOTION');
+    if (typeFilter === 'voice') return timeFilteredCaptures.filter((c) => c.type === 'BUTTON_PRESS');
+    return timeFilteredCaptures;
+  }, [timeFilteredCaptures, typeFilter]);
 
   const handleCapturePress = useCallback((capture: PendantCapture) => {
     setSelectedCapture(capture);
@@ -80,57 +140,124 @@ export default function PendantFeedScreen() {
     setSelectedIds(new Set());
   }, []);
 
+  const handleStatCardPress = useCallback((type: TypeFilter) => {
+    setTypeFilter((prev) => (prev === type ? 'all' : type));
+  }, []);
+
+  const handleTimeFilter = useCallback((tf: TimeFilter) => {
+    if (tf === 'custom') {
+      setShowDatePicker(true);
+      return;
+    }
+    setTimeFilter(tf);
+    setCustomRange(null);
+  }, []);
+
+  const handleCustomRangeSelected = useCallback((start: Date, end: Date) => {
+    setCustomRange({ start: getStartOfDay(start), end: getEndOfDay(end) });
+    setTimeFilter('custom');
+    setShowDatePicker(false);
+  }, []);
+
+  // Time filter label for custom range
+  const customLabel = useMemo(() => {
+    if (!customRange) return 'Custom';
+    const fmt = (ts: number) => {
+      const d = new Date(ts);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    };
+    const startStr = fmt(customRange.start);
+    const endStr = fmt(customRange.end);
+    return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
+  }, [customRange]);
+
   const renderHeader = useCallback(() => (
     <View style={styles.header}>
-      {/* Stats */}
+      {/* Stat cards -- act as type filter */}
       <View style={styles.statsRow}>
-        <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{todayStats.motionCount}</Text>
-          <Text style={styles.statLabel}>Frames</Text>
-        </View>
-        <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{todayStats.audioCount}</Text>
-          <Text style={styles.statLabel}>Recordings</Text>
-        </View>
-        <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{todayStats.totalCount}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.statBox, typeFilter === 'vision' && styles.statBoxActive]}
+          activeOpacity={0.7}
+          onPress={() => handleStatCardPress('vision')}
+        >
+          <Text style={[styles.statNumber, typeFilter === 'vision' && styles.statNumberActive]}>
+            {stats.vision}
+          </Text>
+          <Text style={[styles.statLabel, typeFilter === 'vision' && styles.statLabelActive]}>
+            Vision
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.statBox, typeFilter === 'voice' && styles.statBoxActive]}
+          activeOpacity={0.7}
+          onPress={() => handleStatCardPress('voice')}
+        >
+          <Text style={[styles.statNumber, typeFilter === 'voice' && styles.statNumberActive]}>
+            {stats.voice}
+          </Text>
+          <Text style={[styles.statLabel, typeFilter === 'voice' && styles.statLabelActive]}>
+            Voice
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.statBox, typeFilter === 'all' && styles.statBoxActive]}
+          activeOpacity={0.7}
+          onPress={() => handleStatCardPress('all')}
+        >
+          <Text style={[styles.statNumber, typeFilter === 'all' && styles.statNumberActive]}>
+            {stats.total}
+          </Text>
+          <Text style={[styles.statLabel, typeFilter === 'all' && styles.statLabelActive]}>
+            Total
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Filters */}
+      {/* Time filter buttons */}
       <View style={styles.filterRow}>
-        {(['all', 'vision', 'voice'] as FilterType[]).map((f) => (
+        {(['today', 'yesterday', 'custom'] as TimeFilter[]).map((tf) => (
           <TouchableOpacity
-            key={f}
-            style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
-            onPress={() => setFilter(f)}
+            key={tf}
+            style={[styles.filterBtn, timeFilter === tf && styles.filterBtnActive]}
+            onPress={() => handleTimeFilter(tf)}
             activeOpacity={0.7}
           >
             <Text
               style={[
                 styles.filterText,
-                filter === f && styles.filterTextActive,
+                timeFilter === tf && styles.filterTextActive,
               ]}
             >
-              {f === 'all' ? 'All' : f === 'vision' ? 'Vision' : 'Voice'}
+              {tf === 'today'
+                ? 'Today'
+                : tf === 'yesterday'
+                ? 'Yesterday'
+                : customLabel}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
     </View>
-  ), [todayStats, filter]);
+  ), [stats, typeFilter, timeFilter, customLabel, handleStatCardPress, handleTimeFilter]);
 
   const renderEmpty = useCallback(() => (
     <View style={styles.emptyContainer}>
       <Feather name="disc" size={32} color={colors.textMuted} />
-      <Text style={styles.emptyTitle}>No captures yet</Text>
+      <Text style={styles.emptyTitle}>
+        {timeFilter === 'today'
+          ? 'No captures today'
+          : timeFilter === 'yesterday'
+          ? 'No captures yesterday'
+          : 'No captures in this range'}
+      </Text>
       <Text style={styles.emptyBody}>
         Your Mittens pendant will capture frames on motion and audio on
         double-tap. They will appear here in real time.
       </Text>
     </View>
-  ), []);
+  ), [timeFilter]);
 
   return (
     <>
@@ -199,6 +326,13 @@ export default function PendantFeedScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Date Range Picker Modal */}
+      <DateRangePicker
+        visible={showDatePicker}
+        onClose={() => setShowDatePicker(false)}
+        onSelect={handleCustomRangeSelected}
+      />
     </>
   );
 }
@@ -258,15 +392,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+  statBoxActive: {
+    backgroundColor: colors.textPrimary,
+    borderColor: colors.textPrimary,
+  },
   statNumber: {
     fontSize: 22,
     fontWeight: '700',
     color: colors.textPrimary,
   },
+  statNumberActive: {
+    color: '#FFF',
+  },
   statLabel: {
     fontSize: 11,
     color: colors.textMuted,
     fontWeight: '500',
+  },
+  statLabelActive: {
+    color: 'rgba(255,255,255,0.7)',
   },
   filterRow: {
     flexDirection: 'row',

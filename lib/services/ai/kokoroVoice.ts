@@ -12,13 +12,13 @@
 
 export type KokoroVoiceId =
   | 'af_heart'
-  | 'af_bella'
-  | 'af_nicole'
+  | 'af_river'
   | 'af_sarah'
-  | 'af_sky'
+  | 'bf_emma'
   | 'am_adam'
   | 'am_michael'
-  | 'am_liam';
+  | 'am_santa'
+  | 'bm_daniel';
 
 export interface KokoroVoiceOption {
   id: KokoroVoiceId;
@@ -29,13 +29,13 @@ export interface KokoroVoiceOption {
 
 export const KOKORO_VOICES: KokoroVoiceOption[] = [
   { id: 'af_heart', label: 'Heart', gender: 'female', style: 'Warm, conversational' },
-  { id: 'af_bella', label: 'Bella', gender: 'female', style: 'Friendly, upbeat' },
-  { id: 'af_nicole', label: 'Nicole', gender: 'female', style: 'Calm, professional' },
+  { id: 'af_river', label: 'River', gender: 'female', style: 'Friendly, upbeat' },
   { id: 'af_sarah', label: 'Sarah', gender: 'female', style: 'Neutral, clear' },
-  { id: 'af_sky', label: 'Sky', gender: 'female', style: 'Light, airy' },
+  { id: 'bf_emma', label: 'Emma (GB)', gender: 'female', style: 'British, elegant' },
   { id: 'am_adam', label: 'Adam', gender: 'male', style: 'Confident, strong' },
   { id: 'am_michael', label: 'Michael', gender: 'male', style: 'Smooth, relaxed' },
-  { id: 'am_liam', label: 'Liam', gender: 'male', style: 'Warm, casual' },
+  { id: 'am_santa', label: 'Santa', gender: 'male', style: 'Deep, warm' },
+  { id: 'bm_daniel', label: 'Daniel (GB)', gender: 'male', style: 'British, formal' },
 ];
 
 export const DEFAULT_VOICE: KokoroVoiceId = 'af_heart';
@@ -51,13 +51,13 @@ function getVoiceConstant(voiceId: KokoroVoiceId): any {
     const ET = require('react-native-executorch');
     const map: Record<string, any> = {
       af_heart: ET.KOKORO_VOICE_AF_HEART,
-      af_bella: ET.KOKORO_VOICE_AF_BELLA,
-      af_nicole: ET.KOKORO_VOICE_AF_NICOLE,
+      af_river: ET.KOKORO_VOICE_AF_RIVER,
       af_sarah: ET.KOKORO_VOICE_AF_SARAH,
-      af_sky: ET.KOKORO_VOICE_AF_SKY,
+      bf_emma: ET.KOKORO_VOICE_BF_EMMA,
       am_adam: ET.KOKORO_VOICE_AM_ADAM,
       am_michael: ET.KOKORO_VOICE_AM_MICHAEL,
-      am_liam: ET.KOKORO_VOICE_AM_LIAM,
+      am_santa: ET.KOKORO_VOICE_AM_SANTA,
+      bm_daniel: ET.KOKORO_VOICE_BM_DANIEL,
     };
     return map[voiceId] || ET.KOKORO_VOICE_AF_HEART;
   } catch {

@@ -569,9 +569,9 @@ export async function handleMessage(
             };
           }));
 
-          const runNutrients = !intent.inferrablePhases || intent.inferrablePhases.includes('nutrients');
+          const runNutrients = pipelineFoods.length > 0;
           
-          if (runNutrients && pipelineFoods.length > 0) {
+          if (runNutrients) {
             // Start nutrient estimation pipeline in background
             updateIntentStatus('meal', 'running', {
               nutrients: { status: 'running' },

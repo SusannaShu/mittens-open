@@ -125,6 +125,10 @@ bool bleTransferStream() {
   // Wait for PULL command from phone
   unsigned long startWait = millis();
   while (!g_pullRequested && millis() - startWait < BLE_TRANSFER_TIMEOUT_MS) {
+    if (digitalRead(BUTTON_PIN) == LOW) {
+      Serial.println("[BLE-TX] Aborting wait for PULL -- button pressed");
+      return false;
+    }
     delay(50);
   }
 
@@ -140,6 +144,11 @@ bool bleTransferStream() {
   size_t offset = 0;
   int chunkNum = 0;
   while (offset < g_transferTotal) {
+    if (digitalRead(BUTTON_PIN) == LOW) {
+      Serial.println("[BLE-TX] Aborting stream -- button pressed");
+      return false;
+    }
+
     size_t remaining = g_transferTotal - offset;
     size_t chunkSize = remaining < BLE_CHUNK_SIZE ? remaining : BLE_CHUNK_SIZE;
 

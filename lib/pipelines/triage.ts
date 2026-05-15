@@ -143,7 +143,6 @@ For activity pipeline:
 
 For meal pipeline:
 - "identify": ONLY include if specific foods, ingredients, or drinks are visible and clearly distinguishable.
-- "nutrients": ONLY include if you included "identify" and the foods are quantifiable.
 - "eatingContext": ONLY include if there are EXPLICIT, VISIBLE human eating behavior cues (e.g., a person actively chewing, a hand holding a fork/spoon, a person sitting at a table eating). ABSOLUTELY DO NOT include for photos of just plated food, drinks, or ingredients! If no human is interacting with the food, omit this phase.
 - "pantryDelta": ONLY include if the scene appears to be cooking or eating AT HOME. Do NOT include if eating out at a restaurant.
 
@@ -227,7 +226,7 @@ pipeline: meal (mentions eating/food), activity (movement, events, work, social 
 sleep (sleep mention), email (emails, orders, inbox), watch (websites, news, feeds),
 chat (conversational, question, or unclear)
 
-For meal: include "identify" ONLY if specific foods or drinks are named. Include "nutrients" ONLY if "identify" is included. "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate. Include "pantryDelta" ONLY if they are cooking or eating at home (skip if eating out).
+For meal: include "identify" ONLY if specific foods or drinks are named. "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate. Include "pantryDelta" ONLY if they are cooking or eating at home (skip if eating out).
 
 For activity: include phases with evidence — "detect" always, "social" if people mentioned,
 "environment" if location mentioned, "objects" if tools/devices mentioned,

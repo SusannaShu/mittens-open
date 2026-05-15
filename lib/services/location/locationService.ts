@@ -194,12 +194,8 @@ function handleGeofenceEvent(
 }
 
 function handleSignificantLocationChange(location: Location.LocationObject) {
-  const { latitude, longitude, accuracy } = location.coords;
-  if (accuracy != null && accuracy > 65) {
-    console.log(`[location] Ignoring low accuracy point (${Math.round(accuracy)}m)`);
-    return;
-  }
-  
+  const { latitude, longitude } = location.coords;
+
   const now = new Date().toISOString();
   const prevLat = currentLocation?.lat;
   const prevLon = currentLocation?.lon;
@@ -323,10 +319,6 @@ async function getCurrentPositionForTransition(): Promise<Location.LocationObjec
     const loc = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.BestForNavigation,
     });
-    if (loc.coords.accuracy != null && loc.coords.accuracy > 65) {
-      console.log(`[location] Ignoring low accuracy transition point (${Math.round(loc.coords.accuracy)}m)`);
-      return null;
-    }
     return loc;
   } catch (err) {
     console.warn('[location] Transition GPS pull failed:', err);

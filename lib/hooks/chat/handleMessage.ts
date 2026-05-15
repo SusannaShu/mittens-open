@@ -531,21 +531,26 @@ export async function handleMessage(
       // MEAL: After eating context, run food identification + nutrient pipeline
       if (intent.pipeline === 'meal') {
         try {
-          updateIntentStatus('meal', 'running', {
-            identify: { status: 'running' },
-          });
+          const runIdentify = !intent.inferrablePhases || intent.inferrablePhases.includes('identify');
+          let foodResult: any = { foods: [], dishName: '', mealType: intent.context?.mealType };
 
-          // Get the food identification provider
-          const agentEnabled = await getAgentEnabled();
-          const foodProvider = (agentEnabled && getAgentProvider()) || await getInferenceProvider();
+          if (runIdentify) {
+            updateIntentStatus('meal', 'running', {
+              identify: { status: 'running' },
+            });
 
-          // Identify foods from photos
-          const foodResult = await foodProvider.identifyFoods(photos, text);
-          console.log('[Pipeline] Food identification:', foodResult.foods.length, 'foods');
+            // Get the food identification provider
+            const agentEnabled = await getAgentEnabled();
+            const foodProvider = (agentEnabled && getAgentProvider()) || await getInferenceProvider();
 
-          updateIntentStatus('meal', 'running', {
-            identify: { status: 'complete', result: `${foodResult.foods.length} items` },
-          });
+            // Identify foods from photos
+            foodResult = await foodProvider.identifyFoods(photos, text);
+            console.log('[Pipeline] Food identification:', foodResult.foods.length, 'foods');
+
+            updateIntentStatus('meal', 'running', {
+              identify: { status: 'complete', result: `${foodResult.foods.length} items` },
+            });
+          }
 
           // Convert to pipeline items and attach to progress message
           const pipelineFoods = foodIdToPipeline(foodResult);
@@ -564,14 +569,22 @@ export async function handleMessage(
             };
           }));
 
-          // Start nutrient estimation pipeline in background
-          updateIntentStatus('meal', 'running', {
-            nutrients: { status: 'running' },
-          });
-
-          setTimeout(() => {
-            ctx.startPipeline(progressMsgId, pipelineFoods);
-          }, 300);
+          const runNutrients = !intent.inferrablePhases || intent.inferrablePhases.includes('nutrients');
+          
+          if (runNutrients && pipelineFoods.length > 0) {
+            // Start nutrient estimation pipeline in background
+            updateIntentStatus('meal', 'running', {
+              nutrients: { status: 'running' },
+            });
+            setTimeout(() => {
+              ctx.startPipeline(progressMsgId, pipelineFoods);
+            }, 300);
+          } else {
+            // Trigger pipeline completion to save the meal even if skipping nutrient estimation
+            setTimeout(() => {
+              ctx.startPipeline(progressMsgId, pipelineFoods);
+            }, 300);
+          }
 
           // Update the meal result with food data for composeReply
           const lastResult = results[results.length - 1];
@@ -588,6 +601,10 @@ export async function handleMessage(
           updateIntentStatus('meal', 'running', {
             identify: { status: 'error', result: foodErr?.message },
           });
+          // Ensure we still start the pipeline so the UI can clear the processing state
+          setTimeout(() => {
+            ctx.startPipeline(progressMsgId, []);
+          }, 300);
         }
       }
 

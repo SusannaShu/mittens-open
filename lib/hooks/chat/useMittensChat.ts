@@ -220,6 +220,23 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
     } catch (err) {
       console.error('[Pipeline] Failed to persist meal:', err);
     }
+
+    // Update the chat message in DB with finalized pipelineFoods + mealMetadata
+    // so the meal card survives app reload
+    try {
+      const finalMsg = messagesRef.current.find(m => m.id === messageId || m.clientId === messageId);
+      const dbId = finalMsg?.id?.startsWith('db-') ? parseInt(finalMsg.id.slice(3), 10) : null;
+      if (dbId && !isNaN(dbId) && dataProvider.updateMessage) {
+        await dataProvider.updateMessage(dbId, {
+          metadata: {
+            pipelineFoods: completedFoods,
+            mealMetadata: finalMsg?.mealMetadata,
+          },
+        });
+      }
+    } catch (err) {
+      console.error('[Pipeline] Failed to update message with final foods:', err);
+    }
   };
 
   const { startPipeline, restartFood, restartFoodPortion, addFood, removeFood, replaceWithUsda } =

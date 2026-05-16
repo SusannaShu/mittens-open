@@ -106,6 +106,17 @@ export class LocalDataProvider implements DataProvider {
     }));
   }
 
+  async updateMessage(id: number, updates: { metadata?: any }): Promise<void> {
+    const db = getDb();
+    if (updates.metadata) {
+      // Merge with existing metadata
+      const row = db.getFirstSync('SELECT metadata FROM mittens_messages WHERE id = ?', [id]) as any;
+      const existing = parseJson(row?.metadata) || {};
+      const merged = { ...existing, ...updates.metadata };
+      db.runSync('UPDATE mittens_messages SET metadata = ? WHERE id = ?', [JSON.stringify(merged), id]);
+    }
+  }
+
   // ─── Nutrition ───
 
   async logMeal(meal: MealInput): Promise<{ id: number }> {

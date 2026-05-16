@@ -37,6 +37,7 @@ export interface DataProvider {
   saveMessageBatch?(messages: Array<{ role: 'user' | 'mittens'; text: string; photos?: string[]; activityType?: string; metadata?: any }>): Promise<{ saved: number }>;
   deleteMessagesSince?(id: number): Promise<void>;
   getRecentMessages?(limit: number): Promise<any[]>;
+  updateMessage?(id: number, updates: { metadata?: any }): Promise<void>;
 
   // Nutrition
   logMeal(meal: MealInput): Promise<{ id: number }>;

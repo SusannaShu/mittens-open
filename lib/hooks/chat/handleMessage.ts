@@ -583,6 +583,9 @@ export async function handleMessage(
 
   const results: PromiseSettledResult<{ type: string; data: any }>[] = [];
 
+  // Track meal pipeline data so we can persist it with the message
+  let mealPipelineData: { pipelineFoods?: any[]; mealMetadata?: any } = {};
+
   for (const intent of validIntents) {
     console.log(`[Pipeline] Running intent: ${intent.pipeline} (conf: ${intent.confidence})`);
     updateIntentStatus(intent.pipeline, 'running');
@@ -642,6 +645,17 @@ export async function handleMessage(
               }
             };
           }));
+
+          // Capture for DB persistence
+          mealPipelineData = {
+            pipelineFoods,
+            mealMetadata: {
+              mealName: foodResult.dishName || foodResult.foods.map((f: any) => f.name).slice(0, 3).join(', ') || 'Meal',
+              mealType: foodResult.mealType || intent.context?.mealType || 'snack',
+              photoTimestamp: photoTime ? photoTime.toISOString() : undefined,
+              source: photos.length > 0 ? 'vision' : 'manual'
+            },
+          };
 
           const runNutrients = pipelineFoods.length > 0;
           
@@ -823,6 +837,13 @@ export async function handleMessage(
     if (reply.pantryPipelineItems) {
       metadata.pantryPipelineItems = reply.pantryPipelineItems;
       metadata.pantryPipelineStatus = reply.pantryPipelineStatus;
+    }
+    // Capture pipelineFoods + mealMetadata for meal messages
+    if (mealPipelineData.pipelineFoods) {
+      metadata.pipelineFoods = mealPipelineData.pipelineFoods;
+    }
+    if (mealPipelineData.mealMetadata) {
+      metadata.mealMetadata = mealPipelineData.mealMetadata;
     }
     const savedReply = await dataProvider.saveMessage({
       role: 'mittens',

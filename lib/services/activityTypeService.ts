@@ -45,18 +45,17 @@ export class ActivityTypeService {
       db.runSync(
         `INSERT OR IGNORE INTO activity_types (
           key, label, icon, default_life_categories, sub_categories,
-          grouping, default_mets, skin_type, exposure_extent, brain_hygiene_scale,
+          grouping, default_mets, exposure_extent, brain_hygiene_scale,
           is_strength, is_nature, default_intensity,
           default_outdoors, show_in_timer, show_in_manual_log, mention_during_break,
           sort_order, is_built_in
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           type.key, type.label, type.icon || null,
           type.defaultLifeCategories ? JSON.stringify(type.defaultLifeCategories) : null,
           type.subCategories ? JSON.stringify(type.subCategories) : null,
           type.grouping || 'activity',
           type.defaultMets || null,
-          type.skinType || null,
           type.exposureExtent ?? null,
           type.brainHygieneScale ?? null,
           type.isStrength ? 1 : 0,
@@ -114,7 +113,6 @@ export class ActivityTypeService {
       defaultLifeCategories: 'default_life_categories',
       subCategories: 'sub_categories',
       defaultMets: 'default_mets',
-      skinType: 'skin_type',
       exposureExtent: 'exposure_extent',
       brainHygieneScale: 'brain_hygiene_scale',
       isStrength: 'is_strength',
@@ -166,17 +164,16 @@ export class ActivityTypeService {
     db.runSync(
       `INSERT INTO activity_types (
         key, label, icon, default_life_categories, sub_categories,
-        default_mets, skin_type, exposure_extent, brain_hygiene_scale,
+        default_mets, exposure_extent, brain_hygiene_scale,
         is_strength, is_nature, default_intensity,
         default_outdoors, show_in_timer, show_in_manual_log, mention_during_break,
         sort_order, is_built_in
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.key, data.label, data.icon || 'circle',
         data.defaultLifeCategories ? JSON.stringify(data.defaultLifeCategories) : null,
         data.subCategories ? JSON.stringify(data.subCategories) : null,
         data.defaultMets || 1.5,
-        data.skinType || null,
         data.exposureExtent ?? null,
         data.brainHygieneScale ?? null,
         data.isStrength ? 1 : 0,
@@ -218,7 +215,6 @@ export class ActivityTypeService {
       defaultLifeCategories: parseJson(row.default_life_categories),
       subCategories: parseJson(row.sub_categories),
       defaultMets: row.default_mets,
-      skinType: row.skin_type || undefined,
       exposureExtent: row.exposure_extent ?? undefined,
       brainHygieneScale: row.brain_hygiene_scale ?? undefined,
       isStrength: row.is_strength === 1,

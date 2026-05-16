@@ -147,8 +147,6 @@ export interface ActivityTypeModel {
   defaultLifeCategories?: Record<string, number>;
   subCategories?: string[];
   defaultMets?: number;
-  /** Skin color for UV/vitamin D calc when 'nature' subcategory is active */
-  skinType?: string;
   /** Body exposure extent for UV calc: percentage of skin exposed */
   exposureExtent?: number;
   /** Brain hygiene scale: -3 (very negative) to +3 (very positive) */

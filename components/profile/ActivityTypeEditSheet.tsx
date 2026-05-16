@@ -26,6 +26,22 @@ const ICON_OPTIONS = [
   'zap', 'target', 'flag', 'gift', 'headphones', 'film',
 ];
 
+const MET_PRESETS = [
+  { value: 1.0, label: 'Yoga' },
+  { value: 2.5, label: 'Dance' },
+  { value: 3.5, label: 'Walk' },
+  { value: 5.0, label: 'Gym' },
+  { value: 8.0, label: 'Run' },
+];
+
+const COVERAGE_PRESETS = [
+  { value: 10, label: 'Face' },
+  { value: 25, label: '+Arms' },
+  { value: 50, label: '+Legs' },
+  { value: 75, label: 'Swim' },
+  { value: 90, label: 'Full' },
+];
+
 interface Props {
   type: ActivityTypeModel;
   onSave: (t: ActivityTypeModel) => void;
@@ -42,6 +58,15 @@ export function ActivityTypeEditSheet({ type, onSave, onDelete, onClose }: Props
     setDraft(prev => ({ ...prev, ...updates }));
   };
 
+  const toggleSubCategory = (sub: string) => {
+    const subs = [...(draft.subCategories || [])];
+    if (subs.includes(sub)) {
+      updateDraft({ subCategories: subs.filter(s => s !== sub) });
+    } else {
+      updateDraft({ subCategories: [...subs, sub] });
+    }
+  };
+
   const updateLifeCategory = (cat: string, value: number) => {
     const cats = { ...(draft.defaultLifeCategories || {}) };
     if (value <= 0) {
@@ -53,14 +78,15 @@ export function ActivityTypeEditSheet({ type, onSave, onDelete, onClose }: Props
   };
 
   const totalWeight = Object.values(draft.defaultLifeCategories || {}).reduce((a, b) => a + (b as number), 0);
+  const hasMovement = draft.subCategories?.includes('movement');
+  const hasNature = draft.subCategories?.includes('nature');
+  const hasBrainHygiene = draft.subCategories?.includes('brain_hygiene');
 
   return (
     <Modal visible transparent animationType="slide">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        {/* Backdrop */}
         <TouchableOpacity style={st.overlay} activeOpacity={1} onPress={onClose} />
 
-        {/* Sheet container */}
         <View style={[st.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={st.dragHandle} />
 
@@ -74,7 +100,6 @@ export function ActivityTypeEditSheet({ type, onSave, onDelete, onClose }: Props
             </TouchableOpacity>
           </View>
 
-          {/* Scrollable content */}
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces style={{ flex: 1 }}>
             {/* Icon + Label */}
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: spacing.md }}>
@@ -159,9 +184,107 @@ export function ActivityTypeEditSheet({ type, onSave, onDelete, onClose }: Props
               );
             })}
 
-            {/* Sub-categories with expansion panels */}
+            {/* Sub-categories -- single horizontal row */}
             <Text style={[st.fieldLabel, { marginTop: spacing.sm }]}>Sub-categories</Text>
-            {renderSubCategories(draft, updateDraft)}
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: spacing.sm }}>
+              {([
+                ['movement', 'activity', 'Movement'],
+                ['nature', 'cloud', 'Nature'],
+                ['brain_hygiene', 'wind', 'Brain Hygiene'],
+              ] as [string, string, string][]).map(([sub, icon, label]) => {
+                const active = draft.subCategories?.includes(sub);
+                return (
+                  <TouchableOpacity
+                    key={sub}
+                    style={[st.contextToggle, active && st.contextToggleActive]}
+                    onPress={() => toggleSubCategory(sub)}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[st.contextToggleText, active && st.contextToggleTextActive]}>
+                      <Feather name={icon as any} size={11} /> {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Movement expanded: MET preset chips */}
+            {hasMovement && (
+              <View style={st.subPanel}>
+                <Text style={st.subPanelLabel}>Metabolic Equivalent (MET)</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                  {MET_PRESETS.map(({ value, label }) => {
+                    const selected = draft.defaultMets === value;
+                    return (
+                      <TouchableOpacity
+                        key={value}
+                        style={[st.metChip, selected && st.metChipActive]}
+                        onPress={() => updateDraft({ defaultMets: value })}
+                        activeOpacity={0.6}
+                      >
+                        <Text style={[st.metChipValue, selected && st.metChipValueActive]}>{value}</Text>
+                        <Text style={[st.metChipLabel, selected && st.metChipLabelActive]}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* Nature expanded: exposure extent only (skin color is set in onboarding) */}
+            {hasNature && (
+              <View style={st.subPanel}>
+                <Text style={st.subPanelLabel}>Exposure Extent</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                  {COVERAGE_PRESETS.map(({ value, label }) => {
+                    const selected = (draft.exposureExtent || 10) === value;
+                    return (
+                      <TouchableOpacity
+                        key={value}
+                        style={[st.metChip, selected && st.metChipActive]}
+                        onPress={() => updateDraft({ exposureExtent: value })}
+                        activeOpacity={0.6}
+                      >
+                        <Text style={[st.metChipValue, selected && st.metChipValueActive]}>{value}%</Text>
+                        <Text style={[st.metChipLabel, selected && st.metChipLabelActive]}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* Brain Hygiene expanded: impact scale */}
+            {hasBrainHygiene && (
+              <View style={st.subPanel}>
+                <Text style={st.subPanelLabel}>Impact Scale</Text>
+                <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
+                  {([-3, -2, -1, 0, 1, 2, 3]).map((val) => {
+                    const current = draft.brainHygieneScale ?? 0;
+                    const selected = current === val;
+                    let bg = colors.border;
+                    if (selected && val < 0) bg = '#EF4444';
+                    if (selected && val > 0) bg = '#10B981';
+                    if (selected && val === 0) bg = colors.textMuted;
+                    return (
+                      <TouchableOpacity
+                        key={val}
+                        style={[st.weightBtn, selected && { backgroundColor: bg }]}
+                        onPress={() => updateDraft({ brainHygieneScale: val })}
+                      >
+                        <Text style={[st.weightText, selected && { color: '#fff' }]}>
+                          {val > 0 ? `+${val}` : String(val)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                  <Text style={{ fontSize: 9, color: '#EF4444' }}>harmful</Text>
+                  <Text style={{ fontSize: 9, color: '#10B981' }}>restorative</Text>
+                </View>
+              </View>
+            )}
 
             <View style={{ height: 80 }} />
           </ScrollView>
@@ -190,134 +313,6 @@ export function ActivityTypeEditSheet({ type, onSave, onDelete, onClose }: Props
   );
 }
 
-/* ── Sub-category expansion panels ── */
-
-function renderSubCategories(
-  draft: ActivityTypeModel,
-  updateDraft: (u: Partial<ActivityTypeModel>) => void,
-) {
-  return (['movement', 'nature', 'brain_hygiene'] as const).map((sub) => {
-    const active = draft.subCategories?.includes(sub);
-    const label = sub.replace(/_/g, ' ');
-    return (
-      <View key={sub} style={{ marginBottom: active ? spacing.sm : 0 }}>
-        <TouchableOpacity
-          style={[st.toggle, active && st.toggleActive, { alignSelf: 'flex-start', marginBottom: active ? 8 : 6 }]}
-          onPress={() => {
-            const subs = [...(draft.subCategories || [])];
-            if (active) {
-              updateDraft({ subCategories: subs.filter(s => s !== sub) });
-            } else {
-              updateDraft({ subCategories: [...subs, sub] });
-            }
-          }}
-        >
-          <Text style={[st.toggleText, active && st.toggleTextActive]}>{label}</Text>
-        </TouchableOpacity>
-
-        {/* Movement: MET input */}
-        {active && sub === 'movement' && (
-          <View style={st.subPanel}>
-            <Text style={st.subPanelLabel}>Default METs</Text>
-            <TextInput
-              style={[st.input, { marginBottom: 0, width: 80, textAlign: 'center' }]}
-              value={String(draft.defaultMets || '')}
-              onChangeText={(v) => updateDraft({ defaultMets: parseFloat(v) || 0 })}
-              keyboardType="decimal-pad"
-              placeholder="1.5"
-              placeholderTextColor={colors.textMuted}
-            />
-          </View>
-        )}
-
-        {/* Nature: skin color + exposure extent */}
-        {active && sub === 'nature' && (
-          <View style={st.subPanel}>
-            <View style={{ marginBottom: 10 }}>
-              <Text style={st.subPanelLabel}>Skin Color (Fitzpatrick)</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                {([
-                  [1, '#FAE0D0'], [2, '#F5CBA7'], [3, '#E5B280'],
-                  [4, '#C68642'], [5, '#8D5524'], [6, '#3C2218'],
-                ] as [number, string][]).map(([level, color]) => {
-                  const val = `fitzpatrick-${level}`;
-                  const selected = draft.skinType === val;
-                  return (
-                    <TouchableOpacity
-                      key={val}
-                      onPress={() => updateDraft({ skinType: val })}
-                      style={{
-                        width: 30, height: 30, borderRadius: 15,
-                        backgroundColor: color,
-                        borderWidth: selected ? 2.5 : 1,
-                        borderColor: selected ? colors.textPrimary : 'rgba(0,0,0,0.1)',
-                      }}
-                    />
-                  );
-                })}
-              </View>
-            </View>
-            <View>
-              <Text style={st.subPanelLabel}>Exposure Extent</Text>
-              <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
-                {([
-                  [10, 'Face'], [25, '+Arms'], [50, '+Legs'], [75, 'Swim'], [90, 'Full'],
-                ] as [number, string][]).map(([pct, lbl]) => {
-                  const selected = (draft.exposureExtent || 10) === pct;
-                  return (
-                    <TouchableOpacity
-                      key={pct}
-                      style={[st.weightBtn, selected && { backgroundColor: colors.textPrimary }]}
-                      onPress={() => updateDraft({ exposureExtent: pct })}
-                    >
-                      <Text style={[st.weightText, selected && { color: '#fff' }]}>{lbl}</Text>
-                      <Text style={[st.weightText, { fontSize: 8 }, selected && { color: '#fff' }]}>{pct}%</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Brain Hygiene: negative to positive scale */}
-        {active && sub === 'brain_hygiene' && (
-          <View style={st.subPanel}>
-            <Text style={st.subPanelLabel}>Impact Scale</Text>
-            <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
-              {([-3, -2, -1, 0, 1, 2, 3]).map((val) => {
-                const current = draft.brainHygieneScale ?? 0;
-                const selected = current === val;
-                const isNeg = val < 0;
-                const isPos = val > 0;
-                let bg = colors.border;
-                if (selected && isNeg) bg = '#EF4444';
-                if (selected && isPos) bg = '#10B981';
-                if (selected && val === 0) bg = colors.textMuted;
-                return (
-                  <TouchableOpacity
-                    key={val}
-                    style={[st.weightBtn, selected && { backgroundColor: bg }]}
-                    onPress={() => updateDraft({ brainHygieneScale: val })}
-                  >
-                    <Text style={[st.weightText, selected && { color: '#fff' }]}>
-                      {val > 0 ? `+${val}` : String(val)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-              <Text style={{ fontSize: 9, color: '#EF4444' }}>harmful</Text>
-              <Text style={{ fontSize: 9, color: '#10B981' }}>restorative</Text>
-            </View>
-          </View>
-        )}
-      </View>
-    );
-  });
-}
-
 /* ── Styles ── */
 
 const st = StyleSheet.create({
@@ -325,66 +320,39 @@ const st = StyleSheet.create({
   sheet: {
     backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: spacing.lg, paddingTop: spacing.sm,
-    maxHeight: '88%',
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    maxHeight: '88%', position: 'absolute', bottom: 0, left: 0, right: 0,
   },
-  dragHandle: {
-    width: 36, height: 4, borderRadius: 2, backgroundColor: '#DDD',
-    alignSelf: 'center', marginBottom: spacing.sm,
-  },
+  dragHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#DDD', alignSelf: 'center', marginBottom: spacing.sm },
   input: {
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 14,
     color: colors.textPrimary, marginBottom: spacing.sm,
   },
-  fieldLabel: {
-    fontSize: 11, fontWeight: '700', color: colors.textMuted,
-    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6,
-  },
-  toggle: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff',
-  },
+  fieldLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 },
+  toggle: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' },
   toggleActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
   toggleText: { fontSize: 12, fontWeight: '500', color: colors.textPrimary },
   toggleTextActive: { color: '#fff' },
   catDot: { width: 8, height: 8, borderRadius: 4 },
-  weightBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 4,
-    borderRadius: 4, backgroundColor: colors.border,
-  },
+  weightBtn: { flex: 1, alignItems: 'center', paddingVertical: 4, borderRadius: 4, backgroundColor: colors.border },
   weightText: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
-  iconPicker: {
-    width: 48, height: 48, borderRadius: radius.md, borderWidth: 1,
-    borderColor: colors.border, justifyContent: 'center', alignItems: 'center',
-  },
-  iconOption: {
-    width: 36, height: 36, borderRadius: radius.md, borderWidth: 1,
-    borderColor: colors.border, justifyContent: 'center', alignItems: 'center',
-  },
+  iconPicker: { width: 48, height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, justifyContent: 'center', alignItems: 'center' },
+  iconOption: { width: 36, height: 36, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, justifyContent: 'center', alignItems: 'center' },
   iconOptionActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
-  subPanel: {
-    backgroundColor: '#F9F9F9', borderRadius: radius.md,
-    padding: 10, borderWidth: 1, borderColor: colors.border,
-  },
-  subPanelLabel: {
-    fontSize: 10, fontWeight: '700', color: colors.textMuted,
-    letterSpacing: 0.4, textTransform: 'uppercase',
-  },
-  actionBar: {
-    flexDirection: 'row', gap: 10, paddingTop: spacing.sm,
-    borderTopWidth: 1, borderTopColor: colors.border,
-  },
-  saveBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 12,
-    backgroundColor: colors.textPrimary, borderRadius: radius.md,
-  },
-  cancelBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: 12,
-    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-  },
-  deleteBtn: {
-    width: 44, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#D32F2F', borderRadius: radius.md,
-  },
+  contextToggle: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' },
+  contextToggleActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+  contextToggleText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
+  contextToggleTextActive: { color: '#fff' },
+  subPanel: { backgroundColor: '#FAFAFA', borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
+  subPanelLabel: { fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 },
+  metChip: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' },
+  metChipActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+  metChipValue: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
+  metChipValueActive: { color: '#fff' },
+  metChipLabel: { fontSize: 9, color: colors.textMuted, marginTop: 1 },
+  metChipLabelActive: { color: '#fff' },
+  actionBar: { flexDirection: 'row', gap: 10, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  saveBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, backgroundColor: colors.textPrimary, borderRadius: radius.md },
+  cancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 12, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  deleteBtn: { width: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#D32F2F', borderRadius: radius.md },
 });

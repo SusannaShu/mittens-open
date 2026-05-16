@@ -50,6 +50,28 @@ export async function createNutritionLog(
     }
   }
 
+  // Phase: ask user when VLM couldn't identify specific foods
+  if (identifiedFoods.length === 0 && classification.nutrition.items.length > 0) {
+    const askIdx = logger.startPhase('food', 'askUser');
+    try {
+      const rawItems = classification.nutrition.items.map((i: any) => i.name || i.n).join(', ');
+      const question = `I see you are having ${mealType}. I can see ${rawItems} but I am not sure what it is. What are you eating?`;
+      const { mittensAsk } = require('./mittensAsk');
+      const answer = await mittensAsk(question);
+      if (answer) {
+        // Use the user's answer as the identified food
+        identifiedFoods = [{ name: answer.trim(), portion_g: 100, confidence: 1.0, source: 'user' }];
+        summaryParts.length = 0; // Clear old summaries
+        summaryParts.push(`User confirmed: ${answer.trim()}`);
+        logger.completePhase(askIdx, `User said: ${answer.trim()}`);
+      } else {
+        logger.completePhase(askIdx, 'No response (timed out)');
+      }
+    } catch (err: any) {
+      logger.failPhase(askIdx, err?.message || 'Ask failed');
+    }
+  }
+
   // Phase: nutrients
   if (identifiedFoods.length > 0) {
     const nutrResult = await runNutrientEstimation(identifiedFoods, logger);
@@ -82,6 +104,14 @@ export async function createNutritionLog(
 
   const logId = result?.lastInsertRowId ?? null;
   console.log(`[EatingLog] Created nutrition log #${logId}: ${logName}`);
+
+  // Voice announcement for successful food logging
+  if (identifiedFoods.length > 0) {
+    try {
+      const { speak } = require('../../services/ai/voiceService');
+      speak(`Logging ${logName} as ${mealType}.`);
+    } catch { /* voice not available */ }
+  }
 
   const summary = buildNutritionSummary('new', logName, mealType, summaryParts);
   const pipelineFoods = buildPipelineFoods(finalItems);

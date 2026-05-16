@@ -22,7 +22,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PendantServer } from './pendantServer';
 import type { PendantEvent, PendantEventType } from './pendantProtocol';
-import { PENDANT_SERVICE_UUID, DATA_INFO_UUID, DATA_STREAM_UUID, DATA_ACK_UUID, buildWifiCredentialCommand } from './pendantProtocol';
+import { PENDANT_SERVICE_UUID, DATA_INFO_UUID, DATA_ACK_UUID, buildWifiCredentialCommand } from './pendantProtocol';
 
 // AsyncStorage keys
 const STORAGE_DEVICE_ID = '@pendant_device_id';
@@ -390,207 +390,17 @@ export class PendantService {
 
   /**
    * Pull captured data from the pendant over BLE chunked transfer.
-   * 1. Read DATA_INFO to get event type + data sizes
-   * 2. Subscribe to DATA_STREAM for chunk notifications
-   * 3. Write "PULL" to DATA_ACK to start transfer
-   * 4. Collect chunks until all bytes received
-   * 5. Write "DONE" to DATA_ACK
-   * 6. Save to disk and emit event
+   * Delegates to bleTransfer.ts for the actual transfer logic.
    */
-  private isPulling = false;
-  private currentPullReject: ((err: Error) => void) | null = null;
-
   private async pullDataOverBLE(): Promise<void> {
     if (!this.bleDevice) {
       console.warn('[Pendant] No BLE device connected, cannot pull data');
       return;
     }
 
-    // Prevent concurrent pulls -- if one is in progress, abort it so the new one can start
-    if (this.isPulling) {
-      console.log('[Pendant] Pull already in progress, aborting old pull to start new one');
-      if (this.currentPullReject) {
-        this.currentPullReject(new Error('Pull aborted by new request'));
-        this.currentPullReject = null;
-      }
-      // Wait for the old pull to clean up and set isPulling to false
-      let waitCount = 0;
-      while (this.isPulling && waitCount < 10) {
-        await new Promise(r => setTimeout(r, 100));
-        waitCount++;
-      }
-    }
-    this.isPulling = true;
-
-    let streamSub: any = null;
-
-    try {
-      const FileSystem = require('expo-file-system/legacy');
-      const PENDANT_DIR = FileSystem.documentDirectory + 'pendant/';
-
-      // Ensure directory exists
-      const dirInfo = await FileSystem.getInfoAsync(PENDANT_DIR);
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(PENDANT_DIR, { intermediates: true });
-      }
-
-      // 1. Read DATA_INFO: "EVENT_TYPE:jpegLen:audioLen"
-      const infoChar = await this.bleDevice.readCharacteristicForService(
-        PENDANT_SERVICE_UUID,
-        DATA_INFO_UUID,
-      );
-
-      const infoStr = atob(infoChar.value);
-      const [eventType, jpegLenStr, audioLenStr] = infoStr.split(':');
-      const jpegLen = parseInt(jpegLenStr, 10) || 0;
-      const audioLen = parseInt(audioLenStr, 10) || 0;
-      const totalLen = jpegLen + audioLen;
-
-      console.log(`[Pendant] DATA_INFO: type=${eventType} jpeg=${jpegLen} audio=${audioLen} total=${totalLen}`);
-
-      if (totalLen === 0) {
-        console.warn('[Pendant] No data to pull');
-        return;
-      }
-
-      // 2. Set up chunk collection
-      const chunks: Uint8Array[] = [];
-      let receivedBytes = 0;
-
-      // Create a promise that resolves when all bytes are received
-      const transferComplete = new Promise<void>((resolve, reject) => {
-        this.currentPullReject = reject;
-        const timeout = setTimeout(() => {
-          reject(new Error(`BLE transfer timeout (received ${receivedBytes}/${totalLen})`));
-        }, 30000); // 30s timeout
-
-        // Subscribe to DATA_STREAM notifications
-        streamSub = this.bleDevice.monitorCharacteristicForService(
-          PENDANT_SERVICE_UUID,
-          DATA_STREAM_UUID,
-          (error: any, characteristic: any) => {
-            if (error) {
-              clearTimeout(timeout);
-              reject(error);
-              return;
-            }
-
-            if (characteristic?.value) {
-              // Decode base64 chunk to bytes
-              const b64 = characteristic.value;
-              const binaryStr = atob(b64);
-              const bytes = new Uint8Array(binaryStr.length);
-              for (let i = 0; i < binaryStr.length; i++) {
-                bytes[i] = binaryStr.charCodeAt(i);
-              }
-
-              chunks.push(bytes);
-              receivedBytes += bytes.length;
-
-              // Log progress every ~9KB
-              if (chunks.length % 50 === 0) {
-                console.log(`[Pendant] BLE received ${receivedBytes}/${totalLen} bytes (${Math.round(100 * receivedBytes / totalLen)}%)`);
-              }
-
-              // Check if we have all data
-              if (receivedBytes >= totalLen) {
-                clearTimeout(timeout);
-                resolve();
-              }
-            }
-          },
-        );
-      });
-
-      // 3. Send PULL command to start transfer
-      await this.bleDevice.writeCharacteristicWithResponseForService(
-        PENDANT_SERVICE_UUID,
-        DATA_ACK_UUID,
-        btoa('PULL'),
-      );
-      console.log('[Pendant] PULL sent, receiving chunks...');
-
-      // 4. Wait for all data
-      await transferComplete;
-      console.log(`[Pendant] BLE transfer complete: ${receivedBytes} bytes in ${chunks.length} chunks`);
-
-      // 5. Cancel subscription immediately to prevent stale chunks
-      if (streamSub) {
-        streamSub.remove();
-        streamSub = null;
-      }
-
-      // 6. Send DONE acknowledgment
-      try {
-        await this.bleDevice.writeCharacteristicWithResponseForService(
-          PENDANT_SERVICE_UUID,
-          DATA_ACK_UUID,
-          btoa('DONE'),
-        );
-      } catch {
-        // Pendant may have already disconnected
-      }
-
-      // 7. Reassemble data
-      const fullData = new Uint8Array(receivedBytes);
-      let offset = 0;
-      for (const chunk of chunks) {
-        fullData.set(chunk, offset);
-        offset += chunk.length;
-      }
-
-      // 8. Save JPEG and audio to disk
-      const timestamp = Date.now();
-      let framePath: string | undefined;
-      let audioPath: string | undefined;
-
-      if (jpegLen > 0) {
-        const jpegData = fullData.slice(0, jpegLen);
-        const frameFileName = `frame_${timestamp}.jpg`;
-        framePath = PENDANT_DIR + frameFileName;
-        // Convert to base64 for FileSystem
-        let binary = '';
-        for (let i = 0; i < jpegData.length; i++) {
-          binary += String.fromCharCode(jpegData[i]);
-        }
-        await FileSystem.writeAsStringAsync(framePath, btoa(binary), {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        console.log(`[Pendant] Frame saved: ${frameFileName} (${jpegLen} bytes)`);
-      }
-
-      if (audioLen > 0) {
-        const audioData = fullData.slice(jpegLen, jpegLen + audioLen);
-        const audioFileName = `audio_${timestamp}.pcm`;
-        audioPath = PENDANT_DIR + audioFileName;
-        let binary = '';
-        for (let i = 0; i < audioData.length; i++) {
-          binary += String.fromCharCode(audioData[i]);
-        }
-        await FileSystem.writeAsStringAsync(audioPath, btoa(binary), {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        console.log(`[Pendant] Audio saved: ${audioFileName} (${audioLen} bytes)`);
-      }
-
-      // 9. Emit event through the standard pendant pipeline
-      const event: PendantEvent = {
-        type: eventType as PendantEventType,
-        timestamp,
-        audioPath,
-        framePath,
-        meta: { type: eventType as PendantEventType, ts: timestamp },
-      };
-
-      this.handlePendantEvent(event);
-    } finally {
-      // Always clean up subscription and release pull lock
-      if (streamSub) {
-        streamSub.remove();
-      }
-      this.isPulling = false;
-      this.currentPullReject = null;
-    }
+    const { pullDataOverBLE: doPull } = require('./bleTransfer');
+    const result = await doPull(this.bleDevice);
+    this.handlePendantEvent(result.event);
   }
 
   private handlePendantEvent(event: PendantEvent): void {

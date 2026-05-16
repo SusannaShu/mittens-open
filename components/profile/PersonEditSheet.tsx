@@ -101,22 +101,15 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
       // Detect faces in the uploaded photo
       let faces: any[] = [];
       try {
-        const { getFaceRecognitionModule } = require('../../lib/services/faceRecognition/nativeModule');
-        const mod = getFaceRecognitionModule?.();
+        const { getFaceRecognitionModule } = require('../../modules/expo-face-recognition/src');
+        const mod = getFaceRecognitionModule();
         if (mod) {
           faces = await mod.detectFaces(photoUri);
+        } else {
+          console.warn('[FaceRec:Upload] Native module returned null');
         }
-      } catch {
-        // Native module might not be at that path -- try direct import
-        try {
-          const mod = require('../../../modules/expo-face-recognition/src');
-          const faceModule = mod.getFaceRecognitionModule();
-          if (faceModule) {
-            faces = await faceModule.detectFaces(photoUri);
-          }
-        } catch (innerErr: any) {
-          console.warn('[FaceRec:Upload] Native module not available:', innerErr?.message);
-        }
+      } catch (modErr: any) {
+        console.warn('[FaceRec:Upload] Native module not available:', modErr?.message);
       }
 
       if (!faces || faces.length === 0) {

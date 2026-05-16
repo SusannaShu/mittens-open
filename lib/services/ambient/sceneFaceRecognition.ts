@@ -8,6 +8,8 @@
  * Owner ("is me") gets a daily greeting instead of per-frame greetings.
  * Non-owners get cooldown-based greetings (10 min).
  *
+ * Returns recognized names for the capture summary.
+ *
  * DEBUG: Logs with [SceneFace] prefix for live console monitoring.
  */
 
@@ -17,18 +19,24 @@ import type { PipelineLogger } from '../../pipelines/logger';
 /** Track the last calendar day the owner was greeted */
 let lastOwnerGreetDate: string | null = null;
 
+export interface FaceRecognitionResult {
+  recognizedNames: string[];
+}
+
 /**
  * Run face recognition on a frame when triage detects people.
  * - Matches faces against known embeddings
  * - Owner: auto-reinforce + daily greeting (once per day, not every frame)
  * - Others: mittensAsk confirmation before reinforcing
+ * Returns list of recognized person names for the capture summary.
  */
 export async function checkFaceRecognition(
   framePath: string,
   _scene: any,
   logger: PipelineLogger,
-): Promise<void> {
+): Promise<FaceRecognitionResult> {
   const faceIdx = logger.startPhase('scene', 'face_recognition');
+  const recognizedNames: string[] = [];
   console.log(`[SceneFace] --- checkFaceRecognition START ---`);
   console.log(`[SceneFace] Frame: ${framePath.slice(-40)}`);
 
@@ -47,7 +55,7 @@ export async function checkFaceRecognition(
       logger.completePhase(faceIdx, 'No known faces detected');
       console.log('[SceneFace] No known faces matched');
       console.log('[SceneFace] --- checkFaceRecognition END ---');
-      return;
+      return { recognizedNames };
     }
 
     const topMatch = matches[0];
@@ -64,6 +72,8 @@ export async function checkFaceRecognition(
       `, embeddings=${topMatch.embeddingCount}` +
       `${personIsOwner ? ', OWNER' : ''})`,
     );
+
+    recognizedNames.push(topMatch.name);
 
     // Owner: auto-reinforce (no confirmation needed) + daily greeting
     if (personIsOwner) {
@@ -94,7 +104,7 @@ export async function checkFaceRecognition(
         console.warn('[SceneFace] Owner greeting failed:', greetErr?.message);
       }
       console.log('[SceneFace] --- checkFaceRecognition END ---');
-      return;
+      return { recognizedNames };
     }
 
     // Non-owner: greet + mittensAsk for confirmation before reinforcing
@@ -135,9 +145,11 @@ export async function checkFaceRecognition(
     }
 
     console.log('[SceneFace] --- checkFaceRecognition END ---');
+    return { recognizedNames };
   } catch (err: any) {
     logger.completePhase(faceIdx, `Error: ${err?.message}`);
     console.error(`[SceneFace] Error: ${err?.message}`);
     console.log('[SceneFace] --- checkFaceRecognition END (error) ---');
+    return { recognizedNames: [] };
   }
 }

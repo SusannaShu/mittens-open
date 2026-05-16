@@ -27,12 +27,23 @@ export interface QualityGateResult {
   reason: string;
 }
 
+export interface QualityGateOptions {
+  /** When true, skip legibility rejection (allow dark/blurry frames through for sleep detection) */
+  nearBedtime?: boolean;
+}
+
 /**
  * Two-tier quality gate.
  * Tier 1: pixel comparison (free).
  * Tier 2: VLM check for legibility + scene change.
+ *
+ * Near bedtime, legibility checks are disabled so dark/screen frames
+ * can pass through for sleep context analysis.
  */
-export async function checkQualityGate(framePath: string): Promise<QualityGateResult> {
+export async function checkQualityGate(
+  framePath: string,
+  opts: QualityGateOptions = {},
+): Promise<QualityGateResult> {
   // Tier 1: Pixel-level pre-filter (free, instant)
   if (lastFramePath) {
     try {
@@ -63,15 +74,16 @@ export async function checkQualityGate(framePath: string): Promise<QualityGateRe
   // Tier 2: VLM quality gate (legible + same_as_before in one call)
   if (lastFramePath) {
     try {
-      const tier2 = await vlmQualityGate(lastFramePath, framePath);
+      const tier2 = await vlmQualityGate(lastFramePath, framePath, opts.nearBedtime);
       if (tier2.skip) {
         return { skip: true, tier: 2, reason: tier2.reason };
       }
     } catch (err: any) {
       console.warn('[QualityGate] Tier 2 failed:', err?.message);
     }
-  } else {
-    // No reference frame -- still check legibility (blurry/black)
+  } else if (!opts.nearBedtime) {
+    // No reference frame -- check legibility (blurry/black)
+    // Skip this near bedtime so dark frames pass through for sleep detection
     try {
       const tier2 = await vlmLegibilityCheck(framePath);
       if (tier2.skip) {
@@ -146,6 +158,7 @@ async function pixelSimilarityCheck(
 async function vlmQualityGate(
   refPath: string,
   newPath: string,
+  nearBedtime = false,
 ): Promise<{ skip: boolean; reason: string }> {
   const { getBrain } = require('../../brain/selector');
   const brain = await getBrain();
@@ -156,9 +169,15 @@ async function vlmQualityGate(
     'Respond JSON only:',
     '{',
     '  "legible": true/false (is Photo 2 clear enough to analyze? false if blurry, black, or unrecognizable),',
-    '  "same_as_before": true/false (is Photo 2 essentially the same scene with nothing meaningful changed?),',
+    '  "same_as_before": true/false (are the FOREGROUND OBJECTS the person is interacting with the same?),',
     '  "reason": "brief explanation"',
     '}',
+    '',
+    'IMPORTANT for same_as_before:',
+    '- Focus on what the person is HOLDING, USING, or EATING -- the foreground objects.',
+    '- If the person is holding or using a DIFFERENT item (e.g., different cup, different food,',
+    '  different drink), that is NOT the same, even if the background/desk/room is identical.',
+    '- Only mark same_as_before=true if the foreground objects are genuinely unchanged.',
   ].join('\n');
 
   const raw = await brain.vision(prompt, [refPath, newPath]);
@@ -169,7 +188,8 @@ async function vlmQualityGate(
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    if (!parsed.legible) {
+    // Near bedtime: let dark/blurry frames through for sleep context detection
+    if (!parsed.legible && !nearBedtime) {
       return { skip: true, reason: `Not legible: ${parsed.reason || 'blurry/black'}` };
     }
     if (parsed.same_as_before || parsed.sameAsBefore) {

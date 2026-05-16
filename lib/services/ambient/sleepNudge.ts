@@ -7,19 +7,178 @@
  *   - Screen/work visible -> nudge to stop working
  *   - Dim light / bathroom -> already winding down, no nudge
  *   - Other -> gentle reminder
+ *
+ * Also handles morning greeting + wake-up nudge scheduling.
+ *
+ * All times derive from the LMST schedule:
+ *   wake_time_lmst_minutes (e.g. 360 = 6:00 AM)
+ *   sleep_hours (e.g. 9)
+ *   bedtime = wake - sleep_hours (e.g. 21:00)
  */
 
 import type { SleepNudgeResult } from './types';
-
-/** Default bedtime (24h format). Override via nutrition_profile.bedtime_hour */
-const DEFAULT_BEDTIME_HOUR = 23;
-const DEFAULT_BEDTIME_MIN = 0;
 
 /** How many minutes before bedtime to trigger the check */
 const NUDGE_LEAD_MIN = 35;
 
 let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
 let lastNudgeDate: string | null = null;
+
+/** Morning greeting state */
+let morningGreetedDate: string | null = null;
+let wakeNudgeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// --- Schedule Config (LMST-derived) ---
+
+export interface ScheduleConfig {
+  wakeHour: number;
+  wakeMin: number;
+  bedtimeHour: number;
+  bedtimeMin: number;
+  sleepHours: number;
+}
+
+/**
+ * Read wake/bedtime from the LMST schedule fields.
+ * wake = wake_time_lmst_minutes, bedtime = wake - sleep_hours.
+ */
+export function getScheduleConfig(): ScheduleConfig {
+  try {
+    const { getDb } = require('../../database');
+    const db = getDb();
+    const row = db.getFirstSync(
+      'SELECT wake_time_lmst_minutes, sleep_hours FROM nutrition_profile WHERE id = 1',
+    ) as any;
+
+    const wakeMins = row?.wake_time_lmst_minutes ?? 360; // default 6:00 AM
+    const sleepHours = row?.sleep_hours ?? 8;
+    const bedMins = (wakeMins - sleepHours * 60 + 1440) % 1440;
+
+    return {
+      wakeHour: Math.floor(wakeMins / 60),
+      wakeMin: wakeMins % 60,
+      bedtimeHour: Math.floor(bedMins / 60),
+      bedtimeMin: bedMins % 60,
+      sleepHours,
+    };
+  } catch {
+    return { wakeHour: 6, wakeMin: 0, bedtimeHour: 22, bedtimeMin: 0, sleepHours: 8 };
+  }
+}
+
+/** Legacy alias for existing callers. */
+export function getBedtimeConfig(): { bedtimeHour: number; bedtimeMin: number } {
+  const cfg = getScheduleConfig();
+  return { bedtimeHour: cfg.bedtimeHour, bedtimeMin: cfg.bedtimeMin };
+}
+
+/** Check if current time is within 2 hours of bedtime (for quality gate). */
+export function isNearBedtime(): boolean {
+  const cfg = getScheduleConfig();
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const bedMin = cfg.bedtimeHour * 60 + cfg.bedtimeMin;
+
+  // Within 2 hours before or 6 hours after bedtime
+  let diffMin = nowMin - bedMin;
+  if (diffMin < -12 * 60) diffMin += 1440;
+  if (diffMin > 12 * 60) diffMin -= 1440;
+
+  return diffMin >= -120 && diffMin <= 360;
+}
+
+// --- Morning Greeting ---
+
+/** Check if first capture of the day has been greeted. */
+export function hasMorningGreeted(): boolean {
+  return morningGreetedDate === new Date().toISOString().slice(0, 10);
+}
+
+/** Mark morning greeting as done for today. */
+export function markMorningGreeted(): void {
+  morningGreetedDate = new Date().toISOString().slice(0, 10);
+}
+
+/** Get owner's name from profile for greetings. */
+export function getOwnerName(): string {
+  try {
+    const { getDb } = require('../../database');
+    const db = getDb();
+    const row = db.getFirstSync(
+      'SELECT name FROM nutrition_profile WHERE id = 1',
+    ) as any;
+    return row?.name || 'there';
+  } catch {
+    return 'there';
+  }
+}
+
+/**
+ * Schedule a wake-up nudge 30 min after wake time.
+ * If no pendant capture arrives by then, Mittens says "Time to get up".
+ * Call on app boot and after midnight.
+ */
+export function scheduleWakeNudge(): void {
+  if (wakeNudgeTimer) {
+    clearTimeout(wakeNudgeTimer);
+    wakeNudgeTimer = null;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (morningGreetedDate === today) {
+    // Already greeted today -- no nudge needed
+    return;
+  }
+
+  const cfg = getScheduleConfig();
+  const now = new Date();
+  const nudgeTime = new Date(now);
+  nudgeTime.setHours(cfg.wakeHour, cfg.wakeMin + 30, 0, 0);
+
+  const delayMs = nudgeTime.getTime() - now.getTime();
+  if (delayMs <= 0) {
+    // Already past nudge time -- check if morning greeting happened
+    if (!hasMorningGreeted()) {
+      fireWakeNudge();
+    }
+    return;
+  }
+
+  console.log(`[SleepNudge] Wake nudge scheduled for ${nudgeTime.toLocaleTimeString()} (${Math.round(delayMs / 60000)}min)`);
+
+  wakeNudgeTimer = setTimeout(() => {
+    wakeNudgeTimer = null;
+    if (!hasMorningGreeted()) {
+      fireWakeNudge();
+    }
+  }, delayMs);
+}
+
+function fireWakeNudge(): void {
+  const name = getOwnerName();
+  const message = `Time to get up ${name}!`;
+  console.log(`[SleepNudge] Wake nudge: "${message}"`);
+
+  try {
+    const { DeviceEventEmitter } = require('react-native');
+    DeviceEventEmitter.emit('pendantMessageAdded', {
+      id: `m-wake-${Date.now()}`,
+      role: 'mittens',
+      text: message,
+      timestamp: new Date(),
+      source: 'pendant',
+    });
+  } catch { /* emit not available */ }
+
+  try {
+    const { speak } = require('../../services/ai/voiceService');
+    speak(message);
+  } catch { /* voice not available */ }
+
+  markMorningGreeted();
+}
+
+// --- Bedtime Nudge Scheduling ---
 
 /**
  * Schedule the sleep nudge check for today.
@@ -32,7 +191,7 @@ export function scheduleSleepNudge(): void {
     scheduledTimer = null;
   }
 
-  const { bedtimeHour, bedtimeMin } = getBedtimeConfig();
+  const cfg = getScheduleConfig();
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
 
@@ -44,7 +203,7 @@ export function scheduleSleepNudge(): void {
 
   // Calculate trigger time (bedtime - lead time)
   const triggerTime = new Date(now);
-  triggerTime.setHours(bedtimeHour, bedtimeMin, 0, 0);
+  triggerTime.setHours(cfg.bedtimeHour, cfg.bedtimeMin, 0, 0);
   triggerTime.setMinutes(triggerTime.getMinutes() - NUDGE_LEAD_MIN);
 
   const delayMs = triggerTime.getTime() - now.getTime();
@@ -162,22 +321,6 @@ async function classifyBedtimeScene(framePath: string): Promise<SleepNudgeResult
 
 // --- Helpers ---
 
-export function getBedtimeConfig(): { bedtimeHour: number; bedtimeMin: number } {
-  try {
-    const { getDb } = require('../../database');
-    const db = getDb();
-    const profile = db.getFirstSync(
-      'SELECT bedtime_hour, bedtime_min FROM nutrition_profile WHERE id = 1',
-    ) as any;
-    return {
-      bedtimeHour: profile?.bedtime_hour ?? DEFAULT_BEDTIME_HOUR,
-      bedtimeMin: profile?.bedtime_min ?? DEFAULT_BEDTIME_MIN,
-    };
-  } catch {
-    return { bedtimeHour: DEFAULT_BEDTIME_HOUR, bedtimeMin: DEFAULT_BEDTIME_MIN };
-  }
-}
-
 function logEarlySleep(): void {
   try {
     const { getDb } = require('../../database');
@@ -194,3 +337,4 @@ function logEarlySleep(): void {
     console.warn('[SleepNudge] Failed to log sleep:', err?.message);
   }
 }
+

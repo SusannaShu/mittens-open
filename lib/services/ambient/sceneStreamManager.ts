@@ -10,12 +10,23 @@ import type { FrameClassification, ClassifierContext } from './types';
 import { classifyFrame } from './sceneClassifier';
 import { executeLogDecision } from './sceneLogWriter';
 import { PipelineLogger, PipelineLog } from '../../pipelines/logger';
-import { getBedtimeConfig } from './sleepNudge';
+import {
+  getScheduleConfig,
+  isNearBedtime,
+  hasMorningGreeted,
+  markMorningGreeted,
+  getOwnerName,
+  scheduleWakeNudge,
+} from './sleepNudge';
 
 // Singleton
 let instance: SceneStreamManager | null = null;
 export function getSceneStreamManager(): SceneStreamManager {
-  if (!instance) instance = new SceneStreamManager();
+  if (!instance) {
+    instance = new SceneStreamManager();
+    // Arm the 30-min-after-wake nudge timer on first access
+    try { scheduleWakeNudge(); } catch { /* non-critical */ }
+  }
   return instance;
 }
 
@@ -103,6 +114,39 @@ class SceneStreamManager {
     const logger = new PipelineLogger();
     const FileSystem = require('expo-file-system/legacy');
 
+    // Phase 0: Morning greeting (before quality gate)
+    // First capture of the day after wake time -> "Good morning"
+    if (!skipGate && !hasMorningGreeted()) {
+      const cfg = getScheduleConfig();
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const wakeMin = cfg.wakeHour * 60 + cfg.wakeMin;
+
+      // Only greet if we are past wake time (not during sleep window)
+      if (nowMin >= wakeMin || nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
+        markMorningGreeted();
+        const name = getOwnerName();
+        const greeting = `Good morning ${name}!`;
+        console.log(`[SceneStream] Morning greeting: "${greeting}"`);
+
+        try {
+          const { speak } = require('../ai/voiceService');
+          speak(greeting);
+        } catch { /* voice not available */ }
+
+        try {
+          const { DeviceEventEmitter } = require('react-native');
+          DeviceEventEmitter.emit('pendantMessageAdded', {
+            id: `m-gm-${Date.now()}`,
+            role: 'mittens',
+            text: greeting,
+            timestamp: new Date(),
+            source: 'pendant',
+          });
+        } catch { /* emit not available */ }
+      }
+    }
+
     // Phase 1: Quality Gate (skipped on retry)
     if (skipGate) {
       logger.skipPhase('gate', 'quality', 'Skipped (retry)');
@@ -110,13 +154,14 @@ class SceneStreamManager {
       const gateIdx = logger.startPhase('gate', 'quality');
       try {
         const { checkQualityGate, setLastFrame } = require('./frameDedup');
-        const gateResult = await checkQualityGate(framePath);
+        const bedtimeNear = isNearBedtime();
+        const gateResult = await checkQualityGate(framePath, { nearBedtime: bedtimeNear });
         if (gateResult.skip) {
           logger.completePhase(gateIdx, `Skipped (tier ${gateResult.tier}): ${gateResult.reason}`);
           FileSystem.deleteAsync(framePath, { idempotent: true }).catch(() => {});
           return { summary: `Skipped: ${gateResult.reason}`, log: logger.finalize() };
         }
-        logger.completePhase(gateIdx, 'Frame passed quality gate');
+        logger.completePhase(gateIdx, `Frame passed quality gate${bedtimeNear ? ' (bedtime mode)' : ''}`);
         setLastFrame(framePath);
       } catch (err: any) {
         logger.completePhase(gateIdx, `Gate failed: ${err?.message}`);
@@ -159,15 +204,15 @@ class SceneStreamManager {
     // Phase 2.5: Sleep check
     if (classification.sleepContext) {
       try {
-        const { bedtimeHour, bedtimeMin } = getBedtimeConfig();
+        const cfg = getScheduleConfig();
         const now = new Date();
-        const diffHours = now.getHours() - bedtimeHour;
-        const diffMins = now.getMinutes() - bedtimeMin;
-        let totalDiffMins = diffHours * 60 + diffMins;
-        if (totalDiffMins < 0) totalDiffMins += 24 * 60;
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        const bedMin = cfg.bedtimeHour * 60 + cfg.bedtimeMin;
+        let diffMin = nowMin - bedMin;
+        if (diffMin < 0) diffMin += 1440;
 
         // If within 6 hours past bedtime
-        if (totalDiffMins >= 0 && totalDiffMins < 6 * 60) {
+        if (diffMin >= 0 && diffMin < 6 * 60) {
           if (!classification.sleepContext.isDark || classification.sleepContext.screensVisible) {
              const { deliverNudge } = require('./nudgeComposer');
              deliverNudge({
@@ -184,12 +229,19 @@ class SceneStreamManager {
     }
 
     // Phase 2.5b: Face Recognition (runs whenever people > 0, regardless of activity/nutrition)
+    let recognizedNames: string[] = [];
     if (classification.people > 0) {
       const faceIdx = logger.startPhase('face', 'recognition');
       try {
         const { checkFaceRecognition } = require('./sceneFaceRecognition');
-        await checkFaceRecognition(framePath, null, logger);
-        logger.completePhase(faceIdx, 'Done');
+        const faceResult = await checkFaceRecognition(framePath, null, logger);
+        recognizedNames = faceResult.recognizedNames || [];
+        logger.completePhase(
+          faceIdx,
+          recognizedNames.length > 0
+            ? `Recognized: ${recognizedNames.join(', ')}`
+            : 'No known faces',
+        );
       } catch (err: any) {
         logger.failPhase(faceIdx, err?.message || 'Face recognition failed');
       }
@@ -199,9 +251,14 @@ class SceneStreamManager {
     if (!classification.nutrition.detected && !classification.activity.detected) {
       // Even with no food/activity, face check above already ran if people > 0
       logger.skipPhase('log', 'write', 'Nothing detected');
-      const summary = classification.people > 0
-        ? `${classification.people} ${classification.people === 1 ? 'person' : 'people'} detected`
-        : 'Nothing detected';
+      let summary: string;
+      if (recognizedNames.length > 0) {
+        summary = `Recognized: ${recognizedNames.join(', ')}`;
+      } else if (classification.people > 0) {
+        summary = `${classification.people} ${classification.people === 1 ? 'person' : 'people'} detected`;
+      } else {
+        summary = 'Nothing detected';
+      }
       return { summary, log: logger.finalize(), description: classification.description || undefined };
     }
 

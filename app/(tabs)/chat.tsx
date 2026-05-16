@@ -46,6 +46,8 @@ export default function ChatScreen() {
   const [detailSheetVisible, setDetailSheetVisible] = useState(false);
   const [detailFood, setDetailFood] = useState<FoodPipelineItem | undefined>();
   const [detailAllFoods, setDetailAllFoods] = useState<FoodPipelineItem[] | undefined>();
+  const [detailFoodIndex, setDetailFoodIndex] = useState<number>(-1);
+  const [detailMessageId, setDetailMessageId] = useState<string>('');
 
   const scrollToEnd = () => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -290,9 +292,11 @@ export default function ChatScreen() {
                     router.push(route as any);
                   }
                 }}
-                onViewNutrients={(food: FoodPipelineItem) => {
+                onViewNutrients={(food: FoodPipelineItem, index: number) => {
                   setDetailFood(food);
                   setDetailAllFoods(undefined);
+                  setDetailFoodIndex(index);
+                  setDetailMessageId(msg.id);
                   setDetailSheetVisible(true);
                 }}
                 onFoodEdit={handlePipelineFoodEdit}
@@ -387,6 +391,11 @@ export default function ChatScreen() {
       onClose={() => setDetailSheetVisible(false)}
       food={detailFood}
       allFoods={detailAllFoods}
+      onUsdaSelect={(usdaFood) => {
+        if (detailMessageId && detailFoodIndex >= 0) {
+          handlePipelineUsdaReplace(detailMessageId, detailFoodIndex, usdaFood);
+        }
+      }}
     />
 
     {/* Brain Fallback Modal */}

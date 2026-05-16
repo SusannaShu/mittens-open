@@ -283,7 +283,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           frameCaptures.set(framePath, captureId);
 
           // Callback for queued frames: updates pendantStore when they finish
-          const onQueueResult = (queuedFramePath: string, queuedResult: { summary: string, log?: any }) => {
+          const onQueueResult = (queuedFramePath: string, queuedResult: { summary: string, log?: any, title?: string, description?: string }) => {
             const queuedCaptureId = frameCaptures.get(queuedFramePath);
             if (!queuedCaptureId) return;
             frameCaptures.delete(queuedFramePath);
@@ -296,12 +296,16 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                 processed: true,
                 brainResponse: queuedResult.summary,
                 pipelineLog: queuedResult.log,
+                title: queuedResult.title,
+                description: queuedResult.description,
               });
             } else {
               pendantStore.updateCapture(queuedCaptureId, {
                 processed: true,
                 brainResponse: queuedResult.summary,
                 pipelineLog: queuedResult.log,
+                title: queuedResult.title,
+                description: queuedResult.description,
               });
             }
           };
@@ -324,6 +328,8 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                   processed: true,
                   brainResponse: result.summary,
                   pipelineLog: result.log,
+                  title: result.title,
+                  description: result.description,
                 });
               } else if (result.summary === 'Queued for processing...') {
                 // Frame was queued -- leave it as unprocessed, callback will handle it
@@ -333,6 +339,8 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                   processed: true,
                   brainResponse: result.summary,
                   pipelineLog: result.log,
+                  title: result.title,
+                  description: result.description,
                 });
               }
             }

@@ -104,6 +104,9 @@ bool handlePushToTalk() {
     fb = captureFrame();
   }
 
+  // Turn off LED immediately after capture finishes to save battery during BLE transfer
+  ledOff();
+
   // 3. Signal and transfer
   bleSignalEvent(
       "BUTTON_PRESS"); // Same event type as button-press for app compatibility
@@ -118,7 +121,6 @@ bool handlePushToTalk() {
     esp_camera_fb_return(fb);
   cameraDeinit();
   micFreeBuffer();
-  ledOff();
 
   return ok;
 }
@@ -156,13 +158,15 @@ bool handleMotion() {
     return false;
   }
 
+  // Turn off LED immediately after capture finishes to save battery during BLE transfer
+  ledOff();
+
   // Transfer frame over BLE
   bool ok = bleTransferAndWait("MOTION", fb->buf, fb->len, nullptr, 0);
 
   // Cleanup
   esp_camera_fb_return(fb);
   cameraDeinit();
-  ledOff();
 
   return ok;
 }

@@ -166,8 +166,9 @@ export function recordLocationPoint(entry: {
       const isAtKnownPlace = currentMotionCheck === 'stationary' && !!activeSession.place_name;
 
       // When stationary at a known place (Home, D12, etc.), large GPS jumps
-      // are always indoor drift -- silently absorb them instead of bridging.
-      if (isAtKnownPlace) {
+      // are usually indoor drift -- silently absorb them instead of bridging.
+      // BUT ONLY if the OS is not actively reporting movement!
+      if (isAtKnownPlace && (motionType === 'stationary' || motionType === 'unknown')) {
         console.log(`[sessionBuilder] GPS jump ${distFromLast.toFixed(0)}m at known place '${activeSession.place_name}' -- suppressing jitter`);
         return;
       }
@@ -244,60 +245,61 @@ export function recordLocationPoint(entry: {
       return;
     }
 
-    // Stationary -> moving: require BOTH 10 consecutive non-stationary readings
-    // AND 3 minutes of sustained movement. Both gates must pass.
-    if (currentMotion === 'stationary' && motionType !== 'stationary' && motionType !== 'unknown') {
-      consecutiveMovement++;
-      if (!firstMovement) {
-        firstMovement = { time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType };
-      }
-      // Update dominant motion to latest
-      firstMovement.motion = motionType;
-
-      // Gate 1: consecutive readings
-      if (consecutiveMovement < MIN_CONSECUTIVE_MOVEMENT) {
-        console.log(`[sessionBuilder] Movement reading ${consecutiveMovement}/${MIN_CONSECUTIVE_MOVEMENT}`);
-        return;
-      }
-
-      // Gate 2: sustained time (3 minutes from first movement reading)
-      const movementDuration = nowMs - firstMovement.time;
-      if (movementDuration < MIN_STATIONARY_DWELL_MS) {
-        console.log(`[sessionBuilder] ${consecutiveMovement} readings but only ${Math.round(movementDuration / 1000)}s / ${Math.round(MIN_STATIONARY_DWELL_MS / 1000)}s elapsed`);
-        return;
-      }
-
-      // Gate 3: displacement from anchor (catches persistent oscillation)
+    // Stationary -> moving: check displacement and movement confidence.
+    if (currentMotion === 'stationary') {
       const anchorLat = activeSession.start_lat;
       const anchorLon = activeSession.start_lon;
       const displacement = haversineMeters(anchorLat, anchorLon, entry.latitude, entry.longitude);
 
-      if (displacement < 80) {
-        console.log(`[sessionBuilder] ${consecutiveMovement} readings, ${Math.round(movementDuration / 1000)}s, but displacement only ${displacement.toFixed(0)}m -- jitter, resetting`);
-        consecutiveMovement = 0;
-        firstMovement = null;
-        return;
+      if (motionType !== 'stationary' && motionType !== 'unknown') {
+        consecutiveMovement++;
+        if (!firstMovement) {
+          firstMovement = { time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType };
+        }
+        // Update dominant motion to latest
+        firstMovement.motion = motionType;
+      } else if (motionType === 'stationary') {
+        // Confirmed stationary reading resets the movement counter. We tolerate 'unknown' without resetting.
+        if (consecutiveMovement > 0) {
+          console.log(`[sessionBuilder] Confirmed stationary reading, resetting movement counter (was ${consecutiveMovement})`);
+          consecutiveMovement = 0;
+          firstMovement = null;
+        }
       }
 
-      // All gates passed -- confirmed real movement
-      const transitionTime = new Date(firstMovement.time).toISOString();
-      const startLat = firstMovement.lat;
-      const startLon = firstMovement.lon;
-      console.log(`[sessionBuilder] Movement CONFIRMED: ${consecutiveMovement} readings, ${Math.round(movementDuration / 1000)}s, ${displacement.toFixed(0)}m displacement -> '${motionType}'`);
-      consecutiveMovement = 0;
-      firstMovement = null;
-      closeSession(db, activeSession.id, transitionTime);
-      startNewSession(db, startLat, startLon, motionType, transitionTime);
-      stationarySince = null;
-      clearDwellTimer();
-      return;
-    } else if (currentMotion === 'stationary') {
-      // Stationary or unknown reading -- reset the consecutive counter
-      if (consecutiveMovement > 0) {
-        console.log(`[sessionBuilder] Stationary reading, resetting movement counter (was ${consecutiveMovement})`);
-        consecutiveMovement = 0;
-        firstMovement = null;
+      // Exit stationary if we have significant displacement AND some confirmation of movement
+      // Fidgeting / walking in house -> displacement < 80m.
+      // Real travel -> displacement > 80m.
+      const isFarAway = displacement > 80;
+      const isConfirmedMovement = consecutiveMovement >= 3;
+
+      if (isFarAway) {
+        if (isConfirmedMovement || displacement > 150) {
+          const transitionTime = firstMovement ? new Date(firstMovement.time).toISOString() : now;
+          const startLat = firstMovement ? firstMovement.lat : entry.latitude;
+          const startLon = firstMovement ? firstMovement.lon : entry.longitude;
+          const finalMotion = firstMovement ? firstMovement.motion : (motionType !== 'unknown' && motionType !== 'stationary' ? motionType : 'walking');
+
+          console.log(`[sessionBuilder] Movement CONFIRMED: ${displacement.toFixed(0)}m displacement, ${consecutiveMovement} consecutive readings -> '${finalMotion}'`);
+          consecutiveMovement = 0;
+          firstMovement = null;
+          closeSession(db, activeSession.id, transitionTime);
+          startNewSession(db, startLat, startLon, finalMotion, transitionTime);
+          stationarySince = null;
+          clearDwellTimer();
+          return;
+        } else if (motionType !== 'stationary') {
+          console.log(`[sessionBuilder] Displacement ${displacement.toFixed(0)}m, waiting for movement confirmation (${consecutiveMovement}/3)`);
+          return;
+        }
+      } else if (consecutiveMovement > 0) {
+        // Suppress point if we are seeing movement but haven't left the 80m dwell radius (walking in house)
+        console.log(`[sessionBuilder] ${consecutiveMovement} movement readings, but displacement only ${displacement.toFixed(0)}m (walking in house/jitter).`);
+        return;
       }
+      
+      // If we didn't return, it means it's a stationary point or unknown point < 80m. 
+      // It will fall through to be added to the trail.
     }
 
     // Same motion type (or stationary within dwell window) — extend the session
@@ -396,6 +398,32 @@ function startNewSession(
       const { onTrailStart } = require('../ambient/trailActivityBridge');
       onTrailStart(sessionId, motionType, startedAt, lat, lon);
     } catch { /* trailActivityBridge not loaded */ }
+  }
+
+  // For stationary sessions: reverse geocode + create dwell activity (non-home only)
+  if (motionType === 'stationary' && sessionId) {
+    // Async reverse geocode to populate address/neighborhood
+    if (!placeName) {
+      try {
+        const { geocodeSession } = require('./reverseGeocode');
+        geocodeSession(sessionId, lat, lon).then((geo: any) => {
+          if (geo) {
+            console.log(`[sessionBuilder] Geocoded #${sessionId}: ${geo.neighborhood || geo.address}`);
+            // Create dwell activity for non-home geocoded location
+            try {
+              const { onDwellActivityCreate } = require('../ambient/trailActivityBridge');
+              onDwellActivityCreate(sessionId, lat, lon, startedAt, null, geo.neighborhood);
+            } catch { /* trailActivityBridge not loaded */ }
+          }
+        }).catch(() => { /* geocode failed, non-blocking */ });
+      } catch { /* reverseGeocode not loaded */ }
+    } else if (placeName !== 'Home') {
+      // Named non-home place -- create dwell activity directly
+      try {
+        const { onDwellActivityCreate } = require('../ambient/trailActivityBridge');
+        onDwellActivityCreate(sessionId, lat, lon, startedAt, placeName, null);
+      } catch { /* trailActivityBridge not loaded */ }
+    }
   }
 }
 

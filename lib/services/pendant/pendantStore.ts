@@ -21,6 +21,10 @@ export interface PendantCapture {
   transcript?: string;
   pipelineLog?: any;
   processed: boolean;
+  /** Free-form title from VLM classification */
+  title?: string;
+  /** Free-form scene description from VLM */
+  description?: string;
 }
 
 // ─── Constants ───
@@ -136,7 +140,7 @@ export function addCapture(
 /** Update an existing capture by ID. */
 export function updateCapture(
   id: string,
-  updates: Partial<Pick<PendantCapture, 'brainResponse' | 'transcript' | 'pipelineLog' | 'processed'>>
+  updates: Partial<Pick<PendantCapture, 'brainResponse' | 'transcript' | 'pipelineLog' | 'processed' | 'title' | 'description'>>
 ): void {
   const idx = captures.findIndex((c) => c.id === id);
   if (idx === -1) return;

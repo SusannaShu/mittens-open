@@ -31,8 +31,8 @@ class SceneStreamManager {
   async onPendantFrame(
     framePath: string,
     timestamp: number,
-    onQueueResult?: (framePath: string, result: { summary: string; log?: PipelineLog }) => void,
-  ): Promise<{ summary: string; log?: PipelineLog } | null> {
+    onQueueResult?: (framePath: string, result: { summary: string; log?: PipelineLog; title?: string; description?: string }) => void,
+  ): Promise<{ summary: string; log?: PipelineLog; title?: string; description?: string } | null> {
     // Queue if already processing
     if (this.processing) {
       this.pendingFrames.push({ framePath, timestamp });
@@ -75,7 +75,7 @@ class SceneStreamManager {
   private async processFrame(
     framePath: string,
     _timestamp: number,
-  ): Promise<{ summary: string; log: PipelineLog }> {
+  ): Promise<{ summary: string; log: PipelineLog; title?: string; description?: string }> {
     const logger = new PipelineLogger();
     const FileSystem = require('expo-file-system/legacy');
 
@@ -203,7 +203,16 @@ class SceneStreamManager {
     const summary = `[${pipelines.join('+')}] ${summaryParts.join(' | ')}`;
 
     const log = logger.finalize();
-    return { summary, log };
+
+    // Extract title/description for pendant store
+    const title = classification.activity.detected
+      ? (classification.activity.type || classification.description?.slice(0, 50) || 'Capture')
+      : (classification.nutrition.detected
+        ? classification.nutrition.items.map(i => i.name).join(', ')
+        : classification.description?.slice(0, 50) || 'Capture');
+    const description = classification.description || undefined;
+
+    return { summary, log, title, description };
   }
 
   // --- Context Building ---

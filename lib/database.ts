@@ -430,6 +430,22 @@ export async function initializeDatabase(): Promise<void> {
     );`,
     // Owner self-identification
     `ALTER TABLE people ADD COLUMN is_me INTEGER DEFAULT 0`,
+    // Location-activity decoupling: reverse geocoded address on sessions
+    `ALTER TABLE location_sessions ADD COLUMN address TEXT`,
+    `ALTER TABLE location_sessions ADD COLUMN neighborhood TEXT`,
+    // Activity log provenance (replaces location_session_id semantic coupling)
+    `ALTER TABLE activity_logs ADD COLUMN origin_session_id INTEGER`,
+    // AEIOU observation aggregation
+    `ALTER TABLE activity_logs ADD COLUMN aeiou TEXT`,
+    // Activity presets for user-defined templates
+    `CREATE TABLE IF NOT EXISTS activity_presets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      activity_type TEXT,
+      life_categories TEXT,
+      icon TEXT DEFAULT 'circle',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

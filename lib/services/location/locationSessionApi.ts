@@ -12,6 +12,8 @@ export interface LocationSession {
   motionType: 'stationary' | 'walking' | 'running' | 'cycling' | 'driving' | 'unknown';
   placeName: string | null;
   placeId?: number | null;
+  address?: string | null;
+  neighborhood?: string | null;
   path: [number, number][];
   duration_min: number | null;
 }
@@ -23,6 +25,8 @@ function rowToSession(r: any): LocationSession {
     endedAt: r.ended_at,
     motionType: r.motion_type || 'unknown',
     placeName: r.place_name,
+    address: r.address || null,
+    neighborhood: r.neighborhood || null,
     path: r.trail ? JSON.parse(r.trail) : [],
     duration_min: r.ended_at && r.started_at
       ? Math.round((new Date(r.ended_at).getTime() - new Date(r.started_at).getTime()) / 60000)

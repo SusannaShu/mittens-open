@@ -114,7 +114,7 @@ async function updateActivityLog(
   logger: PipelineLogger,
 ): Promise<number | null> {
   const existing = db.getFirstSync(
-    'SELECT logged_at, image_uris, life_categories FROM activity_logs WHERE id = ?',
+    'SELECT logged_at, image_uris, life_categories, aeiou FROM activity_logs WHERE id = ?',
     [logId],
   ) as any;
 
@@ -146,15 +146,44 @@ async function updateActivityLog(
     }
   }
 
+  // AEIOU detection: single VLM phase per capture, aggregate on log
+  let aeiouJson = existing?.aeiou ? JSON.parse(existing.aeiou) : null;
+  const aeiouIdx = logger.startPhase('activity', 'aeiou');
+  try {
+    const { detectAeiou, summarizeAeiou } = require('./aeiouDetector');
+    const sceneDesc = classification.description || classification.activity.description || '';
+    const obs = await detectAeiou(framePath, sceneDesc);
+    if (obs) {
+      // Accumulate raw observations and re-summarize
+      const rawObs = aeiouJson?._raw || [];
+      rawObs.push(obs);
+
+      if (rawObs.length === 1) {
+        // First observation: use directly
+        aeiouJson = { ...obs, _raw: rawObs };
+      } else {
+        // Multiple observations: summarize
+        const summary = await summarizeAeiou(rawObs);
+        aeiouJson = { ...summary, _raw: rawObs };
+      }
+      logger.completePhase(aeiouIdx, `${rawObs.length} observations`);
+    } else {
+      logger.completePhase(aeiouIdx, 'No AEIOU detected');
+    }
+  } catch (err: any) {
+    logger.failPhase(aeiouIdx, err?.message);
+  }
+
   db.runSync(
     `UPDATE activity_logs SET
       duration_min = ?, image_uris = ?,
-      life_categories = ?, updated_at = datetime('now')
+      life_categories = ?, aeiou = ?, updated_at = datetime('now')
     WHERE id = ?`,
     [
       durationMin,
       JSON.stringify(existingImages),
       lifeCategories ? JSON.stringify(lifeCategories) : null,
+      aeiouJson ? JSON.stringify(aeiouJson) : null,
       logId,
     ],
   );

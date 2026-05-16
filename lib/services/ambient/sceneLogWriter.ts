@@ -84,6 +84,16 @@ export async function executeLogDecision(
   // Activity pipeline (delegated to activityLogWriter)
   if (classification.activity.detected) {
     activityLogId = await handleActivity(classification, framePath, logger);
+
+    // At-home sedentary detection: auto-start timer if sitting/screen
+    try {
+      const { getCurrentPlace } = require('../location/locationService');
+      const place = getCurrentPlace();
+      if (place === 'Home') {
+        const { checkSedentaryState } = require('./sedentaryDetector');
+        checkSedentaryState(framePath).catch(() => { /* non-blocking */ });
+      }
+    } catch { /* location or sedentary service not loaded */ }
   }
 
   return { nutritionLogId, activityLogId, nutritionSummary, pipelineFoods, logName, mealType };

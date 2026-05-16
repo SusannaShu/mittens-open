@@ -1,9 +1,13 @@
 /**
- * ambient/trailActivityBridge.ts -- Links location trail sessions to activity logs.
+ * ambient/trailActivityBridge.ts -- Links location sessions to activity logs.
  *
  * When a movement session starts (walking/biking/running), auto-creates an
  * activity log. When the trail closes (stationary), updates the end time.
  * During the trail, ambient captures route AEIOU updates to this log.
+ *
+ * For non-home stationary dwell sessions, auto-creates activity logs with
+ * reverse-geocoded location titles. Calendar event matching merges planned
+ * events with actual arrivals/departures.
  */
 
 import { getDb } from '../../database';
@@ -33,7 +37,7 @@ const DEFAULT_DURATION_MIN = 30;
 
 /**
  * Called when a new movement session starts.
- * Creates an activity log linked to the location session.
+ * Creates an activity log with origin_session_id provenance.
  */
 export function onTrailStart(
   sessionId: number,
@@ -49,9 +53,11 @@ export function onTrailStart(
     if (motionType === 'stationary') return null;
 
     // Check if there's already an activity log for this session
+    // Check both old FK and new provenance column
     const existing = db.getFirstSync(
-      'SELECT id FROM activity_logs WHERE location_session_id = ?',
-      [sessionId],
+      `SELECT id FROM activity_logs
+       WHERE location_session_id = ? OR origin_session_id = ?`,
+      [sessionId, sessionId],
     ) as any;
     if (existing) return existing.id;
 
@@ -74,9 +80,9 @@ export function onTrailStart(
     const result = db.runSync(
       `INSERT INTO activity_logs (
         logged_at, log_name, activity_type, duration_min, mets,
-        location, source, location_session_id,
+        location, source, location_session_id, origin_session_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'trail', ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, 'trail', ?, ?, datetime('now'), datetime('now'))`,
       [
         startedAt,
         logName,
@@ -84,6 +90,7 @@ export function onTrailStart(
         DEFAULT_DURATION_MIN,
         metValue,
         placeName,
+        sessionId,
         sessionId,
       ],
     );
@@ -106,8 +113,9 @@ export function onTrailEnd(sessionId: number, endedAt: string): void {
     const db = getDb();
 
     const log = db.getFirstSync(
-      'SELECT id, logged_at FROM activity_logs WHERE location_session_id = ?',
-      [sessionId],
+      `SELECT id, logged_at FROM activity_logs
+       WHERE location_session_id = ? OR origin_session_id = ?`,
+      [sessionId, sessionId],
     ) as any;
     if (!log) return;
 
@@ -129,6 +137,70 @@ export function onTrailEnd(sessionId: number, endedAt: string): void {
 }
 
 /**
+ * Called when a non-home stationary dwell session starts.
+ * Auto-creates an activity log with reverse-geocoded location as title.
+ * Attempts to match against planned calendar events.
+ */
+export async function onDwellActivityCreate(
+  sessionId: number,
+  lat: number,
+  lon: number,
+  startedAt: string,
+  placeName: string | null,
+  neighborhood: string | null,
+): Promise<number | null> {
+  try {
+    const db = getDb();
+
+    // Check if already linked
+    const existing = db.getFirstSync(
+      `SELECT id FROM activity_logs
+       WHERE origin_session_id = ?`,
+      [sessionId],
+    ) as any;
+    if (existing) return existing.id;
+
+    // Build title from available location info
+    const locationLabel = placeName || neighborhood || 'Unknown place';
+    const logName = `At ${locationLabel}`;
+
+    const result = db.runSync(
+      `INSERT INTO activity_logs (
+        logged_at, log_name, activity_type, duration_min,
+        location, source, origin_session_id,
+        created_at, updated_at
+      ) VALUES (?, ?, 'other', ?, ?, 'dwell', ?, datetime('now'), datetime('now'))`,
+      [
+        startedAt,
+        logName,
+        DEFAULT_DURATION_MIN,
+        placeName || null,
+        sessionId,
+      ],
+    );
+
+    const logId = result?.lastInsertRowId ?? null;
+    if (!logId) return null;
+
+    console.log(`[TrailBridge] Created dwell activity #${logId}: ${logName}`);
+
+    // Try to match against planned calendar events
+    try {
+      const { matchAndConvertPlannedEvent } = require('./calendarEventMatcher');
+      const googleEventId = matchAndConvertPlannedEvent(logId, startedAt, placeName);
+      if (googleEventId) {
+        console.log(`[TrailBridge] Linked dwell #${logId} to calendar event ${googleEventId}`);
+      }
+    } catch { /* calendar matcher not loaded */ }
+
+    return logId;
+  } catch (err: any) {
+    console.warn('[TrailBridge] Failed to create dwell activity:', err?.message);
+    return null;
+  }
+}
+
+/**
  * Returns the activity log ID for the currently active trail, if any.
  * Used by the ambient triage engine to route capture updates.
  */
@@ -141,6 +213,7 @@ export function getActiveTrailLogId(): number | null {
       `SELECT ls.id as session_id, al.id as log_id
        FROM location_sessions ls
        JOIN activity_logs al ON al.location_session_id = ls.id
+          OR al.origin_session_id = ls.id
        WHERE ls.ended_at IS NULL
          AND ls.motion_type != 'stationary'
        ORDER BY ls.started_at DESC LIMIT 1`,

@@ -339,6 +339,8 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         if (matchedPlace) {
           resolvedName = matchedPlace.name;
         }
+        if (!resolvedName && s.neighborhood) resolvedName = s.neighborhood;
+        if (!resolvedName && s.address) resolvedName = s.address;
 
         const label = resolvedName 
           ? resolvedName
@@ -434,6 +436,10 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         const coordMatch = knownPlaces.find(p => Math.abs(p.latitude - s.path[0][0]) < threshold && Math.abs(p.longitude - s.path[0][1]) < threshold);
         if (coordMatch) resolvedName = coordMatch.name;
       }
+
+      // Fall back to reverse-geocoded neighborhood/address
+      if (!resolvedName && s.neighborhood) resolvedName = s.neighborhood;
+      if (!resolvedName && s.address) resolvedName = s.address;
 
       const label = resolvedName 
         ? resolvedName

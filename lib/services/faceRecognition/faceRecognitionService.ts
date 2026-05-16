@@ -8,6 +8,8 @@
  *   4. Reinforcement: saving new embeddings on confident re-identification
  *
  * This is the main entry point for the rest of the app.
+ *
+ * DEBUG: All operations log with [FaceRec] prefix for live console monitoring.
  */
 
 import type { FaceMatch, IntroductionResult } from './types';
@@ -23,9 +25,9 @@ import {
   getOwner,
 } from './faceRecognitionApi';
 
-// ═══════════════════════════════════════
+// =============================================
 // CONFIGURATION
-// ═══════════════════════════════════════
+// =============================================
 
 /** Minimum cosine similarity to consider a match */
 const MATCH_THRESHOLD = 0.80;
@@ -42,9 +44,9 @@ const GREET_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 /** Track last greeting times to avoid spamming */
 const lastGreetTimes: Map<number, number> = new Map();
 
-// ═══════════════════════════════════════
+// =============================================
 // INTRODUCTION ("Mittens, this is Caden")
-// ═══════════════════════════════════════
+// =============================================
 
 /**
  * Register a new person or add embeddings to an existing one.
@@ -56,11 +58,15 @@ export async function introducePerson(
   name: string,
   framePath: string,
 ): Promise<IntroductionResult | null> {
+  console.log(`[FaceRec] --- introducePerson START: "${name}" ---`);
+  console.log(`[FaceRec] Frame: ${framePath.slice(-40)}`);
+
   // Extract face embeddings from the frame
   const faces = await detectFacesFromFrame(framePath);
 
   if (faces.length === 0) {
-    console.log('[FaceRecognition] No faces detected in introduction frame');
+    console.log('[FaceRec] No faces detected in introduction frame');
+    console.log('[FaceRec] --- introducePerson END (no faces) ---');
     return null;
   }
 
@@ -71,8 +77,13 @@ export async function introducePerson(
   if (!person) {
     const personId = createPerson(name);
     person = getPersonById(personId);
-    if (!person) return null;
-    console.log(`[FaceRecognition] Created new person: ${name} (id=${person.id})`);
+    if (!person) {
+      console.log('[FaceRec] Failed to create person record');
+      return null;
+    }
+    console.log(`[FaceRec] Created new person: "${name}" (id=${person.id})`);
+  } else {
+    console.log(`[FaceRec] Found existing person: "${name}" (id=${person.id})`);
   }
 
   // Save embeddings for the first face detected (assumed to be the introduced person)
@@ -82,22 +93,25 @@ export async function introducePerson(
   // Record the interaction
   recordInteraction(person.id);
 
+  const totalEmbeddings = getEmbeddingCount(person.id);
   console.log(
-    `[FaceRecognition] ${isNew ? 'Registered' : 'Updated'} ${name}` +
-    ` with embedding (dim=${face.embedding.length})`,
+    `[FaceRec] ${isNew ? 'Registered' : 'Updated'} "${name}"` +
+    ` -- embedding dim=${face.embedding.length}, confidence=${face.confidence.toFixed(3)}` +
+    ` -- total embeddings: ${totalEmbeddings}`,
   );
+  console.log(`[FaceRec] --- introducePerson END (success) ---`);
 
   return {
     personId: person.id,
     name: person.name,
     isNew,
-    embeddingsSaved: getEmbeddingCount(person.id),
+    embeddingsSaved: totalEmbeddings,
   };
 }
 
-// ═══════════════════════════════════════
+// =============================================
 // RECOGNITION (ambient frame processing)
-// ═══════════════════════════════════════
+// =============================================
 
 /**
  * Try to recognize faces in a pendant frame.
@@ -109,16 +123,23 @@ export async function introducePerson(
 export async function recognizeFaces(
   framePath: string,
 ): Promise<FaceMatch[]> {
+  console.log(`[FaceRec] --- recognizeFaces START ---`);
+  console.log(`[FaceRec] Frame: ${framePath.slice(-40)}`);
+
   // Extract face embeddings from the frame
   const faces = await detectFacesFromFrame(framePath);
 
   if (faces.length === 0) {
+    console.log('[FaceRec] No faces detected');
+    console.log('[FaceRec] --- recognizeFaces END (0 faces) ---');
     return [];
   }
 
   // Load all known embeddings
   const knownEmbeddings = getAllEmbeddings();
   if (knownEmbeddings.length === 0) {
+    console.log(`[FaceRec] No known embeddings in database -- cannot match`);
+    console.log('[FaceRec] --- recognizeFaces END (no known faces) ---');
     return [];
   }
 
@@ -140,11 +161,18 @@ export async function recognizeFaces(
     }
   }
 
+  console.log(
+    `[FaceRec] Comparing ${faces.length} detected face(s) against` +
+    ` ${personEmbeddings.size} known people (${knownEmbeddings.length} total embeddings)`,
+  );
+
   // Match each detected face against known people
   const matches: FaceMatch[] = [];
 
-  for (const face of faces) {
+  for (let fi = 0; fi < faces.length; fi++) {
+    const face = faces[fi];
     let bestMatch: FaceMatch | null = null;
+    const scores: string[] = [];
 
     for (const [personId, data] of personEmbeddings) {
       // Compare against all embeddings for this person, take the best
@@ -153,6 +181,10 @@ export async function recognizeFaces(
         const sim = cosineSimilarity(face.embedding, knownEmb);
         if (sim > bestSim) bestSim = sim;
       }
+
+      const pct = (bestSim * 100).toFixed(1);
+      const marker = bestSim >= MATCH_THRESHOLD ? ' [MATCH]' : '';
+      scores.push(`"${data.name}"(id=${personId}): ${pct}% of ${data.embeddings.length} emb${marker}`);
 
       if (bestSim >= MATCH_THRESHOLD) {
         if (!bestMatch || bestSim > bestMatch.similarity) {
@@ -166,14 +198,28 @@ export async function recognizeFaces(
       }
     }
 
+    // Log all comparison scores for this face
+    console.log(`[FaceRec] Face #${fi + 1} (conf=${face.confidence.toFixed(3)}, box=${JSON.stringify(face.boundingBox)}):`);
+    for (const s of scores) {
+      console.log(`[FaceRec]   ${s}`);
+    }
+
     if (bestMatch) {
+      console.log(
+        `[FaceRec] MATCH: "${bestMatch.name}" at ${(bestMatch.similarity * 100).toFixed(1)}%` +
+        ` (threshold=${MATCH_THRESHOLD * 100}%)`,
+      );
       matches.push(bestMatch);
 
       // Record the interaction (but do NOT auto-reinforce)
       recordInteraction(bestMatch.personId);
+    } else {
+      const bestOverall = scores.length > 0 ? scores[0] : 'no known faces';
+      console.log(`[FaceRec] NO MATCH for face #${fi + 1} (best was: ${bestOverall})`);
     }
   }
 
+  console.log(`[FaceRec] --- recognizeFaces END (${matches.length} match(es)) ---`);
   return matches.sort((a, b) => b.similarity - a.similarity);
 }
 
@@ -184,7 +230,16 @@ export async function recognizeFaces(
 export function shouldGreet(personId: number): boolean {
   const lastGreet = lastGreetTimes.get(personId);
   if (!lastGreet) return true;
-  return Date.now() - lastGreet > GREET_COOLDOWN_MS;
+  const elapsed = Date.now() - lastGreet;
+  const should = elapsed > GREET_COOLDOWN_MS;
+  if (!should) {
+    console.log(
+      `[FaceRec] Greeting skipped for person ${personId}` +
+      ` -- ${Math.round(elapsed / 1000)}s since last greet` +
+      ` (cooldown=${Math.round(GREET_COOLDOWN_MS / 1000)}s)`,
+    );
+  }
+  return should;
 }
 
 /** Mark that we just greeted this person. */
@@ -192,9 +247,9 @@ export function markGreeted(personId: number): void {
   lastGreetTimes.set(personId, Date.now());
 }
 
-// ═══════════════════════════════════════
+// =============================================
 // REINFORCEMENT
-// ═══════════════════════════════════════
+// =============================================
 
 /**
  * Save a new embedding for an already-recognized person.
@@ -204,13 +259,17 @@ export function confirmAndReinforce(
   personId: number,
   framePath: string,
 ): void {
+  console.log(`[FaceRec] confirmAndReinforce: person=${personId}, frame=${framePath.slice(-30)}`);
   // Re-detect face to get fresh embedding
   detectFacesFromFrame(framePath).then(faces => {
-    if (faces.length === 0) return;
+    if (faces.length === 0) {
+      console.log('[FaceRec] Reinforce aborted -- no face in frame');
+      return;
+    }
     const face = faces[0];
     reinforceRecognition(personId, face.embedding, framePath);
   }).catch(err => {
-    console.warn('[FaceRecognition] Confirm reinforce failed:', err?.message);
+    console.warn('[FaceRec] Confirm reinforce failed:', err?.message);
   });
 }
 
@@ -236,18 +295,23 @@ function reinforceRecognition(
 
   // Don't over-reinforce: skip if we already have many embeddings
   if (count >= MAX_EMBEDDINGS_PER_PERSON) {
+    console.log(
+      `[FaceRec] Pruning embeddings for person ${personId}` +
+      ` (${count} >= max ${MAX_EMBEDDINGS_PER_PERSON})`,
+    );
     pruneEmbeddings(MAX_EMBEDDINGS_PER_PERSON - 1);
   }
 
   saveEmbedding(personId, embedding, 0.9, framePath); // Slightly lower confidence for auto-reinforced
   console.log(
-    `[FaceRecognition] Reinforced person ${personId} (now ${count + 1} embeddings)`,
+    `[FaceRec] Reinforced person ${personId}` +
+    ` (now ${count + 1} embeddings, dim=${embedding.length})`,
   );
 }
 
-// ═══════════════════════════════════════
+// =============================================
 // NATIVE MODULE BRIDGE
-// ═══════════════════════════════════════
+// =============================================
 
 interface NativeFace {
   embedding: number[];
@@ -265,25 +329,37 @@ interface NativeFace {
  * Falls back gracefully if the module is unavailable.
  */
 async function detectFacesFromFrame(framePath: string): Promise<NativeFace[]> {
+  console.log(`[FaceRec] detectFacesFromFrame: ${framePath.slice(-40)}`);
   try {
     const { getFaceRecognitionModule } = require(
       '../../../modules/expo-face-recognition/src',
     );
     const mod = getFaceRecognitionModule();
     if (!mod) {
-      console.warn('[FaceRecognition] Native module not available');
+      console.warn('[FaceRec] Native module not available (getFaceRecognitionModule returned null)');
       return [];
     }
-    return await mod.detectFaces(framePath);
+    const faces = await mod.detectFaces(framePath);
+    console.log(`[FaceRec] Native module detected ${faces.length} face(s)`);
+    for (let i = 0; i < faces.length; i++) {
+      const f = faces[i];
+      console.log(
+        `[FaceRec]   Face #${i + 1}: conf=${f.confidence.toFixed(3)}` +
+        `, dim=${f.embedding.length}` +
+        `, box=[${f.boundingBox.x.toFixed(0)},${f.boundingBox.y.toFixed(0)}` +
+        ` ${f.boundingBox.width.toFixed(0)}x${f.boundingBox.height.toFixed(0)}]`,
+      );
+    }
+    return faces;
   } catch (err: any) {
-    console.warn('[FaceRecognition] Detection failed:', err?.message);
+    console.warn('[FaceRec] Detection failed:', err?.message);
     return [];
   }
 }
 
-// ═══════════════════════════════════════
+// =============================================
 // MATH: COSINE SIMILARITY
-// ═══════════════════════════════════════
+// =============================================
 
 /**
  * Compute cosine similarity between two vectors.

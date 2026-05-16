@@ -152,11 +152,14 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               throw new Error('Could not hear anything and no photo was captured.');
             }
 
+            // If voice recording yielded no transcript, treat as photo-only capture
+            // Don't show "[Voice Recording]" when nothing was recognized
+            const hasVoice = !!transcript;
             const pInitMsg = {
               id: `pendant-${Date.now()}`,
               role: 'user',
-              text: transcript || (audioPath ? '[Voice Recording]' : '[Photo Capture]'),
-              audio: audioPath,
+              text: transcript || '[Photo Capture]',
+              audio: hasVoice ? audioPath : undefined,
               photos: framePath ? [framePath] : undefined,
               timestamp: new Date(),
               source: 'pendant',
@@ -225,8 +228,8 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               const dataProvider = await getDataProvider();
               await dataProvider.saveMessage({
                 role: 'user',
-                text: transcript || (audioPath ? '[Voice Recording]' : '[Photo Capture]'),
-                metadata: { source: 'pendant', audioPath, photos: framePath ? [framePath] : undefined },
+                text: transcript || '[Photo Capture]',
+                metadata: { source: 'pendant', audioPath: hasVoice ? audioPath : undefined, photos: framePath ? [framePath] : undefined },
               });
               await dataProvider.saveMessage({
                 role: 'mittens',

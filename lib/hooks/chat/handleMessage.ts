@@ -386,6 +386,36 @@ export async function handleMessage(
     photoTime ? [photoTime] : (ctx.photoTimestampsRef.current || undefined),
   );
 
+  // 5b. Face recognition on photos (non-blocking, runs in parallel with pipeline)
+  let faceRecNotes: string[] = [];
+  if (photos.length > 0) {
+    try {
+      const { recognizeFaces, isOwner } = require('../../services/faceRecognition/faceRecognitionService');
+      console.log(`[FaceRec:Chat] Running face recognition on ${photos.length} photo(s)`);
+
+      for (const photoPath of photos) {
+        const matches = await recognizeFaces(photoPath);
+        for (const match of matches) {
+          const ownerMatch = isOwner(match.personId);
+          const pct = Math.round(match.similarity * 100);
+          if (ownerMatch) {
+            faceRecNotes.push(`[Face] ${match.name} detected (${pct}% match, owner)`);
+            console.log(`[FaceRec:Chat] Owner detected: "${match.name}" at ${pct}%`);
+          } else {
+            faceRecNotes.push(`[Face] ${match.name} detected (${pct}% match)`);
+            console.log(`[FaceRec:Chat] Known person: "${match.name}" at ${pct}%`);
+          }
+        }
+      }
+
+      if (faceRecNotes.length === 0) {
+        console.log('[FaceRec:Chat] No known faces matched in chat photos');
+      }
+    } catch (faceErr: any) {
+      console.warn('[FaceRec:Chat] Face recognition failed (non-blocking):', faceErr?.message);
+    }
+  }
+
   // 6. Build pipeline input
   const pipelineInput: PipelineInput = {
     source: 'chat',
@@ -687,6 +717,14 @@ export async function handleMessage(
 
   // 10. Compose reply from all results
   const reply = composeReply(results, validIntents);
+
+  // Append face recognition notes to reply if any
+  if (faceRecNotes.length > 0) {
+    const faceNote = faceRecNotes.join('\n');
+    reply.text = reply.text
+      ? `${reply.text}\n\n${faceNote}`
+      : faceNote;
+  }
 
   // 11. Finalize pipeline log
   const pipelineLog = runner.logger.finalize();

@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, Alert, Modal,
   KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +21,7 @@ import {
   getEmbeddingsForPerson,
   deleteEmbedding,
   setOwner,
+  saveEmbedding,
 } from '../../lib/services/faceRecognition/faceRecognitionApi';
 import type { Person } from '../../lib/pipelines/types';
 import type { FaceEmbedding } from '../../lib/services/faceRecognition/types';
@@ -36,6 +38,7 @@ interface Props {
 export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
   const [draft, setDraft] = useState<Person>({ ...person });
   const [embeddings, setEmbeddings] = useState<FaceEmbedding[]>([]);
+  const [uploading, setUploading] = useState(false);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -72,6 +75,76 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
     setDraft(p => ({ ...p, isMe: newVal, teamRole: newVal ? 'self' : p.teamRole }));
     if (newVal && person.id && person.id > 0) {
       setOwner(person.id);
+    }
+  };
+
+  const handleUploadPhoto = async () => {
+    if (!person.id || person.id === 0) {
+      Alert.alert('Save First', 'Save this person before uploading face photos.');
+      return;
+    }
+
+    try {
+      const ImagePicker = require('expo-image-picker');
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        allowsEditing: false,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const photoUri = result.assets[0].uri;
+      setUploading(true);
+      console.log(`[FaceRec:Upload] Starting face detection on: ${photoUri.slice(-40)}`);
+
+      // Detect faces in the uploaded photo
+      let faces: any[] = [];
+      try {
+        const { getFaceRecognitionModule } = require('../../lib/services/faceRecognition/nativeModule');
+        const mod = getFaceRecognitionModule?.();
+        if (mod) {
+          faces = await mod.detectFaces(photoUri);
+        }
+      } catch {
+        // Native module might not be at that path -- try direct import
+        try {
+          const mod = require('../../../modules/expo-face-recognition/src');
+          const faceModule = mod.getFaceRecognitionModule();
+          if (faceModule) {
+            faces = await faceModule.detectFaces(photoUri);
+          }
+        } catch (innerErr: any) {
+          console.warn('[FaceRec:Upload] Native module not available:', innerErr?.message);
+        }
+      }
+
+      if (!faces || faces.length === 0) {
+        Alert.alert('No Face Found', 'Could not detect a face in this photo. Try a clearer photo with a visible face.');
+        setUploading(false);
+        return;
+      }
+
+      const face = faces[0];
+      console.log(
+        `[FaceRec:Upload] Detected face: dim=${face.embedding.length}` +
+        `, conf=${face.confidence.toFixed(3)}`,
+      );
+
+      // Save embedding
+      saveEmbedding(person.id, face.embedding, face.confidence, photoUri);
+      console.log(`[FaceRec:Upload] Saved embedding for person ${person.id}`);
+
+      // Refresh embeddings list
+      const loaded = getEmbeddingsForPerson(person.id);
+      setEmbeddings(loaded);
+
+      Alert.alert('Face Learned', `Mittens will use this photo to remember ${draft.name}.`);
+    } catch (err: any) {
+      console.error('[FaceRec:Upload] Failed:', err?.message);
+      Alert.alert('Upload Failed', err?.message || 'Something went wrong.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -167,29 +240,49 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
               multiline
             />
 
-            {/* Photo gallery with "Not X" per photo */}
-            {person.id && person.id > 0 && embeddings.length > 0 ? (
+            {/* Photo gallery with upload + "Not X" per photo */}
+            {person.id && person.id > 0 ? (
               <View style={{ marginTop: spacing.md }}>
                 <Text style={st.fieldLabel}>Pictures Used to Remember ({embeddings.length})</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }}>
-                  {embeddings.map((emb, idx) => (
-                    emb.imageUri ? (
-                      <View key={emb.id || idx} style={st.galleryItem}>
-                        <Image source={{ uri: emb.imageUri }} style={st.galleryImage} />
-                        <Text style={st.galleryDate}>
-                          {new Date(emb.capturedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                        </Text>
-                        <TouchableOpacity
-                          style={st.notMeBtn}
-                          onPress={() => emb.id && handleRemoveEmbedding(emb.id)}
-                        >
-                          <Feather name="x" size={10} color="#FF4444" />
-                          <Text style={st.notMeText}>Not {draft.name.split(' ')[0]}</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : null
-                  ))}
-                </ScrollView>
+
+                {/* Upload Photo button */}
+                <TouchableOpacity
+                  style={st.uploadBtn}
+                  onPress={handleUploadPhoto}
+                  activeOpacity={0.7}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <ActivityIndicator size="small" color={colors.textPrimary} />
+                  ) : (
+                    <>
+                      <Feather name="upload" size={14} color={colors.textPrimary} />
+                      <Text style={st.uploadText}>Upload Face Photo</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {embeddings.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }}>
+                    {embeddings.map((emb, idx) => (
+                      emb.imageUri ? (
+                        <View key={emb.id || idx} style={st.galleryItem}>
+                          <Image source={{ uri: emb.imageUri }} style={st.galleryImage} />
+                          <Text style={st.galleryDate}>
+                            {new Date(emb.capturedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                          </Text>
+                          <TouchableOpacity
+                            style={st.notMeBtn}
+                            onPress={() => emb.id && handleRemoveEmbedding(emb.id)}
+                          >
+                            <Feather name="x" size={10} color="#FF4444" />
+                            <Text style={st.notMeText}>Not {draft.name.split(' ')[0]}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null
+                    ))}
+                  </ScrollView>
+                ) : null}
               </View>
             ) : null}
 
@@ -312,6 +405,23 @@ const st = StyleSheet.create({
   },
   isMeText: {
     fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  uploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderStyle: 'dashed',
+  },
+  uploadText: {
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textPrimary,
   },

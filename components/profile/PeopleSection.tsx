@@ -1,6 +1,7 @@
 /**
- * PeopleSection -- Relationship map in Profile tab.
- * Shows recent people, search, add/edit via PersonService.
+ * PeopleSection -- Face recognition roster in Profile tab.
+ * Shows people Mittens can recognize, with embedding counts and face gallery access.
+ * Separated from Life Design "Team" -- this is about identity, not roles.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -13,6 +14,7 @@ import { colors, spacing, radius } from '../../lib/theme';
 import { profileStyles as ps } from './profileStyles';
 import { PersonService } from '../../lib/services/personService';
 import { PersonEditSheet } from './PersonEditSheet';
+import { getEmbeddingCount } from '../../lib/services/faceRecognition/faceRecognitionApi';
 import type { Person } from '../../lib/pipelines/types';
 
 interface Props {
@@ -22,18 +24,32 @@ interface Props {
 
 export function PeopleSection({ collapsed, onToggle }: Props) {
   const [people, setPeople] = useState<Person[]>([]);
+  const [embeddingCounts, setEmbeddingCounts] = useState<Record<number, number>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
   const loadPeople = useCallback(async () => {
+    let loaded: Person[];
     if (searchQuery.trim()) {
-      const results = await PersonService.search(searchQuery);
-      setPeople(results);
+      loaded = await PersonService.search(searchQuery);
     } else {
-      const recent = await PersonService.getRecent(30);
-      setPeople(recent);
+      loaded = await PersonService.getRecent(30);
     }
+    setPeople(loaded);
+
+    // Load embedding counts for each person
+    const counts: Record<number, number> = {};
+    for (const p of loaded) {
+      if (p.id && p.id > 0) {
+        try {
+          counts[p.id] = getEmbeddingCount(p.id);
+        } catch {
+          counts[p.id] = 0;
+        }
+      }
+    }
+    setEmbeddingCounts(counts);
   }, [searchQuery]);
 
   useEffect(() => { loadPeople(); }, [loadPeople]);
@@ -74,8 +90,8 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
     <View style={ps.card}>
       <TouchableOpacity style={[ps.sectionHeader, !collapsed && { marginBottom: 16 }]} onPress={onToggle} activeOpacity={0.7}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Feather name="users" size={16} color={colors.textPrimary} />
-          <Text style={ps.cardTitle}>YOUR TEAM</Text>
+          <Feather name="eye" size={16} color={colors.textPrimary} />
+          <Text style={ps.cardTitle}>PEOPLE MITTENS KNOWS</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {people.length > 0 && <Text style={{ fontSize: 11, color: colors.textMuted }}>{people.length}</Text>}
@@ -86,7 +102,7 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
       {!collapsed && (
         <>
           <Text style={{ fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm }}>
-            People Mittens detects from your activities. Supporters, players, intimates, and mentors form your life design team.
+            People Mittens can recognize by face. Tap to edit or upload photos to teach Mittens.
           </Text>
 
           {/* Search */}
@@ -109,9 +125,9 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
           {/* Empty state */}
           {people.length === 0 && !searchQuery ? (
             <View style={st.emptyState}>
-              <Feather name="users" size={20} color={colors.textMuted} />
+              <Feather name="eye" size={20} color={colors.textMuted} />
               <Text style={st.emptyText}>
-                No people yet. As you log activities and mention names, they will appear here.
+                No people yet. Introduce someone to Mittens by saying "this is [name]" while wearing the pendant, or add them manually.
               </Text>
             </View>
           ) : people.length === 0 && searchQuery ? (
@@ -121,40 +137,43 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
           ) : null}
 
           {/* People list */}
-          {people.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={st.personRow}
-              onPress={() => { setEditingPerson({ ...p }); setSheetVisible(true); }}
-              activeOpacity={0.6}
-            >
-              <View style={st.avatar}>
-                {p.avatarUri ? (
-                  <Image source={{ uri: p.avatarUri }} style={st.avatarImg} />
-                ) : (
-                  <Text style={st.avatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+          {people.map((p) => {
+            const embCount = p.id ? (embeddingCounts[p.id] || 0) : 0;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                style={st.personRow}
+                onPress={() => { setEditingPerson({ ...p }); setSheetVisible(true); }}
+                activeOpacity={0.6}
+              >
+                <View style={st.avatar}>
+                  {p.avatarUri ? (
+                    <Image source={{ uri: p.avatarUri }} style={st.avatarImg} />
+                  ) : (
+                    <Text style={st.avatarText}>{p.name.charAt(0).toUpperCase()}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={st.personName}>{p.name}</Text>
+                    {p.isMe && <Text style={st.meBadge}>ME</Text>}
+                    {p.nickname ? <Text style={st.nickname}>({p.nickname})</Text> : null}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+                    {embCount > 0 && (
+                      <Text style={st.embBadge}>{embCount} photo{embCount !== 1 ? 's' : ''} learned</Text>
+                    )}
+                    <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                      {p.interactionCount} interaction{p.interactionCount !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                </View>
+                {p.teamRole && (
+                  <Text style={st.roleBadge}>{p.teamRole}</Text>
                 )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={st.personName}>{p.name}</Text>
-                  {p.nickname ? <Text style={st.nickname}>({p.nickname})</Text> : null}
-                </View>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
-                  {p.teamRole ? <Text style={st.roleBadge}>{p.teamRole}</Text> : null}
-                  <Text style={{ fontSize: 11, color: colors.textMuted }}>
-                    {p.interactionCount} interaction{p.interactionCount !== 1 ? 's' : ''}
-                  </Text>
-                </View>
-              </View>
-              {p.avgEngagement != null && (
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 10, color: colors.textMuted }}>Eng {p.avgEngagement?.toFixed(1)}</Text>
-                  <Text style={{ fontSize: 10, color: colors.textMuted }}>Erg {p.avgEnergy?.toFixed(1)}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+              </TouchableOpacity>
+            );
+          })}
 
           <TouchableOpacity style={st.addBtn} onPress={handleAdd} activeOpacity={0.7}>
             <Feather name="plus" size={14} color={colors.textPrimary} />
@@ -176,7 +195,7 @@ export function PeopleSection({ collapsed, onToggle }: Props) {
   );
 }
 
-/* ── Styles ── */
+/* -- Styles -- */
 
 const st = StyleSheet.create({
   searchRow: {
@@ -202,6 +221,16 @@ const st = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   personName: { fontSize: 14, fontWeight: '500', color: colors.textPrimary },
   nickname: { fontSize: 12, color: colors.textMuted },
+  meBadge: {
+    fontSize: 8, fontWeight: '800', color: '#fff',
+    backgroundColor: colors.textPrimary, paddingHorizontal: 5, paddingVertical: 1,
+    borderRadius: 3, overflow: 'hidden', letterSpacing: 0.5,
+  },
+  embBadge: {
+    fontSize: 10, fontWeight: '600', color: '#6B7280',
+    backgroundColor: '#F3F4F6', paddingHorizontal: 6, paddingVertical: 1,
+    borderRadius: 4, overflow: 'hidden',
+  },
   roleBadge: {
     fontSize: 9, fontWeight: '700', color: colors.textMuted,
     backgroundColor: colors.border, paddingHorizontal: 6, paddingVertical: 1,

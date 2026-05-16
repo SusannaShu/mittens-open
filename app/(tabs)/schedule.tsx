@@ -16,6 +16,7 @@ import { MittensBrainSection } from '../../components/profile/MittensBrainSectio
 import { ProfileConnectionsSection } from '../../components/profile/ProfileConnectionsSection';
 import { ActivityTypeEditor } from '../../components/profile/ActivityTypeEditor';
 import { PeopleSection } from '../../components/profile/PeopleSection';
+import { TeamSection } from '../../components/profile/TeamSection';
 import { profileStyles as styles } from '../../components/profile/profileStyles';
 import { VoicePickerSection } from '../../components/profile/VoicePickerSection';
 import SyncProgressOverlay from '../../components/reflect/SyncProgressOverlay';
@@ -38,7 +39,7 @@ export default function ProfileScreen() {
     mittens: true, health: true, lifeDesign: true, connections: true, settings: true,
   });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    bio: true, pendant: true, brain: true, voice: true, memory: true, odyssey: true, team: true, activities: true, integrations: true, notifications: true,
+    bio: true, pendant: true, brain: true, voice: true, memory: true, odyssey: true, team: true, people: true, activities: true, integrations: true, notifications: true,
   });
 
   // Sync state
@@ -163,6 +164,12 @@ export default function ProfileScreen() {
           collapsed={collapsed.pendant}
           onToggle={() => toggleSection('pendant')}
           onOpenFeed={() => router.push('/pendant-feed')}
+        />
+
+        {/* People Mittens Knows -- face recognition roster (top-level, separate from Life Design) */}
+        <PeopleSection
+          collapsed={collapsed.people}
+          onToggle={() => toggleSection('people')}
         />
 
         {/* ─── GROUP 1: MITTENS ─── */}
@@ -331,7 +338,7 @@ export default function ProfileScreen() {
                 )}
               </View>
 
-              <PeopleSection
+              <TeamSection
                 collapsed={collapsed.team}
                 onToggle={() => toggleSection('team')}
               />

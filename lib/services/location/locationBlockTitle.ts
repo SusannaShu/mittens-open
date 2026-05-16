@@ -65,7 +65,7 @@ export function generateLocationBlockTitle(
   session: LocationSession,
   childActivities: ChildActivity[],
 ): string {
-  const placeName = session.placeName || 'Unknown';
+  const placeName = session.placeName || session.neighborhood || 'Unknown';
 
   // Trail-based: use motion types
   if (session.motionType !== 'stationary') {

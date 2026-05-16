@@ -1,0 +1,18 @@
+--- lib/database.ts
++++ lib/database.ts
+@@ -211,6 +211,7 @@
+       sort_order INTEGER DEFAULT 0,
+       is_built_in INTEGER DEFAULT 0,
++      grouping TEXT DEFAULT 'activity',
+       created_at TEXT DEFAULT (datetime('now')),
+       updated_at TEXT DEFAULT (datetime('now')),
+       synced_at TEXT
+@@ -250,6 +251,7 @@
+     `ALTER TABLE location_sessions ADD COLUMN neighborhood TEXT`,
+     // Activity log provenance (replaces location_session_id semantic coupling)
+     `ALTER TABLE activity_logs ADD COLUMN origin_session_id INTEGER`,
+     // AEIOU observation aggregation
+     `ALTER TABLE activity_logs ADD COLUMN aeiou TEXT`,
++    `ALTER TABLE activity_types ADD COLUMN grouping TEXT DEFAULT 'activity'`,
+     // Activity presets for user-defined templates
+     `CREATE TABLE IF NOT EXISTS activity_presets (

@@ -1,0 +1,17 @@
+--- lib/hooks/chat/messageActions.ts
++++ lib/hooks/chat/messageActions.ts
+@@ -103,11 +103,13 @@
+     if (!finalText) return;
+ 
+     const userMsg: ChatMessage = {
+       id: `u-${Date.now()}`,
+       role: 'user',
+       text: finalText,
+       timestamp: new Date(),
++      replyTo: ctx.replyTo || undefined,
+     };
+     ctx.addMessage(userMsg);
+     ctx.setSending(true);
++    ctx.setReplyTo?.(null);
+ 
+     handleMessage(finalText, [], ctx, null, userMsg.id)

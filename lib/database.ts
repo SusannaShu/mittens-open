@@ -259,6 +259,9 @@ export async function initializeDatabase(): Promise<void> {
       default_life_categories TEXT,
       sub_categories TEXT,
       default_mets REAL,
+      skin_type TEXT,
+      exposure_extent REAL,
+      brain_hygiene_scale INTEGER,
       is_strength INTEGER DEFAULT 0,
       is_nature INTEGER DEFAULT 0,
       default_intensity TEXT DEFAULT 'moderate',
@@ -449,6 +452,10 @@ export async function initializeDatabase(): Promise<void> {
     )`,
     // Add mention_during_break to activity_types
     `ALTER TABLE activity_types ADD COLUMN mention_during_break INTEGER DEFAULT 0`,
+    // Sub-category detail columns
+    `ALTER TABLE activity_types ADD COLUMN skin_type TEXT`,
+    `ALTER TABLE activity_types ADD COLUMN exposure_extent REAL`,
+    `ALTER TABLE activity_types ADD COLUMN brain_hygiene_scale INTEGER`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

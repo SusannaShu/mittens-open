@@ -23,7 +23,11 @@ class SceneStreamManager {
   /** Lock to prevent concurrent frame processing */
   private processing = false;
   /** Queue frames that arrive during processing */
-  private pendingFrames: Array<{ framePath: string; timestamp: number }> = [];
+  private pendingFrames: Array<{
+    framePath: string;
+    timestamp: number;
+    onResult?: (framePath: string, result: { summary: string; log?: PipelineLog; title?: string; description?: string }) => void;
+  }> = [];
 
   /**
    * Main entry point: a new pendant frame arrived.
@@ -36,7 +40,7 @@ class SceneStreamManager {
   ): Promise<{ summary: string; log?: PipelineLog; title?: string; description?: string } | null> {
     // Queue if already processing
     if (this.processing) {
-      this.pendingFrames.push({ framePath, timestamp });
+      this.pendingFrames.push({ framePath, timestamp, onResult: onQueueResult });
       console.log('[SceneStream] Frame queued (processing in progress)');
       return { summary: 'Queued for processing...' };
     }
@@ -57,10 +61,10 @@ class SceneStreamManager {
           const next = this.pendingFrames.shift()!;
           try {
             const queuedResult = await this.processFrame(next.framePath, next.timestamp);
-            onQueueResult?.(next.framePath, queuedResult);
+            next.onResult?.(next.framePath, queuedResult);
           } catch (err: any) {
             console.error('[SceneStream] Queued frame error:', err?.message);
-            onQueueResult?.(next.framePath, { summary: `Error: ${err?.message}` });
+            next.onResult?.(next.framePath, { summary: `Error: ${err?.message}` });
           }
         }
       } finally {
@@ -71,29 +75,52 @@ class SceneStreamManager {
     return result;
   }
 
+  /**
+   * Retry a previously failed capture.
+   * Skips the quality gate (frame already passed once or was kept despite skip)
+   * and bypasses the queue lock.
+   */
+  async retryCapture(
+    framePath: string,
+    timestamp: number,
+  ): Promise<{ summary: string; log?: PipelineLog; title?: string; description?: string }> {
+    console.log('[SceneStream] Retrying capture:', framePath.slice(-30));
+    try {
+      return await this.processFrame(framePath, timestamp, true);
+    } catch (err: any) {
+      console.error('[SceneStream] Retry error:', err?.message);
+      return { summary: `Retry failed: ${err?.message}` };
+    }
+  }
+
   // --- Core Processing ---
 
   private async processFrame(
     framePath: string,
     _timestamp: number,
+    skipGate = false,
   ): Promise<{ summary: string; log: PipelineLog; title?: string; description?: string }> {
     const logger = new PipelineLogger();
     const FileSystem = require('expo-file-system/legacy');
 
-    // Phase 1: Quality Gate
-    const gateIdx = logger.startPhase('gate', 'quality');
-    try {
-      const { checkQualityGate, setLastFrame } = require('./frameDedup');
-      const gateResult = await checkQualityGate(framePath);
-      if (gateResult.skip) {
-        logger.completePhase(gateIdx, `Skipped (tier ${gateResult.tier}): ${gateResult.reason}`);
-        FileSystem.deleteAsync(framePath, { idempotent: true }).catch(() => {});
-        return { summary: `Skipped: ${gateResult.reason}`, log: logger.finalize() };
+    // Phase 1: Quality Gate (skipped on retry)
+    if (skipGate) {
+      logger.skipPhase('gate', 'quality', 'Skipped (retry)');
+    } else {
+      const gateIdx = logger.startPhase('gate', 'quality');
+      try {
+        const { checkQualityGate, setLastFrame } = require('./frameDedup');
+        const gateResult = await checkQualityGate(framePath);
+        if (gateResult.skip) {
+          logger.completePhase(gateIdx, `Skipped (tier ${gateResult.tier}): ${gateResult.reason}`);
+          FileSystem.deleteAsync(framePath, { idempotent: true }).catch(() => {});
+          return { summary: `Skipped: ${gateResult.reason}`, log: logger.finalize() };
+        }
+        logger.completePhase(gateIdx, 'Frame passed quality gate');
+        setLastFrame(framePath);
+      } catch (err: any) {
+        logger.completePhase(gateIdx, `Gate failed: ${err?.message}`);
       }
-      logger.completePhase(gateIdx, 'Frame passed quality gate');
-      setLastFrame(framePath);
-    } catch (err: any) {
-      logger.completePhase(gateIdx, `Gate failed: ${err?.message}`);
     }
 
     // Consume GPS tag if this was a phone-triggered capture
@@ -156,10 +183,26 @@ class SceneStreamManager {
       }
     }
 
+    // Phase 2.5b: Face Recognition (runs whenever people > 0, regardless of activity/nutrition)
+    if (classification.people > 0) {
+      const faceIdx = logger.startPhase('face', 'recognition');
+      try {
+        const { checkFaceRecognition } = require('./sceneFaceRecognition');
+        await checkFaceRecognition(framePath, null, logger);
+        logger.completePhase(faceIdx, 'Done');
+      } catch (err: any) {
+        logger.failPhase(faceIdx, err?.message || 'Face recognition failed');
+      }
+    }
+
     // Nothing detected at all
     if (!classification.nutrition.detected && !classification.activity.detected) {
+      // Even with no food/activity, face check above already ran if people > 0
       logger.skipPhase('log', 'write', 'Nothing detected');
-      return { summary: 'Nothing detected', log: logger.finalize() };
+      const summary = classification.people > 0
+        ? `${classification.people} ${classification.people === 1 ? 'person' : 'people'} detected`
+        : 'Nothing detected';
+      return { summary, log: logger.finalize(), description: classification.description || undefined };
     }
 
     // Set triage summary for debug trace
@@ -205,17 +248,6 @@ class SceneStreamManager {
       }
     }
 
-    // Phase 4: Face Recognition (gated by people > 0)
-    if (classification.people > 0) {
-      const faceIdx = logger.startPhase('face', 'recognition');
-      try {
-        const { checkFaceRecognition } = require('./sceneFaceRecognition');
-        await checkFaceRecognition(framePath, null, logger);
-        logger.completePhase(faceIdx, 'Done');
-      } catch (err: any) {
-        logger.failPhase(faceIdx, err?.message || 'Face recognition failed');
-      }
-    }
 
     // Build summary for UI
     const summaryParts: string[] = [];

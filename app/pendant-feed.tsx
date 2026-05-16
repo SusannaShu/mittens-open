@@ -122,7 +122,7 @@ export default function PendantFeedScreen() {
     try {
       const { getSceneStreamManager } = require('../lib/services/ambient/sceneStreamManager');
       const manager = getSceneStreamManager();
-      const result = await manager.onPendantFrame(capture.framePath, capture.timestamp);
+      const result = await manager.retryCapture(capture.framePath, capture.timestamp);
 
       if (result) {
         if (result.summary.toLowerCase().includes('skipped')) {

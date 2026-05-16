@@ -54,6 +54,13 @@ const AEIOU_LABELS: Record<string, string> = {
   activity: 'Activity', environment: 'Environment',
   interactions: 'Interactions', objects: 'Objects', users: 'Users',
 };
+const AEIOU_HINTS: Record<string, string> = {
+  activity: 'What were you doing? Structured or free-form? What role did you play?',
+  environment: 'Where were you? How did the setting make you feel?',
+  interactions: 'Who or what did you interact with? Formal or casual?',
+  objects: 'What devices, tools, or items were you using?',
+  users: 'Who else was there? Did they add to or take from the experience?',
+};
 const AEIOU_KEYS = Object.keys(AEIOU_LABELS);
 
 const COVERAGE_PRESETS = [
@@ -454,21 +461,22 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               />
             )}
 
-            {/* AEIOU -- editable */}
+            {/* AEIOU -- editable with descriptive hints */}
             <Text style={s.label}>AEIOU Reflection</Text>
             {AEIOU_KEYS.map((key) => (
               <View key={key} style={s.aeiouRow}>
                 <Text style={s.aeiouKey}>{key.charAt(0).toUpperCase()}</Text>
                 <View style={s.aeiouInputWrap}>
                   <Text style={s.aeiouLabel}>{AEIOU_LABELS[key]}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                     <TextInput
-                      style={[s.aeiouInput, { flex: 1 }]}
+                      style={[s.aeiouInput, { flex: 1, minHeight: 56, textAlignVertical: 'top' }]}
                       value={aeiou[key] || ''}
                       onChangeText={(text) => setAeiou(prev => ({ ...prev, [key]: text }))}
-                      placeholder={`What ${AEIOU_LABELS[key].toLowerCase()}?`}
+                      placeholder={AEIOU_HINTS[key]}
                       placeholderTextColor={colors.textMuted}
                       multiline
+                      numberOfLines={3}
                     />
                     {key === 'users' && activity?.meta?.detectedPeopleDetails && (
                       <TouchableOpacity onPress={() => setShowUsersEvidence(true)} style={{ padding: 8, paddingRight: 0 }}>

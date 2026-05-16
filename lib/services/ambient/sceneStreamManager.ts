@@ -120,10 +120,8 @@ class SceneStreamManager {
       const cfg = getScheduleConfig();
       const now = new Date();
       const nowMin = now.getHours() * 60 + now.getMinutes();
-      const wakeMin = cfg.wakeHour * 60 + cfg.wakeMin;
-
-      // Only greet if we are past wake time (not during sleep window)
-      if (nowMin >= wakeMin || nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
+      // Only greet if we are past 4:00 AM (prevent 2 AM bathroom trips from triggering 'Good morning')
+      if (now.getHours() >= 4 && nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
         markMorningGreeted();
         const name = getOwnerName();
         const greeting = `Good morning ${name}!`;

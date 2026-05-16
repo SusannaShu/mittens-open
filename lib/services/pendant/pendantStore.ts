@@ -117,6 +117,24 @@ export async function initPendantStore(): Promise<void> {
   if (removed > 0) {
     console.log(`[PendantStore] Auto-cleaned ${removed} captures older than 1 day`);
   }
+
+  // Mark abandoned captures as interrupted if app restarted while processing
+  let changed = false;
+  captures = captures.map(c => {
+    if (!c.processed) {
+      changed = true;
+      return {
+        ...c,
+        processed: true,
+        brainResponse: 'Brain offline: App restarted before processing finished',
+      };
+    }
+    return c;
+  });
+  if (changed) {
+    persistCaptures();
+    notifyListeners();
+  }
 }
 
 /** Add a new capture. Returns the capture ID. */

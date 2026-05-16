@@ -502,6 +502,47 @@ Only the 3 best guesses:`;
   }, [callbacks, estimateOne]);
 
   /**
+   * Replace a food directly with a selected USDA match.
+   */
+  const replaceWithUsda = useCallback((
+    messageId: string,
+    index: number,
+    usdaFood: USDAReference & { amountGram: number, customName?: string },
+    allFoods: FoodPipelineItem[],
+  ) => {
+    const key = `${messageId}-${index}`;
+    const existing = abortMap.current.get(key);
+    if (existing) existing.abort();
+    abortMap.current.delete(key);
+
+    const scaled = scaleNutrients(usdaFood.per100g, usdaFood.amountGram);
+    const nutrients: Record<string, number> = {};
+    for (const [k, v] of Object.entries(scaled)) {
+      nutrients[k] = v ?? 0;
+    }
+
+    const updatedFood: FoodPipelineItem = {
+      ...allFoods[index],
+      name: usdaFood.customName || usdaFood.name,
+      portion_g: usdaFood.amountGram,
+      household_portion: `${usdaFood.amountGram}g`,
+      status: 'complete',
+      nutrients,
+      usdaNutrients: { ...nutrients },
+      usedRef: { fdcId: usdaFood.fdcId, name: usdaFood.name, score: 1 },
+      reasoning: `User manually selected USDA match: ${usdaFood.name}`,
+    };
+
+    const updated = [...allFoods];
+    updated[index] = updatedFood;
+    callbacks.updateAllFoods(messageId, updated);
+
+    if (callbacks.onPipelineComplete && updated.every(f => f.status === 'complete')) {
+      callbacks.onPipelineComplete(messageId, updated);
+    }
+  }, [callbacks]);
+
+  /**
    * Cancel all running estimations for a message.
    */
   const cancelAll = useCallback((messageId: string, foodCount: number) => {
@@ -513,5 +554,5 @@ Only the 3 best guesses:`;
     }
   }, []);
 
-  return { startPipeline, restartFood, restartFoodPortion, addFood, removeFood, cancelAll };
+  return { startPipeline, restartFood, restartFoodPortion, addFood, removeFood, replaceWithUsda, cancelAll };
 }

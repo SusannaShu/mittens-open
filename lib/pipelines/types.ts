@@ -153,6 +153,7 @@ export interface ActivityTypeModel {
   defaultOutdoors: boolean;
   showInTimer: boolean;
   showInManualLog: boolean;
+  mentionDuringBreak?: boolean;
   sortOrder: number;
   isBuiltIn: boolean;
 }

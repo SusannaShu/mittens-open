@@ -129,7 +129,7 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
             style={[s.typePill, actType === t.key && s.typePillActive]}
             onPress={() => setActType(t.key)}
           >
-            <Feather name={(t.icon || 'circle') as any} size={12} color={actType === t.key ? colors.bg : colors.textSecondary} style={{ marginRight: 4 }} />
+            <Feather name={(t.icon || 'circle') as any} size={12} color={actType === t.key ? colors.bg : colors.textSecondary} />
             <Text style={[s.typePillText, actType === t.key && s.typePillTextActive]}>
               {t.label}
             </Text>

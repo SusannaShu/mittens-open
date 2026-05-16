@@ -22,6 +22,18 @@ import { colors, fonts, radius, spacing } from '../../lib/theme';
 import { PendantCapture } from '../../lib/services/pendant/pendantStore';
 import PipelineLogBubble from '../chat/PipelineLogBubble';
 import PhaseDebugTrace from './PhaseDebugTrace';
+import { IdentifyPersonSheet } from './IdentifyPersonSheet';
+import { getAllEmbeddings } from '../../lib/services/faceRecognition/faceRecognitionApi';
+import { cosineSimilarity } from '../../lib/services/faceRecognition/faceRecognitionService';
+
+interface DetectedFace {
+  id: string;
+  embedding: number[];
+  confidence: number;
+  boundingBox: any;
+  cropUri: string;
+  name: string | null;
+}
 
 interface Props {
   capture: PendantCapture | null;
@@ -46,7 +58,118 @@ export function CaptureDetailModal({ capture, visible, onClose, onRetry }: Props
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  const [detectedFaces, setDetectedFaces] = useState<DetectedFace[]>([]);
+  const [identifyingFace, setIdentifyingFace] = useState<DetectedFace | null>(null);
   const soundRef = useRef<any>(null);
+
+  // Clear detected faces when capture changes or modal closes
+  useEffect(() => {
+    if (!visible) {
+      setDetectedFaces([]);
+      setIdentifyingFace(null);
+    }
+  }, [visible, capture?.id]);
+
+  // Run face detection if brain response indicates a person
+  useEffect(() => {
+    let isMounted = true;
+    async function loadFaces() {
+      if (!capture?.framePath) return;
+      const br = capture.brainResponse || '';
+      if (!br.includes('person') && !br.includes('people') && !br.includes('Recognized')) {
+        return; // No faces mentioned
+      }
+
+      try {
+        const { getFaceRecognitionModule } = require('../../modules/expo-face-recognition/src');
+        const mod = getFaceRecognitionModule();
+        if (!mod) return;
+
+        const faces = await mod.detectFaces(capture.framePath);
+        if (!faces || faces.length === 0) return;
+
+        const { Image } = require('react-native');
+        const ImageManipulator = require('expo-image-manipulator');
+        const photoUri = `file://${capture.framePath}`;
+
+        const { width: imgW, height: imgH } = await new Promise<{width: number, height: number}>((resolve, reject) => {
+          Image.getSize(photoUri, (w: number, h: number) => resolve({ width: w, height: h }), reject);
+        });
+
+        const knownEmbeddings = getAllEmbeddings();
+
+        const processed: DetectedFace[] = [];
+        for (let i = 0; i < faces.length; i++) {
+          const face = faces[i];
+          
+          let bestName: string | null = null;
+          let bestSim = 0;
+          for (const ke of knownEmbeddings) {
+            const sim = cosineSimilarity(face.embedding, ke.embedding);
+            if (sim > bestSim) {
+              bestSim = sim;
+              if (sim >= 0.80) { // MATCH_THRESHOLD
+                bestName = ke.personName;
+              }
+            }
+          }
+
+          const bbox = face.boundingBox;
+          const rectX = bbox.x * imgW;
+          const rectY = (1.0 - (bbox.y + bbox.height)) * imgH;
+          const rectW = bbox.width * imgW;
+          const rectH = bbox.height * imgH;
+
+          const margin = Math.max(rectW, rectH) * 0.3;
+          const cropX = Math.max(0, rectX - margin);
+          const cropY = Math.max(0, rectY - margin);
+          const cropW = Math.min(imgW - cropX, rectW + margin * 2);
+          const cropH = Math.min(imgH - cropY, rectH + margin * 2);
+
+          const cx = cropX + cropW / 2;
+          const cy = cropY + cropH / 2;
+          let sqSize = Math.max(cropW, cropH);
+
+          if (cx - sqSize / 2 < 0) sqSize = cx * 2;
+          if (cy - sqSize / 2 < 0) sqSize = cy * 2;
+          if (cx + sqSize / 2 > imgW) sqSize = (imgW - cx) * 2;
+          if (cy + sqSize / 2 > imgH) sqSize = (imgH - cy) * 2;
+
+          const finalX = Math.max(0, cx - sqSize / 2);
+          const finalY = Math.max(0, cy - sqSize / 2);
+
+          const manipResult = await ImageManipulator.manipulateAsync(
+            photoUri,
+            [{ crop: { originX: finalX, originY: finalY, width: sqSize, height: sqSize } }],
+            { format: ImageManipulator.SaveFormat.JPEG, compress: 0.8 }
+          );
+
+          processed.push({
+            id: `face_${i}`,
+            embedding: face.embedding,
+            confidence: face.confidence,
+            boundingBox: face.boundingBox,
+            cropUri: manipResult.uri,
+            name: bestName,
+          });
+        }
+
+        if (isMounted) {
+          setDetectedFaces(processed);
+        }
+      } catch (e) {
+        console.warn('[CaptureDetail] Face crop failed:', e);
+      }
+    }
+
+    if (visible) {
+      loadFaces();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [capture?.framePath, capture?.brainResponse, visible]);
 
   // Cleanup audio on close
   useEffect(() => {
@@ -224,6 +347,33 @@ export function CaptureDetailModal({ capture, visible, onClose, onRetry }: Props
                   </Text>
                 </TouchableOpacity>
               )}
+              
+              {detectedFaces.length > 0 && (
+                <View style={styles.facesSection}>
+                  <Text style={styles.facesLabel}>People in frame</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {detectedFaces.map(face => (
+                      <View key={face.id} style={styles.faceCard}>
+                        <Image source={{ uri: face.cropUri }} style={styles.faceCropImage} />
+                        {face.name ? (
+                          <View style={styles.faceIdentified}>
+                            <Feather name="check" size={10} color="#10B981" />
+                            <Text style={styles.faceNameText} numberOfLines={1}>{face.name}</Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.identifyBtn}
+                            onPress={() => setIdentifyingFace(face)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.identifyBtnText}>Identify</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
           ) : (
             <View style={styles.responseSection}>
@@ -271,6 +421,18 @@ export function CaptureDetailModal({ capture, visible, onClose, onRetry }: Props
           </View>
         </ScrollView>
       </View>
+      
+      {identifyingFace && (
+        <IdentifyPersonSheet
+          face={identifyingFace}
+          onClose={() => setIdentifyingFace(null)}
+          onIdentified={(name) => {
+            // Update local state to reflect the new name
+            setDetectedFaces(prev => prev.map(f => f.id === identifyingFace.id ? { ...f, name } : f));
+            setIdentifyingFace(null);
+          }}
+        />
+      )}
     </Modal>
   );
 }
@@ -436,5 +598,56 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flex: 1,
     textAlign: 'right',
+  },
+  facesSection: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  facesLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  faceCard: {
+    alignItems: 'center',
+    marginRight: spacing.md,
+    width: 64,
+  },
+  faceCropImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 6,
+  },
+  identifyBtn: {
+    backgroundColor: colors.textPrimary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
+  identifyBtnText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  faceIdentified: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderRadius: radius.sm,
+  },
+  faceNameText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#10B981',
   },
 });

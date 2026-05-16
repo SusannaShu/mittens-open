@@ -77,15 +77,31 @@ export default function BrainFallbackModal({
             {errorMsg}
           </Text>
 
-          <Text style={styles.subtitle}>Switch to:</Text>
+          <Text style={styles.subtitle}>Options:</Text>
 
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+            <View>
+              <Text style={styles.groupLabel}>Current Brain</Text>
+              <View style={styles.chipRow}>
+                <TouchableOpacity
+                  style={[styles.chip, { borderColor: colors.primary }]}
+                  onPress={() => onSelectBrain(failedBrain)}
+                >
+                  <Ionicons name="refresh" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+                  <View>
+                    <Text style={[styles.chipName, { color: colors.primary }]}>Try Again</Text>
+                    <Text style={styles.chipSub}>Retry with same model</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {BRAIN_GROUPS.map((group) => {
               const filtered = group.options.filter((b) => b.id !== failedBrain);
               if (filtered.length === 0) return null;
               return (
                 <View key={group.label}>
-                  <Text style={styles.groupLabel}>{group.label}</Text>
+                  <Text style={styles.groupLabel}>Switch to {group.label}</Text>
                   <View style={styles.chipRow}>
                     {filtered.map((brain) => {
                       // Smart capability check for local models

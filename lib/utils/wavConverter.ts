@@ -50,7 +50,7 @@ export async function convertPcmToWav(pcmPath: string, sampleRate = 16000): Prom
 
   // Read PCM data as base64
   const pcmBase64 = await FileSystem.readAsStringAsync(pcmUri, {
-    encoding: FileSystem.EncodingType.Base64
+    encoding: 'base64' as any
   });
 
   // Convert base64 to byte array
@@ -93,7 +93,7 @@ export async function convertPcmToWav(pcmPath: string, sampleRate = 16000): Prom
   const wavBase64 = bytesToBase64(combinedBytes);
 
   await FileSystem.writeAsStringAsync(wavPath, wavBase64, {
-    encoding: FileSystem.EncodingType.Base64
+    encoding: 'base64' as any
   });
 
   return wavPath;

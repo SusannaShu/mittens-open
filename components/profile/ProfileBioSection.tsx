@@ -44,6 +44,7 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
   const [editActivity, setEditActivity] = useState('sedentary');
   const [editSkinType, setEditSkinType] = useState('fitzpatrick-4');
   const [editWorkIntervalMins, setEditWorkIntervalMins] = useState(45);
+  const [editPhysicalGoal, setEditPhysicalGoal] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleEdit = () => {
@@ -63,6 +64,7 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
     setEditActivity(profileContext?.activityLevel || 'sedentary');
     setEditSkinType(profileContext?.skinType || 'fitzpatrick-4');
     setEditWorkIntervalMins(profileContext?.workIntervalMins || 45);
+    setEditPhysicalGoal(profileContext?.breakPhysicalGoal || '');
     setIsEditing(true);
   };
 
@@ -89,6 +91,7 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
       const payload: any = {
         age: parseInt(editAge, 10), sex: editSex, activityLevel: editActivity,
         skinType: editSkinType, preferredUnit: editUnit, workIntervalMins: editWorkIntervalMins,
+        breakPhysicalGoal: editPhysicalGoal,
       };
       if (editUnit === 'imperial') {
         payload.heightIn = (parseInt(editHeightFt, 10) || 0) * 12 + (parseInt(editHeightIn, 10) || 0);
@@ -208,6 +211,16 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
                   ))}
                 </View>
               </View>
+              <View style={styles.editRow}>
+                <Text style={styles.profileKey}>Physical Break Goal</Text>
+                <TextInput
+                  style={[styles.input, { flex: 1, textAlign: 'right' }]}
+                  placeholder="e.g. 30 pushups and 10 pull ups"
+                  placeholderTextColor={colors.textMuted}
+                  value={editPhysicalGoal}
+                  onChangeText={setEditPhysicalGoal}
+                />
+              </View>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
                 <TouchableOpacity style={[styles.saveBtn, { flex: 1, backgroundColor: '#EEE' }]} onPress={() => setIsEditing(false)} disabled={saving}>
                   <Text style={[styles.saveBtnText, { color: colors.textPrimary }]}>Cancel</Text>
@@ -260,6 +273,12 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
                 <Text style={styles.profileKey}>FOCUS TIMER:</Text>
                 <Text style={styles.profileVal}>{profileContext.workIntervalMins || 45} mins</Text>
               </View>
+              {profileContext.breakPhysicalGoal ? (
+                <View style={styles.profileRow}>
+                  <Text style={styles.profileKey}>BREAK GOAL:</Text>
+                  <Text style={styles.profileVal}>{profileContext.breakPhysicalGoal}</Text>
+                </View>
+              ) : null}
               <View style={[styles.profileRow, { alignItems: 'center' }]}>
                 <Text style={styles.profileKey}>DAILY RHYTHMS:</Text>
                 <TouchableOpacity onPress={() => require('expo-router').router.push('/settings/schedule')}>

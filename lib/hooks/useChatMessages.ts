@@ -215,36 +215,16 @@ export function useChatMessages() {
     const { DeviceEventEmitter } = require('react-native');
     const sub = DeviceEventEmitter.addListener('pendantMessageAdded', (msg: ChatMessage) => {
       addMessage(msg);
-      // Persist the message to the DB so it survives app restarts
-      saveMessageBatch([{
-        role: msg.role,
-        text: msg.text,
-        activityType: msg.activityType,
-        photos: msg.photos,
-        metadata: {
-          logEntry: msg.logEntry,
-          logEntries: msg.logEntries,
-          logSummary: msg.logSummary,
-          pendingEntries: msg.pendingEntries,
-          entriesConfirmed: msg.entriesConfirmed,
-          actionButton: msg.actionButton,
-          locationPrompt: msg.locationPrompt,
-          pantryPipelineItems: msg.pantryPipelineItems,
-          pantryPipelineStatus: msg.pantryPipelineStatus,
-          itemsLogged: msg.itemsLogged,
-          pipelineFoods: (msg as any).pipelineFoods,
-          mealMetadata: (msg as any).mealMetadata,
-          audio: msg.audio,
-        }
-      }]);
       
-      // Invalidate nutrition cache if this is a meal log
+      // We no longer call saveMessageBatch here because handleMessage.ts now
+      // handles native DB persistence for all messages (including background).
+      
       if ((msg as any).mealMetadata || (msg as any).pipelineFoods || msg.text.includes('Logging')) {
         dispatch(nutritionApi.util.invalidateTags(['DailySummary', 'MealPlan']));
       }
     });
     return () => sub.remove();
-  }, [addMessage, saveMessageBatch, dispatch]);
+  }, [addMessage, dispatch]);
 
   /** Check if two dates are different days */
   const isDifferentDay = (a: Date, b: Date) => {

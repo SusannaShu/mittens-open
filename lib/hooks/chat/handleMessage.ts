@@ -44,6 +44,7 @@ const ACTIVITY_PHASES: Array<{ key: string; label: string; featherIcon: string }
   { key: 'detect', label: 'Detecting activity', featherIcon: 'crosshair' },
   { key: 'environment', label: 'Environment', featherIcon: 'compass' },
   { key: 'social', label: 'Social context', featherIcon: 'users' },
+  { key: 'faces', label: 'Recognizing faces', featherIcon: 'user-check' },
   { key: 'objects', label: 'Objects', featherIcon: 'box' },
   { key: 'lifeDesign', label: 'Life design', featherIcon: 'target' },
 ];
@@ -61,6 +62,15 @@ const CHAT_PHASES: Array<{ key: string; label: string; featherIcon: string }> = 
   { key: 'respond', label: 'Composing reply', featherIcon: 'message-circle' },
 ];
 
+const TIMER_PHASES: Array<{ key: string; label: string; featherIcon: string }> = [
+  { key: 'execute', label: 'Processing timer', featherIcon: 'clock' },
+];
+
+const FACE_RECOGNITION_PHASES: Array<{ key: string; label: string; featherIcon: string }> = [
+  { key: 'detect', label: 'Detecting faces', featherIcon: 'users' },
+  { key: 'match', label: 'Matching identities', featherIcon: 'user-check' },
+];
+
 /**
  * Build the phase list for a triage intent, respecting inferrablePhases.
  * Only shows phases with evidence (if specified).
@@ -73,6 +83,8 @@ function buildPhasesForIntent(intent: DetectedIntent): IntentPhase[] {
     case 'sleep': allPhases = SLEEP_PHASES; break;
     case 'pantry': allPhases = PANTRY_PHASES; break;
     case 'chat': allPhases = CHAT_PHASES; break;
+    case 'timer': allPhases = TIMER_PHASES; break;
+    case 'face_recognition': allPhases = FACE_RECOGNITION_PHASES; break;
     default: return [];
   }
 
@@ -208,6 +220,18 @@ function composeReply(
           parts.push("I searched but couldn't find matching emails. Want to try different search terms?");
         }
         break;
+
+      case 'timer':
+        if (data?.response) {
+          parts.push(data.response);
+        }
+        break;
+
+      case 'face_recognition':
+        if (data?.response) {
+          parts.push(data.response);
+        }
+        break;
     }
   }
 
@@ -250,6 +274,12 @@ async function runIntent(
     case 'sleep':
       return { type: 'sleep', data: await runner.runSleepPipeline(input) };
 
+    case 'timer':
+      return { type: 'timer', data: await runner.runTimerPipeline(input) };
+
+    case 'face_recognition':
+      return { type: 'face_recognition', data: await runner.runFaceRecognitionPipeline(input) };
+
     case 'chat':
       return { type: 'chat', data: await runner.runChatPipeline(input) };
 
@@ -280,6 +310,7 @@ export async function handleMessage(
   ctx: ChatContext,
   photoTime?: Date | null,
   userMsgId?: string,
+  audioUri?: string,
 ): Promise<void> {
   console.log('[Pipeline] === handleMessage START ===');
   console.log('[Pipeline] text:', text ? `"${text.slice(0, 60)}"` : '(none)');
@@ -298,6 +329,7 @@ export async function handleMessage(
       role: 'user',
       text: text || 'Photo',
       photos: photos.length > 0 ? photos : undefined,
+      metadata: audioUri ? { audio: audioUri } : undefined,
     });
     if (saved?.id && tempUserMsgId) {
       ctx.setMessages(prev => prev.map(m =>
@@ -427,6 +459,15 @@ export async function handleMessage(
   // 7. Build intent cards and show immediately
   const validIntents = triageResult.intents.filter(i => i.confidence >= 0.5);
 
+  // Dynamically inject face_recognition phase if there are photos
+  if (photos.length > 0) {
+    validIntents.unshift({
+      pipeline: 'face_recognition',
+      confidence: 1.0,
+      inferrablePhases: ['detect', 'match']
+    });
+  }
+
   // Build intent phase lists (filtering by inferrablePhases)
   const intentCards: PipelineIntent[] = validIntents.map(intent => ({
     pipeline: intent.pipeline,
@@ -491,6 +532,9 @@ export async function handleMessage(
     'chat:classify': 'Thinking...',
     'chat:respond': 'Composing reply...',
     'chat:sideEffects': 'Updating memory...',
+    'timer:execute': 'Processing timer...',
+    'face_recognition:detect': 'Detecting faces...',
+    'face_recognition:match': 'Matching identities...',
     'email:plan': 'Planning...',
     'email:search': 'Searching emails...',
     'email:read': 'Reading emails...',

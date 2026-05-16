@@ -127,6 +127,7 @@ interface ChatBubbleProps {
   onFoodRemove?: (messageId: string, index: number) => void;
   onAddFood?: (messageId: string, name: string) => void;
   onViewAllNutrients?: (messageId: string) => void;
+  onUsdaReplace?: (messageId: string, index: number, usdaFood: any) => void;
   onScrollToEnd?: () => void;
   // Email pipeline handlers
   onAddToCloset?: (item: EmailOrderItem, index: number) => void;
@@ -139,7 +140,7 @@ interface ChatBubbleProps {
   onPantryAddItem?: (messageId: string, name: string) => void;
 }
 
-export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPress, onEditPendingEntry, onDismissEntry, onLongPress, onDelete, onSwitchBrain, onQueueTask, onViewNutrients, onFoodEdit, onPortionEdit, onFoodRemove, onAddFood, onViewAllNutrients, onScrollToEnd, onAddToCloset, onSendEmail, onAddToCalendar, onGmailConnected, onPantryItemEdit, onPantryItemRemove, onPantryAddItem }: ChatBubbleProps) {
+export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPress, onEditPendingEntry, onDismissEntry, onLongPress, onDelete, onSwitchBrain, onQueueTask, onViewNutrients, onFoodEdit, onPortionEdit, onFoodRemove, onAddFood, onViewAllNutrients, onUsdaReplace, onScrollToEnd, onAddToCloset, onSendEmail, onAddToCalendar, onGmailConnected, onPantryItemEdit, onPantryItemRemove, onPantryAddItem }: ChatBubbleProps) {
   const router = useRouter();
   const [isPlaying, setIsPlaying] = useState(false);
   const isUser = message.role === 'user';
@@ -378,6 +379,7 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
                   onFoodRemove={(idx) => onFoodRemove?.(message.id, idx)}
                   onAddFood={(name) => onAddFood?.(message.id, name)}
                   onViewAll={() => onViewAllNutrients?.(message.id)}
+                  onUsdaReplace={(idx, usdaFood) => onUsdaReplace?.(message.id, idx, usdaFood)}
                   onScrollToEnd={onScrollToEnd}
                 />
               ) : undefined}
@@ -396,6 +398,7 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
               onFoodRemove={(idx) => onFoodRemove?.(message.id, idx)}
               onAddFood={(name) => onAddFood?.(message.id, name)}
               onViewAll={() => onViewAllNutrients?.(message.id)}
+              onUsdaReplace={(idx, usdaFood) => onUsdaReplace?.(message.id, idx, usdaFood)}
               onScrollToEnd={onScrollToEnd}
             />
           </View>

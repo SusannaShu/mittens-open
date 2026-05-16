@@ -105,13 +105,19 @@ async function createActivityLog(
     logger.failPhase(aeiouIdx, err?.message);
   }
 
+  let nutrientImpact: any = {};
+  if (isOutdoors || isNature) {
+     nutrientImpact.vitamin_d = 0;
+  }
+  const hasNutrientImpact = Object.keys(nutrientImpact).length > 0;
+
   const result = db.runSync(
     `INSERT INTO activity_logs (
       logged_at, log_name, activity_type, duration_min, mets,
       life_categories, aeiou, source, location, image_uris,
-      outdoors, is_nature,
+      outdoors, is_nature, nutrient_impact,
       created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, ?, ?, 'pendant', ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, 'pendant', ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     [
       new Date().toISOString(),
       logName, actType, metValue,
@@ -121,6 +127,7 @@ async function createActivityLog(
       framePath ? JSON.stringify([framePath]) : null,
       isOutdoors,
       isNature,
+      hasNutrientImpact ? JSON.stringify(nutrientImpact) : null,
     ],
   );
 
@@ -204,10 +211,18 @@ async function updateActivityLog(
     logger.failPhase(aeiouIdx, err?.message);
   }
 
+  let nutrientImpact = existing?.nutrient_impact ? JSON.parse(existing.nutrient_impact) : {};
+  if (isOutdoors || isNature) {
+     nutrientImpact.vitamin_d = (durationMin || 0) * 1.5;
+  } else if (nutrientImpact.vitamin_d !== undefined) {
+     delete nutrientImpact.vitamin_d;
+  }
+  const hasNutrientImpact = Object.keys(nutrientImpact).length > 0;
+
   db.runSync(
     `UPDATE activity_logs SET
       duration_min = ?, image_uris = ?,
-      life_categories = ?, aeiou = ?, outdoors = ?, is_nature = ?, updated_at = datetime('now')
+      life_categories = ?, aeiou = ?, outdoors = ?, is_nature = ?, nutrient_impact = ?, updated_at = datetime('now')
     WHERE id = ?`,
     [
       durationMin,
@@ -216,6 +231,7 @@ async function updateActivityLog(
       aeiouJson ? JSON.stringify(aeiouJson) : null,
       isOutdoors,
       isNature,
+      hasNutrientImpact ? JSON.stringify(nutrientImpact) : null,
       logId,
     ],
   );

@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, radius } from '../../lib/theme';
 import {
@@ -183,6 +184,25 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
         } catch (cropErr) {
           console.warn('[FaceRec:Upload] Failed to auto-crop:', cropErr);
         }
+      }
+
+      // Ensure the photo is saved to a persistent directory so it survives app restarts
+      try {
+        const facesDir = `${FileSystem.documentDirectory}faces/`;
+        const dirInfo = await FileSystem.getInfoAsync(facesDir);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(facesDir, { intermediates: true });
+        }
+        
+        const filename = `face_${currentPersonId}_${Date.now()}.jpg`;
+        const persistentUri = `${facesDir}${filename}`;
+        await FileSystem.copyAsync({
+          from: finalPhotoUri,
+          to: persistentUri
+        });
+        finalPhotoUri = persistentUri;
+      } catch (fsErr) {
+        console.warn('[FaceRec:Upload] Failed to move photo to persistent storage:', fsErr);
       }
 
       // Save embedding

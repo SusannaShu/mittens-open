@@ -488,6 +488,7 @@ export const s = StyleSheet.create({
   entryTabTextActive: { color: colors.bg, fontWeight: '600' },
   // Reusable type pills (activity type, sleep quality)
   typePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12,
     borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg,
   },

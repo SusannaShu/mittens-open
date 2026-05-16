@@ -35,7 +35,7 @@ export async function checkFaceRecognition(
   _scene: any,
   logger: PipelineLogger,
 ): Promise<FaceRecognitionResult> {
-  const faceIdx = logger.startPhase('scene', 'face_recognition');
+  const faceIdx = logger.startPhase('face', 'recognition');
   const recognizedNames: string[] = [];
   console.log(`[SceneFace] --- checkFaceRecognition START ---`);
   console.log(`[SceneFace] Frame: ${framePath.slice(-40)}`);

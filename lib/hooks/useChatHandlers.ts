@@ -86,7 +86,7 @@ export function useChatHandlers({ messages, setMessages, addMessage, saveMessage
     ));
   };
 
-  const { startPipeline, restartFood, restartFoodPortion, addFood, removeFood } = useNutrientPipeline({ updateFood, updateAllFoods });
+  const { startPipeline, restartFood, restartFoodPortion, addFood, removeFood, replaceWithUsda } = useNutrientPipeline({ updateFood, updateAllFoods });
 
   // RTK Query mutations (async versions to avoid Heroku timeout)
   const [smartSnapAsync] = useSmartSnapAsyncMutation();
@@ -1087,6 +1087,12 @@ export function useChatHandlers({ messages, setMessages, addMessage, saveMessage
       const msg = messages.find(m => m.id === messageId);
       if (msg?.pipelineFoods) {
         addFood(messageId, foodName, msg.pipelineFoods);
+      }
+    },
+    handlePipelineUsdaReplace: (messageId: string, index: number, usdaFood: any) => {
+      const msg = messages.find(m => m.id === messageId);
+      if (msg?.pipelineFoods) {
+        replaceWithUsda(messageId, index, usdaFood, msg.pipelineFoods);
       }
     },
 

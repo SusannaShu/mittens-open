@@ -402,12 +402,15 @@ export default function TodayScreen() {
         onLoggedAtChange={h.setManualLoggedAt}
         text={h.manualText}
         onTextChange={h.setManualText}
+        usdaFoods={h.manualUsdaFoods}
+        onUsdaFoodsChange={h.setManualUsdaFoods}
         photos={h.manualPhotos}
         onPhotosChange={h.setManualPhotos}
         mealType={h.manualMealType}
         onMealTypeChange={h.setManualMealType}
         analyzing={h.analyzingManual}
         onSubmit={h.handleManualSubmit}
+        onSkip={h.handleSkipManual}
         onActivitySubmit={async (data) => {
           await h.logActivity({ ...data, loggedAt: data.loggedAt || new Date().toISOString() }).unwrap();
           refetch();

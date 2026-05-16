@@ -9,6 +9,7 @@
  */
 
 import { getBrain } from '../../brain/selector';
+import { triage } from '../../pipelines/triage';
 import {
   buildMealContext,
   buildActivityContext,
@@ -30,7 +31,7 @@ export interface VoiceDispatchResult {
 }
 
 interface TriageResult {
-  intent: 'face_intro' | 'face_correction' | 'meal' | 'activity_update' | 'chat';
+  intent: 'face_intro' | 'face_correction' | 'meal' | 'activity_update' | 'chat' | 'timer';
   confidence: number;
   extractedName?: string;
 }
@@ -55,85 +56,42 @@ export async function dispatchVoice(
     };
   }
 
-  // Stage 1: Lightweight Triage
-  const triage = await triageVoice(brain, transcript, framePath);
-  console.log(`[VoiceDispatch] Triage: ${triage.intent} (${triage.confidence})`);
+  // Stage 1: Unified Triage
+  const triageRes = await triage(framePath ? [framePath] : [], transcript || '');
+  const topIntent = triageRes.intents[0];
+  
+  console.log(`[VoiceDispatch] Triage: ${topIntent.pipeline} (${topIntent.confidence})`);
 
   // Filter low confidence triage to prevent errant logs
-  if (triage.confidence < 0.3 && triage.intent !== 'chat') {
-    console.log(`[VoiceDispatch] Low confidence (${triage.confidence}), falling back to chat`);
-    triage.intent = 'chat';
+  let pipeline = topIntent.pipeline;
+  if (topIntent.confidence < 0.3 && pipeline !== 'chat') {
+    console.log(`[VoiceDispatch] Low confidence (${topIntent.confidence}), falling back to chat`);
+    pipeline = 'chat';
   }
 
+  const triageData: TriageResult = {
+    intent: pipeline as any,
+    confidence: topIntent.confidence,
+    extractedName: topIntent.context?.extractedName,
+  };
+
   // Stage 2: Context-Enriched Dispatch
-  switch (triage.intent) {
+  switch (pipeline) {
     case 'face_intro':
-      return handleFaceIntro(triage, transcript, framePath);
+      return handleFaceIntro(triageData, transcript, framePath);
     case 'face_correction':
-      return handleFaceCorrection(triage, transcript);
+      return handleFaceCorrection(triageData, transcript);
     case 'meal':
       return handleMealIntent(brain, transcript, framePath);
+    case 'activity':
     case 'activity_update':
       return handleActivityUpdate(brain, transcript, framePath);
+    case 'timer':
+      return handleTimerIntent(brain, transcript, framePath);
     case 'chat':
     default:
       return handleChat(brain, transcript, framePath);
   }
-}
-
-// ─── Stage 1: Triage ────
-
-async function triageVoice(
-  brain: any,
-  transcript: string | null,
-  framePath?: string,
-): Promise<TriageResult> {
-  const prompt = [
-    'Classify this pendant voice input into exactly one intent.',
-    'Return ONLY a JSON object, no other text.',
-    '',
-    `Transcript: "${transcript || '(no speech detected)'}"`,
-    '',
-    'Possible intents:',
-    '- "face_intro": user is introducing a person (e.g. "this is Sarah", "meet my friend John")',
-    '- "face_correction": user is correcting a false positive recognition (e.g. "that\'s not Caden", "wrong person", "whoops that is not John")',
-    '- "meal": user is logging food/drink (e.g. "log two oranges", "I had a banana", "just ate lunch")',
-    '- "activity_update": user is commenting on a current/recent activity (e.g. "meeting feels draining", "the walk was great", "I\'m so focused right now")',
-    '- "chat": anything else (questions, conversation, commands unrelated to logging)',
-    '',
-    'JSON format: { "intent": "...", "confidence": 0.0-1.0, "extractedName": "..." }',
-    'Only include extractedName for face_intro intent.',
-  ].join('\n');
-
-  try {
-    let raw: string;
-    if (framePath && brain.supportsVision) {
-      raw = await brain.vision(prompt, [framePath]);
-    } else {
-      raw = await brain.text(prompt);
-    }
-    return parseTriageResponse(raw);
-  } catch (err: any) {
-    console.warn('[VoiceDispatch] Triage failed, defaulting to chat:', err?.message);
-    return { intent: 'chat', confidence: 0.5 };
-  }
-}
-
-function parseTriageResponse(raw: string): TriageResult {
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (['face_intro', 'face_correction', 'meal', 'activity_update', 'chat'].includes(parsed.intent)) {
-        return {
-          intent: parsed.intent,
-          confidence: parsed.confidence ?? 0.7,
-          extractedName: parsed.extractedName,
-        };
-      }
-    }
-  } catch { /* JSON parse failed */ }
-  return { intent: 'chat', confidence: 0.5 };
 }
 
 // ─── Face Introduction ────
@@ -340,6 +298,27 @@ async function handleActivityUpdate(
 
   const executed = executeActivityAction(raw);
   return { ...executed, intent: 'activity_update' };
+}
+
+// ─── Timer Intent ────
+
+async function handleTimerIntent(
+  brain: any,
+  transcript: string | null,
+  framePath?: string,
+): Promise<VoiceDispatchResult> {
+  const { buildTimerPrompt, executeTimerAction } = require('./voiceDispatchHelpers');
+  const prompt = buildTimerPrompt(transcript);
+
+  let raw: string;
+  if (framePath && brain.supportsVision) {
+    raw = await brain.vision(prompt, [framePath]);
+  } else {
+    raw = await brain.text(prompt);
+  }
+
+  const executed = await executeTimerAction(raw);
+  return { ...executed, intent: 'timer' };
 }
 
 // ─── Chat (default) ────

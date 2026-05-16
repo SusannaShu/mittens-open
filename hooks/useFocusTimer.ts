@@ -3,8 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { AppState } from 'react-native';
 import { saveMittensMessage } from '../lib/services/schedule/alarmScheduler';
-import { getApiBase, getAuthToken } from '../lib/api';
 import { ActivityTypeService } from '../lib/services/activityTypeService';
+import { getDb, enqueueSyncRecord } from '../lib/database';
 
 const STORAGE_KEY = 'mittens_focus_timer_end';
 const CATEGORY_KEY = 'mittens_focus_timer_category';
@@ -12,6 +12,62 @@ const NAME_KEY = 'mittens_focus_timer_name';
 const START_KEY = 'mittens_focus_timer_start';
 const ENTRY_ID_KEY = 'mittens_focus_timer_entry_id';
 export { STORAGE_KEY as FOCUS_TIMER_STORAGE_KEY };
+
+export async function startGlobalTimer(category: string, name: string, breakIntervalMins: number = 45) {
+  const nowMs = Date.now();
+  const endMs = nowMs + breakIntervalMins * 60 * 1000;
+
+  await AsyncStorage.setItem(STORAGE_KEY, endMs.toString());
+  await AsyncStorage.setItem(CATEGORY_KEY, category);
+  await AsyncStorage.setItem(NAME_KEY, name);
+  await AsyncStorage.setItem(START_KEY, nowMs.toString());
+
+  // Schedule break reminder notification
+  await Notifications.scheduleNotificationAsync({
+    identifier: 'focus-timer',
+    content: {
+      title: 'Mittens',
+      subtitle: 'Time to stretch!',
+      body: `You've been doing ${name} for ${breakIntervalMins} minutes. Take a breather!`,
+      data: { type: 'focus_rest' },
+      sound: 'default',
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: breakIntervalMins * 60,
+      repeats: false,
+    },
+  });
+
+  // Log activity immediately so it appears on the calendar
+  const entryId = await logTimerActivity(category, name, breakIntervalMins, new Date(nowMs).toISOString());
+  if (entryId) {
+    await AsyncStorage.setItem(ENTRY_ID_KEY, entryId.toString());
+  }
+
+  const { DeviceEventEmitter } = require('react-native');
+  DeviceEventEmitter.emit('focusTimerUpdated');
+}
+
+export async function stopGlobalTimer() {
+  const startStr = await AsyncStorage.getItem(START_KEY);
+  const idStr = await AsyncStorage.getItem(ENTRY_ID_KEY);
+  if (startStr && idStr) {
+    const startMs = parseInt(startStr, 10);
+    const durationMin = Math.max(1, Math.round((Date.now() - startMs) / 60000));
+    await updateTimerActivity(parseInt(idStr, 10), durationMin);
+  }
+
+  await AsyncStorage.removeItem(STORAGE_KEY);
+  await AsyncStorage.removeItem(CATEGORY_KEY);
+  await AsyncStorage.removeItem(NAME_KEY);
+  await AsyncStorage.removeItem(START_KEY);
+  await AsyncStorage.removeItem(ENTRY_ID_KEY);
+  await Notifications.cancelScheduledNotificationAsync('focus-timer').catch(() => {});
+
+  const { DeviceEventEmitter } = require('react-native');
+  DeviceEventEmitter.emit('focusTimerUpdated');
+}
 
 /**
  * @deprecated Use dynamicCategories from useFocusTimer return value instead.
@@ -57,67 +113,23 @@ export function useFocusTimer(breakIntervalMins: number = 45, options?: FocusTim
 
   const clearTimer = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-
-    const startStr = await AsyncStorage.getItem(START_KEY);
-    const idStr = await AsyncStorage.getItem(ENTRY_ID_KEY);
-    if (startStr && idStr) {
-      const startMs = parseInt(startStr, 10);
-      const durationMin = Math.max(1, Math.round((Date.now() - startMs) / 60000));
-      await updateTimerActivity(parseInt(idStr, 10), durationMin);
-    }
-
+    await stopGlobalTimer();
     setTimeLeft(null);
     setIsRunning(false);
     setStartedAt(null);
-    await AsyncStorage.removeItem(STORAGE_KEY);
-    await AsyncStorage.removeItem(CATEGORY_KEY);
-    await AsyncStorage.removeItem(NAME_KEY);
-    await AsyncStorage.removeItem(START_KEY);
-    await AsyncStorage.removeItem(ENTRY_ID_KEY);
-    await Notifications.cancelScheduledNotificationAsync('focus-timer').catch(() => {});
-
     options?.onComplete?.();
   };
 
   const startTimer = async (cat?: TimerCategory, name?: string) => {
     const selectedCat = cat || category;
     const selectedName = name || selectedCat;
-    const nowMs = Date.now();
-    const endMs = nowMs + breakIntervalMins * 60 * 1000;
-
-    await AsyncStorage.setItem(STORAGE_KEY, endMs.toString());
-    await AsyncStorage.setItem(CATEGORY_KEY, selectedCat);
-    await AsyncStorage.setItem(NAME_KEY, selectedName);
-    await AsyncStorage.setItem(START_KEY, nowMs.toString());
-
-    // Schedule break reminder notification
-    await Notifications.scheduleNotificationAsync({
-      identifier: 'focus-timer',
-      content: {
-        title: 'Mittens',
-        subtitle: 'Time to stretch!',
-        body: `You've been doing ${selectedName} for ${breakIntervalMins} minutes. Take a breather!`,
-        data: { type: 'focus_rest' },
-        sound: 'default',
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: breakIntervalMins * 60,
-        repeats: false,
-      },
-    });
+    
+    await startGlobalTimer(selectedCat, selectedName, breakIntervalMins);
 
     setCategory(selectedCat);
     setActivityName(selectedName);
-    setStartedAt(new Date(nowMs).toISOString());
     setIsRunning(true);
     checkTimer();
-
-    // Log activity immediately so it appears on the calendar
-    const entryId = await logTimerActivity(selectedCat, selectedName, breakIntervalMins, new Date(nowMs).toISOString());
-    if (entryId) {
-      await AsyncStorage.setItem(ENTRY_ID_KEY, entryId.toString());
-    }
 
     options?.onStart?.();
   };
@@ -144,7 +156,33 @@ export function useFocusTimer(breakIntervalMins: number = 45, options?: FocusTim
           // Just reset the break interval for the next reminder
           setTimeLeft(0);
           setIsRunning(true);
-          saveMittensMessage(`Time to stretch! You've been doing ${nameStr || catStr || 'work'} for a while.`, 'focus_timer_break');
+          
+          let goalMsg = '';
+          let ttsMsg = `Susanna get up and stretch. You've been doing ${nameStr || catStr || 'work'} for a while.`;
+          try {
+            const { getProfile } = require('../lib/api');
+            const profile = await getProfile();
+            if (profile?.breakPhysicalGoal) {
+              goalMsg = ` Now is a good time to practice your ${profile.breakPhysicalGoal}.`;
+              ttsMsg += ` Now is a good time to practice your ${profile.breakPhysicalGoal}.`;
+            } else {
+              const allTypes = await ActivityTypeService.getAll();
+              const breakGoals = allTypes.filter(t => t.subCategories?.includes('mention in break'));
+              if (breakGoals.length > 0) {
+                const goals = breakGoals.map(t => t.label).join(' and ');
+                goalMsg = ` Now is a good time to practice your ${goals}.`;
+                ttsMsg += ` Now is a good time to practice your ${goals}.`;
+              }
+            }
+            
+            const { speak } = require('../lib/services/voice/ttsService');
+            speak(ttsMsg);
+          } catch (err) {
+            console.warn('[timer] Failed to fetch break goals or speak:', err);
+          }
+
+          saveMittensMessage(`Time to stretch! You've been doing ${nameStr || catStr || 'work'} for a while.${goalMsg}`, 'focus_timer_break');
+          
           // Schedule next break
           const nextEnd = Date.now() + breakIntervalMins * 60 * 1000;
           await AsyncStorage.setItem(STORAGE_KEY, nextEnd.toString());
@@ -167,8 +205,21 @@ export function useFocusTimer(breakIntervalMins: number = 45, options?: FocusTim
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') checkTimer();
     });
-    return () => sub.remove();
-  }, []);
+    const { DeviceEventEmitter } = require('react-native');
+    const eventSub = DeviceEventEmitter.addListener('focusTimerUpdated', checkTimer);
+    
+    // Listen for auto-start triggers from sedentary detection
+    const autoSub = DeviceEventEmitter.addListener('autoStartTimer', async (evt: any) => {
+      if (isRunning) return; // skip if already running
+      await startGlobalTimer(evt.category, evt.name, evt.durationMin);
+    });
+
+    return () => {
+      sub.remove();
+      eventSub.remove();
+      autoSub.remove();
+    };
+  }, [isRunning]);
 
   useEffect(() => {
     if (isRunning) {
@@ -189,7 +240,7 @@ export function useFocusTimer(breakIntervalMins: number = 45, options?: FocusTim
 }
 
 /**
- * Log the timer activity to the backend.
+ * Log the timer activity to the local database.
  */
 async function logTimerActivity(
   category: string,
@@ -198,9 +249,6 @@ async function logTimerActivity(
   loggedAt: string,
 ): Promise<number | null> {
   try {
-    const token = getAuthToken();
-    if (!token) return null;
-
     const activityKey = category;
 
     // Look up from ActivityTypeService for deterministic metadata
@@ -208,26 +256,25 @@ async function logTimerActivity(
     const lifeCategories = typeModel?.defaultLifeCategories || { work: 1.0 };
     const isOutdoors = typeModel?.defaultOutdoors ?? (category === 'Nature');
 
-    const res = await fetch(`${getApiBase()}/activity-log`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        activityType: activityKey,
-        logName: name,
-        duration_min: durationMin,
+    const db = getDb();
+    const result = db.runSync(
+      `INSERT INTO activity_logs (logged_at, activity_type, log_name, duration_min, outdoors, source, life_categories)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
         loggedAt,
-        source: 'manual',
-        lifeCategories,
-        outdoors: isOutdoors,
-      }),
-    });
+        activityKey,
+        name,
+        durationMin,
+        isOutdoors ? 1 : 0,
+        'manual',
+        JSON.stringify(lifeCategories),
+      ]
+    );
 
-    if (res.ok) {
-      const data = await res.json();
-      return data.activity?.id || null;
+    const id = result.lastInsertRowId;
+    if (id) {
+      enqueueSyncRecord('activity_logs', id as number, 'create');
+      return id as number;
     }
   } catch (err) {
     console.warn('[timer] Failed to log activity:', err);
@@ -236,21 +283,16 @@ async function logTimerActivity(
 }
 
 /**
- * Update actual duration when timer is stopped
+ * Update actual duration when timer is stopped in local database
  */
 async function updateTimerActivity(id: number, durationMin: number) {
   try {
-    const token = getAuthToken();
-    if (!token) return;
-
-    await fetch(`${getApiBase()}/activity-log/${id}/reflect`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ duration_min: durationMin }),
-    });
+    const db = getDb();
+    db.runSync(
+      `UPDATE activity_logs SET duration_min = ?, updated_at = datetime('now') WHERE id = ?`,
+      [durationMin, id]
+    );
+    enqueueSyncRecord('activity_logs', id, 'update');
   } catch (err) {
     console.warn('[timer] Failed to update activity duration:', err);
   }

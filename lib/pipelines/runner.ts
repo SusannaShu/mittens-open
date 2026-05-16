@@ -137,6 +137,16 @@ export class PipelineRunner {
             this.logger.completePhase(phaseIdx, summarizeResult('activity', 'lifeDesign', ldResult));
             break;
 
+          case 'faces':
+            if (input.photos && input.photos.length > 0) {
+              const facesResult = await this.runFaceRecognitionPipeline(input);
+              context = { ...context, faceIdentities: facesResult.identities };
+              this.logger.completePhase(phaseIdx, `Identified ${facesResult.identities?.length || 0} faces`);
+            } else {
+              this.logger.skipPhase('activity', 'faces', 'No photos');
+            }
+            break;
+
           case 'pantryDelta':
             const { extractPantryDeltas } = await import('./food/pantryDelta');
             const deltaResult = await extractPantryDeltas(input);
@@ -276,6 +286,86 @@ export class PipelineRunner {
     };
     this.emit('chat', { status: 'complete', result: finalResult });
     return finalResult;
+  }
+
+  async runTimerPipeline(input: PipelineInput): Promise<any> {
+    this.emit('timer', { status: 'running', currentPhase: 'execute' });
+    const phaseIdx = this.logger.startPhase('timer', 'execute');
+    try {
+      const { buildTimerPrompt, executeTimerAction } = await import('../services/ambient/voiceDispatchHelpers');
+      const { getBrain } = await import('../brain/selector');
+      const brain = await getBrain();
+      
+      const prompt = buildTimerPrompt(input.text || '');
+      let raw: string;
+      if (input.photos && input.photos.length > 0 && brain.supportsVision) {
+        raw = await brain.vision(prompt, input.photos);
+      } else {
+        raw = await brain.text(prompt);
+      }
+      
+      const executed = await executeTimerAction(raw);
+      this.logger.completePhase(phaseIdx, executed.response);
+      this.emit('timer', { status: 'complete', result: executed });
+      return executed;
+    } catch (e: any) {
+      this.logger.failPhase(phaseIdx, e.message);
+      this.emit('timer', { status: 'error', error: e.message });
+      throw e;
+    }
+  }
+
+  async runFaceRecognitionPipeline(input: PipelineInput): Promise<any> {
+    this.emit('face_recognition', { status: 'running', currentPhase: 'detect' });
+    const detectIdx = this.logger.startPhase('face_recognition', 'detect');
+    try {
+      if (!input.photos || input.photos.length === 0) {
+        throw new Error(`No photos provided for face recognition.`);
+      }
+
+      const { recognizeFaces } = await import('../services/faceRecognition/faceRecognitionService');
+      
+      // Use the first photo
+      const framePath = input.photos[0];
+      const matches = await recognizeFaces(framePath);
+
+      this.logger.completePhase(detectIdx, `Found ${matches.length} matches`);
+      
+      this.emit('face_recognition', { status: 'running', currentPhase: 'match' });
+      const matchIdx = this.logger.startPhase('face_recognition', 'match');
+      
+      let response = '';
+      if (matches.length > 0) {
+        const topMatch = matches[0];
+        
+        const { shouldGreet, markGreeted, isOwner } = await import('../services/faceRecognition/faceRecognitionService');
+        if (isOwner(topMatch.personId)) {
+          if (shouldGreet(topMatch.personId)) {
+            response = `Welcome back!`;
+            markGreeted(topMatch.personId);
+          }
+        } else {
+          if (shouldGreet(topMatch.personId)) {
+            response = `I see ${topMatch.name}.`;
+            markGreeted(topMatch.personId);
+          }
+        }
+        
+        this.logger.completePhase(matchIdx, `Matched: ${topMatch.name}`);
+      } else {
+        this.logger.completePhase(matchIdx, `No known faces matched`);
+        // If the user explicitly introduced someone, we can handle it via text intent later
+        // But for now, we just silently return no response if no match
+      }
+      
+      this.emit('face_recognition', { status: 'complete', result: { response } });
+      return { response };
+      
+    } catch (e: any) {
+      this.logger.failPhase(detectIdx, e.message);
+      this.emit('face_recognition', { status: 'error', error: e.message });
+      throw e;
+    }
   }
 
   async runPantryPipeline(

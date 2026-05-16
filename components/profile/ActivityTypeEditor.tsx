@@ -84,7 +84,7 @@ export function ActivityTypeEditor({ collapsed, onToggle }: Props) {
       subCategories: [], defaultMets: 1.5,
       isStrength: false, isNature: false,
       defaultIntensity: 'moderate', defaultOutdoors: false,
-      showInTimer: true, showInManualLog: true,
+      showInTimer: true, showInManualLog: true, mentionDuringBreak: false,
       sortOrder: types.length, isBuiltIn: false,
     });
     setSheetVisible(true);
@@ -127,8 +127,9 @@ export function ActivityTypeEditor({ collapsed, onToggle }: Props) {
                       <View key={cat} style={[st.catDot, { backgroundColor: LIFE_COLORS[cat] || '#999', opacity: weight as number }]} />
                     ) : null
                   ))}
-                  {t.isStrength && <Text style={st.badge}>STR</Text>}
-                  {t.isNature && <Text style={st.badge}>NAT</Text>}
+                  {t.subCategories?.includes('movement') && <Text style={st.badge}>MOVE</Text>}
+                  {t.subCategories?.includes('nature') && <Text style={st.badge}>NAT</Text>}
+                  {t.subCategories?.includes('brain_hygiene') && <Text style={st.badge}>BRAIN</Text>}
                 </View>
               </View>
               <Text style={{ fontSize: 11, color: colors.textMuted }}>{t.defaultMets} MET</Text>
@@ -265,11 +266,9 @@ function ActivityTypeEditSheet({
             <Text style={st.fieldLabel}>Properties</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
               {([
-                ['isStrength', 'Strength'],
-                ['isNature', 'Nature'],
-                ['defaultOutdoors', 'Outdoors'],
                 ['showInTimer', 'In Timer'],
                 ['showInManualLog', 'In Manual Log'],
+                ['mentionDuringBreak', 'Mention During Break'],
               ] as [keyof ActivityTypeModel, string][]).map(([field, label]) => (
                 <TouchableOpacity
                   key={field}
@@ -315,7 +314,7 @@ function ActivityTypeEditSheet({
             {/* Sub-categories */}
             <Text style={[st.fieldLabel, { marginTop: spacing.sm }]}>Sub-categories</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md }}>
-              {['movement', 'touch_grass', 'brain_hygiene', 'brain_hygiene_neg', 'circadian'].map((sub) => {
+              {['movement', 'nature', 'brain_hygiene'].map((sub) => {
                 const active = draft.subCategories?.includes(sub);
                 return (
                   <TouchableOpacity

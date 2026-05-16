@@ -10,19 +10,20 @@ const BUILT_IN_TYPES: ActivityTypeModel[] = [
   { key: 'walk',       label: 'Walk',       icon: 'walking',     defaultLifeCategories: { health: 0.7, play: 0.3 }, subCategories: ['movement'],                  defaultMets: 3.5, isStrength: false, isNature: false, defaultIntensity: 'moderate', defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 0,  isBuiltIn: true },
   { key: 'run',        label: 'Run',        icon: 'running',     defaultLifeCategories: { health: 0.9, play: 0.1 }, subCategories: ['movement'],                  defaultMets: 8.0, isStrength: false, isNature: false, defaultIntensity: 'high',     defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 1,  isBuiltIn: true },
   { key: 'bike',       label: 'Bike',       icon: 'bike',        defaultLifeCategories: { health: 0.8, play: 0.2 }, subCategories: ['movement'],                  defaultMets: 6.0, isStrength: false, isNature: false, defaultIntensity: 'moderate', defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 2,  isBuiltIn: true },
-  { key: 'workout',    label: 'Workout',    icon: 'dumbbell',    defaultLifeCategories: { health: 0.9, play: 0.1 }, subCategories: ['movement'],                  defaultMets: 5.0, isStrength: true,  isNature: false, defaultIntensity: 'high',     defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 3,  isBuiltIn: true },
-  { key: 'sun',        label: 'Sun',        icon: 'sun',         defaultLifeCategories: { health: 1.0 },            subCategories: ['touch_grass', 'circadian'],   defaultMets: 1.0, isStrength: false, isNature: true,  defaultIntensity: 'low',      defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 4,  isBuiltIn: true },
+  { key: 'workout',    label: 'Workout',    icon: 'dumbbell',    defaultLifeCategories: { health: 0.9, play: 0.1 }, subCategories: ['movement'],                  grouping: 'activity', defaultMets: 5.0, isStrength: true,  isNature: false, defaultIntensity: 'high',     defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 3,  isBuiltIn: true },
+  { key: 'pushups',    label: 'Pushups',    icon: 'activity',    defaultLifeCategories: { health: 1.0 },            subCategories: ['movement'],                  grouping: 'break_goal', defaultMets: 8.0, isStrength: true,  isNature: false, defaultIntensity: 'high',     defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 3.5, isBuiltIn: true },
+  { key: 'sun',        label: 'Sun',        icon: 'sun',         defaultLifeCategories: { health: 1.0 },            subCategories: ['nature'],   grouping: 'activity', defaultMets: 1.0, isStrength: false, isNature: true,  defaultIntensity: 'low',      defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 4,  isBuiltIn: true },
   { key: 'work',       label: 'Work',       icon: 'monitor',     defaultLifeCategories: { work: 1.0 },              subCategories: [],                            defaultMets: 1.3, isStrength: false, isNature: false, defaultIntensity: 'moderate', defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 5,  isBuiltIn: true },
   { key: 'social',     label: 'Social',     icon: 'users',       defaultLifeCategories: { love: 0.6, play: 0.4 },   subCategories: [],                            defaultMets: 1.5, isStrength: false, isNature: false, defaultIntensity: 'moderate', defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 6,  isBuiltIn: true },
   { key: 'rest',       label: 'Rest',       icon: 'moon',        defaultLifeCategories: { health: 0.7, play: 0.3 }, subCategories: [],                            defaultMets: 1.0, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 7,  isBuiltIn: true },
   { key: 'cooking',    label: 'Cooking',    icon: 'utensils',    defaultLifeCategories: { health: 0.8, play: 0.2 }, subCategories: [],                            defaultMets: 2.0, isStrength: false, isNature: false, defaultIntensity: 'moderate', defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 8,  isBuiltIn: true },
   { key: 'commute',    label: 'Commute',    icon: 'car',         defaultLifeCategories: { work: 1.0 },              subCategories: [],                            defaultMets: 1.3, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 9,  isBuiltIn: true },
-  { key: 'nature',     label: 'Nature',     icon: 'tree',        defaultLifeCategories: { health: 0.7, play: 0.3 }, subCategories: ['touch_grass'],                defaultMets: 2.5, isStrength: false, isNature: true,  defaultIntensity: 'moderate', defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 10, isBuiltIn: true },
+  { key: 'nature',     label: 'Nature',     icon: 'tree',        defaultLifeCategories: { health: 0.7, play: 0.3 }, subCategories: ['nature'],                defaultMets: 2.5, isStrength: false, isNature: true,  defaultIntensity: 'moderate', defaultOutdoors: true,  showInTimer: true, showInManualLog: true, sortOrder: 10, isBuiltIn: true },
   { key: 'meditation', label: 'Meditation', icon: 'wind',        defaultLifeCategories: { health: 0.5, play: 0.5 }, subCategories: ['brain_hygiene'],              defaultMets: 1.0, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 11, isBuiltIn: true },
   { key: 'journal',    label: 'Journal',    icon: 'book-open',   defaultLifeCategories: { health: 0.5, play: 0.5 }, subCategories: ['brain_hygiene'],              defaultMets: 1.0, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 12, isBuiltIn: true },
   { key: 'reading',    label: 'Reading',    icon: 'book',        defaultLifeCategories: { play: 0.7, work: 0.3 },   subCategories: [],                            defaultMets: 1.3, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 13, isBuiltIn: true },
   { key: 'drawing',    label: 'Drawing',    icon: 'pen-tool',    defaultLifeCategories: { play: 1.0 },              subCategories: [],                            defaultMets: 1.5, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 14, isBuiltIn: true },
-  { key: 'scrolling',  label: 'Scrolling',  icon: 'smartphone',  defaultLifeCategories: { play: 0.5, rest: 0.5 },   subCategories: ['brain_hygiene_neg'],          defaultMets: 1.0, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 15, isBuiltIn: true },
+  { key: 'scrolling',  label: 'Scrolling',  icon: 'smartphone',  defaultLifeCategories: { play: 0.5, rest: 0.5 },   subCategories: [],          defaultMets: 1.0, isStrength: false, isNature: false, defaultIntensity: 'low',      defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 15, isBuiltIn: true },
   { key: 'other',      label: 'Other',      icon: 'circle',      defaultLifeCategories: { work: 1.0 },              subCategories: [],                            defaultMets: 1.5, isStrength: false, isNature: false, defaultIntensity: 'moderate', defaultOutdoors: false, showInTimer: true, showInManualLog: true, sortOrder: 16, isBuiltIn: true },
 ];
 
@@ -44,14 +45,15 @@ export class ActivityTypeService {
       db.runSync(
         `INSERT OR IGNORE INTO activity_types (
           key, label, icon, default_life_categories, sub_categories,
-          default_mets, is_strength, is_nature, default_intensity,
-          default_outdoors, show_in_timer, show_in_manual_log,
+          grouping, default_mets, is_strength, is_nature, default_intensity,
+          default_outdoors, show_in_timer, show_in_manual_log, mention_during_break,
           sort_order, is_built_in
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           type.key, type.label, type.icon || null,
           type.defaultLifeCategories ? JSON.stringify(type.defaultLifeCategories) : null,
           type.subCategories ? JSON.stringify(type.subCategories) : null,
+          type.grouping || 'activity',
           type.defaultMets || null,
           type.isStrength ? 1 : 0,
           type.isNature ? 1 : 0,
@@ -59,6 +61,7 @@ export class ActivityTypeService {
           type.defaultOutdoors ? 1 : 0,
           type.showInTimer ? 1 : 0,
           type.showInManualLog ? 1 : 0,
+          type.mentionDuringBreak ? 1 : 0,
           type.sortOrder,
           1
         ]
@@ -113,6 +116,7 @@ export class ActivityTypeService {
       defaultOutdoors: 'default_outdoors',
       showInTimer: 'show_in_timer',
       showInManualLog: 'show_in_manual_log',
+      mentionDuringBreak: 'mention_during_break',
       sortOrder: 'sort_order',
     };
 
@@ -156,9 +160,9 @@ export class ActivityTypeService {
       `INSERT INTO activity_types (
         key, label, icon, default_life_categories, sub_categories,
         default_mets, is_strength, is_nature, default_intensity,
-        default_outdoors, show_in_timer, show_in_manual_log,
+        default_outdoors, show_in_timer, show_in_manual_log, mention_during_break,
         sort_order, is_built_in
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.key, data.label, data.icon || 'circle',
         data.defaultLifeCategories ? JSON.stringify(data.defaultLifeCategories) : null,
@@ -170,6 +174,7 @@ export class ActivityTypeService {
         data.defaultOutdoors ? 1 : 0,
         data.showInTimer !== false ? 1 : 0,
         data.showInManualLog !== false ? 1 : 0,
+        data.mentionDuringBreak ? 1 : 0,
         sortOrder,
         0
       ]
@@ -208,6 +213,7 @@ export class ActivityTypeService {
       defaultOutdoors: row.default_outdoors === 1,
       showInTimer: row.show_in_timer === 1,
       showInManualLog: row.show_in_manual_log === 1,
+      mentionDuringBreak: row.mention_during_break === 1,
       sortOrder: row.sort_order,
       isBuiltIn: row.is_built_in === 1,
     };

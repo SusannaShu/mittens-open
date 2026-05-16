@@ -227,7 +227,38 @@ export function useTodayHandlers(refetch: () => void) {
   /* ── Manual entry handler ── */
 
   const handleManualSubmit = async () => {
-    if (!manualText.trim() && manualPhotos.length === 0) return;
+    if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length === 0) return;
+    
+    // Bypass AI if we ONLY have manual USDA foods
+    if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length > 0) {
+      const items = manualUsdaFoods.map(f => {
+        const ratio = (f.amountGram || 100) / 100;
+        const scaledNutrients: any = {};
+        if (f.nutrients) {
+          for (const [k, v] of Object.entries(f.nutrients)) {
+            scaledNutrients[k] = Math.round(((v as number) * ratio) * 100) / 100;
+          }
+        }
+        return {
+          name: f.customName || f.name,
+          portion_g: f.amountGram || 100,
+          household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
+          nutrients: scaledNutrients,
+          usda_match: f.name,
+          nutrient_source: 'usda',
+        };
+      });
+      
+      setManualModalVisible(false);
+      setManualUsdaFoods([]);
+      
+      router.push({
+        pathname: '/results',
+        params: { data: JSON.stringify({ items, mealName: 'Manual Entry' }), mealType: manualMealType, photoTimestamp: manualLoggedAt.toISOString() },
+      });
+      return;
+    }
+
     setAnalyzingManual(true);
     try {
       let result: any;
@@ -247,6 +278,29 @@ export function useTodayHandlers(refetch: () => void) {
       } else {
         result = await analyzeText({ text: manualText.trim(), mealType: manualMealType }).unwrap();
       }
+      
+      // If we have manual USDA foods, merge them with the AI result
+      if (manualUsdaFoods.length > 0 && result) {
+        const manualItems = manualUsdaFoods.map(f => {
+          const ratio = (f.amountGram || 100) / 100;
+          const scaledNutrients: any = {};
+          if (f.nutrients) {
+            for (const [k, v] of Object.entries(f.nutrients)) {
+              scaledNutrients[k] = Math.round(((v as number) * ratio) * 100) / 100;
+            }
+          }
+          return {
+            name: f.customName || f.name,
+            portion_g: f.amountGram || 100,
+            household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
+            nutrients: scaledNutrients,
+            usda_match: f.name,
+            nutrient_source: 'usda',
+          };
+        });
+        result.items = [...(result.items || []), ...manualItems];
+      }
+
       if (manualText.trim() && result) {
         result = { ...result, mealName: result.mealName || manualText.trim() };
       }
@@ -264,6 +318,21 @@ export function useTodayHandlers(refetch: () => void) {
     } finally {
       setAnalyzingManual(false);
     }
+  };
+
+  const handleSkipManual = () => {
+    setManualModalVisible(false);
+    setManualText('');
+    setManualPhotos([]);
+    setManualUsdaFoods([]);
+    router.push({
+      pathname: '/results',
+      params: { 
+        data: JSON.stringify({ items: [] }), 
+        mealType: manualMealType, 
+        photoTimestamp: manualLoggedAt.toISOString() 
+      },
+    });
   };
 
   /* ── Ask Mittens handler ── */
@@ -316,7 +385,7 @@ export function useTodayHandlers(refetch: () => void) {
     manualUsdaFoods, setManualUsdaFoods,
     analyzingManual, manualMealType, setManualMealType,
     manualLoggedAt, setManualLoggedAt,
-    handleManualSubmit,
+    handleManualSubmit, handleSkipManual,
 
     // Other modal states
     sourcesModalVisible, setSourcesModalVisible,

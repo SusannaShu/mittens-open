@@ -112,6 +112,47 @@ export async function introducePerson(
   };
 }
 
+/**
+ * Register a new person or add embeddings to an existing one,
+ * using an already extracted embedding and cropped face image.
+ */
+export async function introduceFace(
+  name: string,
+  embedding: number[],
+  confidence: number,
+  croppedUri: string,
+): Promise<IntroductionResult | null> {
+  console.log(`[FaceRec] --- introduceFace START: "${name}" ---`);
+
+  // Find or create the person
+  let person = findPersonByName(name);
+  const isNew = !person;
+
+  if (!person) {
+    const personId = createPerson(name);
+    person = getPersonById(personId);
+    if (!person) {
+      console.log('[FaceRec] Failed to create person record');
+      return null;
+    }
+  }
+
+  // Save embeddings directly using the cropped URI
+  const persistedUri = await copyFrameForFace(croppedUri, person.id);
+  saveEmbedding(person.id, embedding, confidence, persistedUri);
+
+  // Record the interaction
+  recordInteraction(person.id);
+
+  const totalEmbeddings = getEmbeddingCount(person.id);
+  return {
+    personId: person.id,
+    name: person.name,
+    isNew,
+    embeddingsSaved: totalEmbeddings,
+  };
+}
+
 // =============================================
 // RECOGNITION (ambient frame processing)
 // =============================================
@@ -378,7 +419,7 @@ async function detectFacesFromFrame(framePath: string): Promise<NativeFace[]> {
  * Since our embeddings are L2-normalized, this simplifies to
  * the dot product.
  */
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {
     // Handle dimension mismatch by truncating to shorter
     const len = Math.min(a.length, b.length);

@@ -120,6 +120,32 @@ export async function hasMorningGreeted(): Promise<boolean> {
       return true;
     }
   } catch (e) {}
+
+  try {
+    const { getDb } = require('../../database');
+    const db = getDb();
+    
+    const actRow = db.getFirstSync(
+      `SELECT id FROM activity_logs WHERE date(logged_at) = ? AND source = 'pendant' LIMIT 1`,
+      [today]
+    );
+    if (actRow) {
+      await markMorningGreeted();
+      return true;
+    }
+    
+    const msgRow = db.getFirstSync(
+      `SELECT id FROM mittens_messages WHERE date(created_at) = ? AND photos IS NOT NULL AND photos != '[]' LIMIT 1`,
+      [today]
+    );
+    if (msgRow) {
+      await markMorningGreeted();
+      return true;
+    }
+  } catch (e) {
+    console.warn('[sleepNudge] hasMorningGreeted DB error:', e);
+  }
+  
   return false;
 }
 
@@ -170,10 +196,12 @@ export function scheduleWakeNudge(): void {
 
   const delayMs = nudgeTime.getTime() - now.getTime();
   if (delayMs <= 0) {
-    // Already past nudge time -- check if user is already awake
-    if (!isUserAwake()) {
-      fireWakeNudge();
-    }
+    // Already past nudge time -- check DB
+    hasMorningGreeted().then((greeted) => {
+      if (!greeted && !isUserAwake()) {
+        fireWakeNudge();
+      }
+    });
     return;
   }
 
@@ -181,9 +209,11 @@ export function scheduleWakeNudge(): void {
 
   wakeNudgeTimer = setTimeout(() => {
     wakeNudgeTimer = null;
-    if (!isUserAwake()) {
-      fireWakeNudge();
-    }
+    hasMorningGreeted().then((greeted) => {
+      if (!greeted && !isUserAwake()) {
+        fireWakeNudge();
+      }
+    });
   }, delayMs);
 }
 

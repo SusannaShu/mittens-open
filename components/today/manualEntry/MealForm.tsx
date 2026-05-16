@@ -21,12 +21,13 @@ interface MealFormProps {
   onSubmit: () => void;
   onClose: () => void;
   isFuture: boolean;
+  onSkip?: () => void;
 }
 
 export function MealForm({
   text, onTextChange, usdaFoods, onUsdaFoodsChange,
   photos, onPhotosChange, mealType, onMealTypeChange,
-  analyzing, onSubmit, onClose, isFuture,
+  analyzing, onSubmit, onSkip, onClose, isFuture,
 }: MealFormProps) {
   const [mealPace, setMealPace] = useState('');
   const [mealChewing, setMealChewing] = useState('');
@@ -73,10 +74,22 @@ export function MealForm({
             <View style={{ marginBottom: spacing.md }}>
               {usdaFoods.map((f, i) => (
                 <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f9fa', padding: 8, borderRadius: 8, marginBottom: 4 }}>
-                  <Text style={{ fontSize: 13, color: colors.textPrimary, flex: 1 }}>{f.customName || f.name}</Text>
-                  <Text style={{ fontSize: 12, color: colors.textMuted, marginRight: 8 }}>{f.amountGram}g</Text>
+                  <Text style={{ fontSize: 13, color: colors.textPrimary, flex: 1 }} numberOfLines={1}>{f.customName || f.name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e0e0e0', borderRadius: 4, paddingHorizontal: 6, marginHorizontal: 8 }}>
+                    <TextInput 
+                      style={{ fontSize: 13, color: colors.textPrimary, minWidth: 30, textAlign: 'right', paddingVertical: 4, fontWeight: '600' }}
+                      value={String(f.amountGram || 100)}
+                      keyboardType="numeric"
+                      onChangeText={(val) => {
+                        const newFoods = [...usdaFoods];
+                        newFoods[i] = { ...f, amountGram: parseFloat(val) || 0 };
+                        onUsdaFoodsChange(newFoods);
+                      }}
+                    />
+                    <Text style={{ fontSize: 12, color: colors.textMuted, marginLeft: 2 }}>g</Text>
+                  </View>
                   <TouchableOpacity onPress={() => onUsdaFoodsChange(usdaFoods.filter((_, idx) => idx !== i))}>
-                    <Text style={{ color: '#D32F2F', fontSize: 14, fontWeight: '700' }}>x</Text>
+                    <Text style={{ color: '#D32F2F', fontSize: 14, fontWeight: '700', padding: 4 }}>x</Text>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -108,9 +121,16 @@ export function MealForm({
       )}
 
       <View style={s.modalActions}>
-        <TouchableOpacity style={s.modalBtnCancel} onPress={onClose} disabled={analyzing}>
-          <Text style={s.modalBtnTextCancel}>Cancel</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.md, flex: 1 }}>
+          <TouchableOpacity style={s.modalBtnCancel} onPress={onClose} disabled={analyzing}>
+            <Text style={s.modalBtnTextCancel}>Cancel</Text>
+          </TouchableOpacity>
+          {onSkip && (
+            <TouchableOpacity style={s.modalBtnCancel} onPress={onSkip} disabled={analyzing}>
+              <Text style={s.modalBtnTextCancel}>Skip to Manual</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <TouchableOpacity style={s.modalBtnSave} onPress={onSubmit} disabled={analyzing || (!text.trim() && photos.length === 0)}>
           {analyzing ? <ActivityIndicator color={colors.bg} size="small" /> : <Text style={s.modalBtnTextSave}>Analyze</Text>}
         </TouchableOpacity>

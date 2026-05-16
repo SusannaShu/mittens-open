@@ -30,10 +30,10 @@ const STATIONARY_SUPPRESSION_M = 50;
 const MIN_STATIONARY_DWELL_MS = 3 * 60 * 1000;
 
 // Distance (meters) that constitutes a significant location jump.
-// When a stationary session sees a point this far away, it means
-// the user traveled while the app was backgrounded. We bridge with
+// When a stationary session sees a point this far away from the LAST point,
+// it means the user traveled while the app was backgrounded. We bridge with
 // a transit session rather than discarding the movement.
-const DISTANCE_JUMP_M = 200;
+const DISTANCE_JUMP_M = 400;
 
 // Minimum trail points required per 10 minutes of transit duration.
 // Real movement generates consistent GPS samples; jitter creates sparse,
@@ -43,9 +43,8 @@ const MIN_POINTS_PER_10MIN = 3;
 // Movement confirmation: require this many CONSECUTIVE non-stationary
 // readings before transitioning out of a stationary session.
 // GPS jitter produces isolated spikes; real movement produces consistent
-// non-stationary readings. 10 consecutive is ~1-2 min of real movement
-// but impossible for random jitter to sustain.
-const MIN_CONSECUTIVE_MOVEMENT = 10;
+// non-stationary readings. 5 consecutive readings is a good balance to catch real movement.
+const MIN_CONSECUTIVE_MOVEMENT = 5;
 
 // Track when the classifier first reported "stationary" during a moving session.
 // We keep adding points to the trail until this exceeds MIN_STATIONARY_DWELL_MS,
@@ -163,36 +162,18 @@ export function recordLocationPoint(entry: {
 
     if (distFromLast > DISTANCE_JUMP_M) {
       const currentMotionCheck = activeSession.motion_type || 'unknown';
+      const isAtKnownPlace = currentMotionCheck === 'stationary' && !!activeSession.place_name;
 
-      if (currentMotionCheck === 'stationary') {
-        // When stationary, large GPS jumps are often indoor drift/reflections.
-        // Require consecutive movement confirmation before bridging to avoid phantom transit.
-        if (motionType !== 'stationary' && motionType !== 'unknown') {
-          consecutiveMovement++;
-          if (!firstMovement) {
-            firstMovement = { time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType };
-          }
-          firstMovement.motion = motionType;
-        } else if (motionType === 'stationary') {
-          if (consecutiveMovement > 0) {
-            console.log(`[sessionBuilder] Confirmed stationary reading during jump, resetting movement counter (was ${consecutiveMovement})`);
-            consecutiveMovement = 0;
-            firstMovement = null;
-          }
-        }
-
-        // Require at least 3 consecutive points at the new location to prove it's not a 1-off jitter
-        if (consecutiveMovement < 3) {
-          console.log(`[sessionBuilder] GPS jump ${distFromLast.toFixed(0)}m while stationary. Waiting for confirmation (${consecutiveMovement}/3)`);
-          return;
-        }
+      // When stationary at a known place (Home, D12, etc.), large GPS jumps
+      // are usually indoor drift -- silently absorb them instead of bridging.
+      // We suppress jumps up to 800m if the OS is not actively reporting movement!
+      if (isAtKnownPlace && distFromLast < 800 && (motionType === 'stationary' || motionType === 'unknown')) {
+        console.log(`[sessionBuilder] GPS jump ${distFromLast.toFixed(0)}m at known place '${activeSession.place_name}' -- suppressing jitter`);
+        return;
       }
 
       const transitMotion = resolveTransitMotion(motionType, distFromLast);
       console.log(`[sessionBuilder] Distance jump ${distFromLast.toFixed(0)}m: bridging with '${transitMotion}' session`);
-
-      consecutiveMovement = 0;
-      firstMovement = null;
 
       closeSession(db, activeSession.id, now);
       createBridgeSession(
@@ -290,10 +271,9 @@ export function recordLocationPoint(entry: {
       // Real travel -> displacement > 80m.
       const isFarAway = displacement > 80;
       const isConfirmedMovement = consecutiveMovement >= MIN_CONSECUTIVE_MOVEMENT;
-      const isQuickConfirmedMovement = consecutiveMovement >= 3;
 
       if (isFarAway) {
-        if (isConfirmedMovement || (displacement > 150 && isQuickConfirmedMovement)) {
+        if (isConfirmedMovement || displacement > 300) {
           const transitionTime = firstMovement ? new Date(firstMovement.time).toISOString() : now;
           const startLat = firstMovement ? firstMovement.lat : entry.latitude;
           const startLon = firstMovement ? firstMovement.lon : entry.longitude;

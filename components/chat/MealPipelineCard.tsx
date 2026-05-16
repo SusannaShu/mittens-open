@@ -9,10 +9,12 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../../lib/theme';
 import type { NutrientAdjustment, USDARef } from '../../lib/providers/inferenceProvider';
+import type { USDAReference } from '../../lib/services/food/nutrientEstimator';
+import USDAFoodSearch from '../common/USDAFoodSearch';
 
 // ──────────── Types ────────────
 
@@ -68,6 +70,8 @@ interface MealPipelineCardProps {
   onFoodRemove?: (index: number) => void;
   /** Called to add a new food item */
   onAddFood?: (name: string) => void;
+  /** Called to directly replace a food with a USDA match */
+  onUsdaReplace?: (index: number, food: USDAReference & { amountGram: number, customName?: string }) => void;
   /** Called when user taps "View all nutrients" */
   onViewAll?: () => void;
   /** Scroll parent to bottom (for keyboard visibility) */
@@ -107,8 +111,10 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
   onEdit?: (index: number, newName: string) => void;
   onPortionEdit?: (index: number, newPortionG: number) => void;
   onRemove?: (index: number) => void;
+  onUsdaReplace?: (index: number, food: USDAReference & { amountGram: number, customName?: string }) => void;
 }) {
   const [editingName, setEditingName] = useState(false);
+  const [searchingUsda, setSearchingUsda] = useState(false);
   const [editName, setEditName] = useState(food.name);
   const [editingPortion, setEditingPortion] = useState(false);
   const [editPortion, setEditPortion] = useState(food.portion_g != null ? String(food.portion_g) : '');
@@ -137,15 +143,20 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
       {/* Food name + details */}
       <View style={s.foodInfo}>
         {editingName ? (
-          <TextInput
-            style={s.editInput}
-            value={editName}
-            onChangeText={setEditName}
-            onSubmitEditing={handleSubmitName}
-            onBlur={handleSubmitName}
-            autoFocus
-            selectTextOnFocus
-          />
+          <View style={{ gap: 4, width: '100%', paddingVertical: 4 }}>
+            <TextInput
+              style={s.editInput}
+              value={editName}
+              onChangeText={setEditName}
+              onSubmitEditing={handleSubmitName}
+              onBlur={handleSubmitName}
+              autoFocus
+              selectTextOnFocus
+            />
+            <TouchableOpacity onPress={() => { setEditingName(false); setSearchingUsda(true); }} style={{ paddingVertical: 4 }}>
+              <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '500' }}>Search USDA database</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <View style={s.nameRow}>
             {food.status === 'complete' ? (
@@ -229,6 +240,21 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal visible={searchingUsda} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSearchingUsda(false)}>
+        <View style={{ flex: 1, backgroundColor: '#F8F8F8', paddingTop: 40, paddingHorizontal: 16 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.textPrimary }}>Search USDA Match</Text>
+            <TouchableOpacity onPress={() => setSearchingUsda(false)} style={{ padding: 8 }}>
+              <Feather name="x" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+          <USDAFoodSearch onAddFood={(usdaFood) => {
+            setSearchingUsda(false);
+            onUsdaReplace?.(index, usdaFood);
+          }} />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -236,7 +262,7 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
 // ──────────── Main Component ────────────
 
 export default function MealPipelineCard({
-  foods, onViewNutrients, onFoodEdit, onPortionEdit, onFoodRemove, onAddFood, onViewAll, onScrollToEnd,
+  foods, onViewNutrients, onFoodEdit, onPortionEdit, onFoodRemove, onAddFood, onViewAll, onUsdaReplace, onScrollToEnd,
 }: MealPipelineCardProps) {
   const [addingFood, setAddingFood] = useState(false);
   const [newFoodName, setNewFoodName] = useState('');
@@ -286,6 +312,7 @@ export default function MealPipelineCard({
             onEdit={onFoodEdit}
             onPortionEdit={onPortionEdit}
             onRemove={onFoodRemove}
+            onUsdaReplace={onUsdaReplace}
           />
         ))}
 

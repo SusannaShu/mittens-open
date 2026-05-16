@@ -296,7 +296,7 @@ export default function ReflectScreen() {
                 activityType: data.activityType || 'commute',
                 logName: data.logName || 'Transit',
                 duration_min: data.duration_min,
-                loggedAt: meta.trailSessions[0].startedAt,
+                loggedAt: data.loggedAt || meta.trailSessions[0].startedAt,
                 location: data.location,
                 aeiou: data.aeiou,
                 engagement: data.engagement,
@@ -313,7 +313,7 @@ export default function ReflectScreen() {
                 activityType: data.activityType || 'other',
                 logName: data.logName || meta.locationSession.placeName || 'Activity',
                 duration_min: data.duration_min,
-                loggedAt: meta.locationSession.startedAt,
+                loggedAt: data.loggedAt || meta.locationSession.startedAt,
                 location: data.location,
                 aeiou: data.aeiou,
                 engagement: data.engagement,
@@ -427,12 +427,15 @@ export default function ReflectScreen() {
         onLoggedAtChange={h.setManualLoggedAt}
         text={h.manualText}
         onTextChange={h.setManualText}
+        usdaFoods={h.manualUsdaFoods}
+        onUsdaFoodsChange={h.setManualUsdaFoods}
         photos={h.manualPhotos}
         onPhotosChange={h.setManualPhotos}
         mealType={h.manualMealType}
         onMealTypeChange={h.setManualMealType}
         analyzing={h.analyzingManual}
         onSubmit={h.handleMealSubmit}
+        onSkip={h.handleSkipManual}
         onActivitySubmit={async (data) => {
           await h.logActivity({ ...data, loggedAt: data.loggedAt || new Date().toISOString() } as any).unwrap();
           h.setManualModalVisible(false);

@@ -124,24 +124,45 @@ export default function ConfirmScreen() {
     setFoods(newFoods);
   };
 
-  const handleAddItem = async () => {
-    if (!addText.trim()) return;
-    setAddingItem(true);
-    try {
-       const imageIdNum = imageId ? parseInt(imageId, 10) : undefined;
-       const result: any = await analyzeText({ text: addText.trim(), imageId: imageIdNum }).unwrap();
-       const newItems = result.items || [];
-       if (newItems.length > 0) {
-        setFoods([...foods, ...newItems]);
-        setAddText('');
-      } else {
-        Alert.alert('Notice', 'AI could not track nutrition for that item.');
-      }
-    } catch (e: any) {
-      Alert.alert('Error', 'Failed to add item: ' + (e.data?.message || e.message));
-    } finally {
-      setAddingItem(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (searchQuery.trim().length > 1) {
+      const { lookupUSDAAll } = require('../lib/services/food/nutrientEstimator');
+      const results = lookupUSDAAll(searchQuery.trim(), 0.4, 5);
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
     }
+  }, [searchQuery]);
+
+  const handleAddUSDAItem = (ref: any) => {
+    const { scaleNutrients, flattenNutrientsNullable } = require('../lib/services/food/nutrientEstimator');
+    const defaultGrams = 100;
+    const scaled = scaleNutrients(ref.per100g, defaultGrams);
+    
+    const newItem = {
+      name: ref.name,
+      household_portion: '100 g',
+      portion_g: defaultGrams,
+      source: 'usda_search',
+      nutrients: flattenNutrientsNullable({ ...scaled }), // flatten expects NutrientValues, actually flattenNutrientsNullable expects NutrientValues `{ cal: { value: X } }`. 
+      // wait! scaleNutrients returns FoodNutrients! `{ calories: 100, protein: 10 }`.
+      // So we can just use `scaled` directly since results.tsx expects a simple Record<string, number>.
+      _rawNutrients: scaled, 
+      meta: {
+        primarySource: 'usda',
+        usedReference: ref,
+        allReferences: [ref],
+        adjustments: []
+      }
+    };
+    newItem.nutrients = scaled;
+    
+    setFoods([...foods, newItem]);
+    setSearchQuery('');
+    setSearchResults([]);
   };
 
   const handleConfirm = async () => {
@@ -274,6 +295,12 @@ export default function ConfirmScreen() {
               </View>
             </View>
 
+            {food.meta?.usedReference && (
+              <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 4 }}>
+                ↳ Match: {food.meta.usedReference.name}
+              </Text>
+            )}
+
             {!isActivity && food.cooking && (
               <TextInput 
                 style={styles.foodCookingInput} 
@@ -305,21 +332,31 @@ export default function ConfirmScreen() {
         })}
         
         <View style={styles.addCard}>
-          <Text style={styles.addLabel}>Missed something? Type to add</Text>
+          <Text style={styles.addLabel}>Manual USDA Search</Text>
           <View style={styles.addRow}>
             <TextInput
               style={styles.addInput}
-              value={addText}
-              onChangeText={setAddText}
-              placeholder="e.g. 15g mixed nuts"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search foods (e.g. almonds)"
               placeholderTextColor={colors.textMuted}
-              editable={!addingItem}
-              onSubmitEditing={handleAddItem}
             />
-            <TouchableOpacity style={[styles.addBtn, addingItem && { opacity: 0.5 }]} onPress={handleAddItem} disabled={addingItem}>
-              {addingItem ? <ActivityIndicator size="small" color="#FFF"/> : <Text style={styles.addBtnText}>Add</Text>}
-            </TouchableOpacity>
+            {searchQuery.length > 0 && (
+              <TouchableOpacity style={styles.clearBtn} onPress={() => setSearchQuery('')}>
+                <Text style={styles.clearBtnText}>✕</Text>
+              </TouchableOpacity>
+            )}
           </View>
+          {searchResults.length > 0 && (
+            <View style={styles.searchResultsContainer}>
+              {searchResults.map((ref, idx) => (
+                <TouchableOpacity key={idx} style={styles.searchResultItem} onPress={() => handleAddUSDAItem(ref)}>
+                  <Text style={styles.searchResultName}>{ref.name}</Text>
+                  <Text style={styles.searchResultCategory}>{ref.category} • Tap to add 100g</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
       </View>
@@ -418,6 +455,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: 8, fontSize: 14,
     borderWidth: 1, borderColor: colors.border,
   },
+  clearBtn: {
+    padding: spacing.md, justifyContent: 'center', alignItems: 'center'
+  },
+  clearBtnText: { color: colors.textMuted, fontSize: 16, fontWeight: '600' },
+  searchResultsContainer: {
+    marginTop: spacing.sm,
+    backgroundColor: '#FFF',
+    borderWidth: 1, borderColor: '#E5E5E5',
+    borderRadius: radius.md,
+    maxHeight: 200,
+  },
+  searchResultItem: {
+    padding: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+  },
+  searchResultName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  searchResultCategory: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   addBtn: {
     backgroundColor: colors.textPrimary, borderRadius: radius.sm,
     paddingHorizontal: spacing.lg, justifyContent: 'center', alignItems: 'center',

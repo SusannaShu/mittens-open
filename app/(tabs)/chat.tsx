@@ -80,7 +80,7 @@ export default function ChatScreen() {
     handlePhotoCapture, removePendingPhoto, clearPendingPhotos,
     handleEditPendingEntry, handleDismissEntry, handleDeleteMessage,
     handleLongPress, handleVoiceFinalResult,
-    handlePipelineFoodEdit, handlePipelinePortionEdit, handlePipelineFoodRemove, handlePipelineAddFood,
+    handlePipelineFoodEdit, handlePipelinePortionEdit, handlePipelineFoodRemove, handlePipelineAddFood, handlePipelineUsdaReplace,
     MAX_PHOTOS,
   } = useMittensChat({ messages, setMessages, addMessage, saveMessageBatch, scrollToEnd });
 
@@ -179,12 +179,15 @@ export default function ChatScreen() {
         onLoggedAtChange={h.setManualLoggedAt}
         text={h.manualText}
         onTextChange={h.setManualText}
+        usdaFoods={h.manualUsdaFoods}
+        onUsdaFoodsChange={h.setManualUsdaFoods}
         photos={h.manualPhotos}
         onPhotosChange={h.setManualPhotos}
         mealType={h.manualMealType}
         onMealTypeChange={h.setManualMealType}
         analyzing={h.analyzingManual}
         onSubmit={h.handleManualSubmit}
+        onSkip={h.handleSkipManual}
         onActivitySubmit={async (data) => {
           try {
             await h.logActivity(data).unwrap();
@@ -296,6 +299,7 @@ export default function ChatScreen() {
                 onPortionEdit={handlePipelinePortionEdit}
                 onFoodRemove={handlePipelineFoodRemove}
                 onAddFood={handlePipelineAddFood}
+                onUsdaReplace={handlePipelineUsdaReplace}
                 onViewAllNutrients={(messageId: string) => {
                   const m = messages.find(msg => msg.id === messageId);
                   if (m?.pipelineFoods) {

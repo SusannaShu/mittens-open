@@ -186,10 +186,18 @@ export const activityApi = baseApi.injectEndpoints({
       queryFn: ({ id, ...body }) => {
         try {
           const db = getDb();
+          const existing = db.getFirstSync('SELECT * FROM activity_logs WHERE id = ?', [id]) as any;
+          if (!existing) throw new Error('Activity not found');
+
           const sets: string[] = ["updated_at = datetime('now')"];
           const vals: any[] = [];
+          let duration = body.duration_min !== undefined ? body.duration_min : existing.duration_min;
+          let outdoors = body.outdoors !== undefined ? (body.outdoors ? 1 : 0) : existing.outdoors;
+          let isNature = body.isNature !== undefined ? (body.isNature ? 1 : 0) : existing.is_nature;
+
           if (body.logName !== undefined) { sets.push('log_name = ?'); vals.push(body.logName); }
           if (body.duration_min !== undefined) { sets.push('duration_min = ?'); vals.push(body.duration_min); }
+          if (body.loggedAt !== undefined) { sets.push('logged_at = ?'); vals.push(body.loggedAt); }
           if (body.activityType !== undefined) { sets.push('activity_type = ?'); vals.push(body.activityType); }
           if (body.engagement !== undefined) { sets.push('engagement = ?'); vals.push(body.engagement); }
           if (body.energy !== undefined) { sets.push('energy = ?'); vals.push(body.energy); }
@@ -200,6 +208,17 @@ export const activityApi = baseApi.injectEndpoints({
           if (body.aeiou !== undefined) { sets.push('aeiou = ?'); vals.push(body.aeiou ? JSON.stringify(body.aeiou) : null); }
           if (body.lifeCategories !== undefined) { sets.push('life_categories = ?'); vals.push(body.lifeCategories ? JSON.stringify(body.lifeCategories) : null); }
           if (body.meta !== undefined) { sets.push('meta = ?'); vals.push(body.meta ? JSON.stringify(body.meta) : null); }
+
+          let nutrientImpact = existing.nutrient_impact ? JSON.parse(existing.nutrient_impact) : {};
+          if (outdoors || isNature) {
+             nutrientImpact.vitamin_d = (duration || 0) * 1.5;
+             sets.push('nutrient_impact = ?');
+             vals.push(JSON.stringify(nutrientImpact));
+          } else if (nutrientImpact.vitamin_d !== undefined) {
+             delete nutrientImpact.vitamin_d;
+             sets.push('nutrient_impact = ?');
+             vals.push(Object.keys(nutrientImpact).length > 0 ? JSON.stringify(nutrientImpact) : null);
+          }
           vals.push(id);
           db.runSync(`UPDATE activity_logs SET ${sets.join(', ')} WHERE id = ?`, vals);
           const row = db.getFirstSync('SELECT * FROM activity_logs WHERE id = ?', [id]);

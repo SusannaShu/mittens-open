@@ -81,9 +81,19 @@ export default function ActivityTimeInputs({ loggedAt, setLoggedAt, durationMin,
   const applyEndTime = () => {
     const parsed = parse24h(editEndHour, editEndMinute, editEndAmPm);
     if (!parsed) return;
-    const newEnd = new Date(loggedAt);
+    
+    // Respect the currently computed end date instead of resetting to loggedAt
+    const dur = parseInt(durationMin, 10) || 0;
+    const currentEnd = new Date(loggedAt.getTime() + dur * 60000);
+    
+    const newEnd = new Date(currentEnd);
     newEnd.setHours(parsed.h, parsed.m);
-    if (newEnd < loggedAt) newEnd.setDate(newEnd.getDate() + 1);
+    
+    // If setting the time makes it go before start time, and they are on the same day, bump it
+    if (newEnd < loggedAt && newEnd.toDateString() === loggedAt.toDateString()) {
+      newEnd.setDate(newEnd.getDate() + 1);
+    }
+    
     const diffMin = Math.round((newEnd.getTime() - loggedAt.getTime()) / 60000);
     setDurationMin(String(Math.max(1, diffMin)));
     setShowEndPicker(false);
@@ -111,10 +121,9 @@ export default function ActivityTimeInputs({ loggedAt, setLoggedAt, durationMin,
 
   return (
     <View>
-      {/* Date Field */}
-      <View style={{ marginBottom: spacing.sm }}>
-        <Text style={[s.label, { marginTop: 0 }]}>Date</Text>
-        <View style={s.dateSelectorRail}>
+      {/* Start Row */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: spacing.sm }}>
+        <View style={[s.dateSelectorRail, { flex: 1, padding: 0 }]}>
           <TouchableOpacity
             style={s.dateSelectBtn}
             onPress={() => {
@@ -124,7 +133,7 @@ export default function ActivityTimeInputs({ loggedAt, setLoggedAt, durationMin,
             }}
             activeOpacity={0.6}
           >
-            <Feather name="chevron-left" size={18} color={colors.textPrimary} />
+            <Feather name="chevron-left" size={16} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={s.dateSelectorText}>{dateLabel}</Text>
           <TouchableOpacity
@@ -136,49 +145,74 @@ export default function ActivityTimeInputs({ loggedAt, setLoggedAt, durationMin,
             }}
             activeOpacity={0.6}
           >
-            <Feather name="chevron-right" size={18} color={isFutureDate() ? colors.border : colors.textPrimary} />
+            <Feather name="chevron-right" size={16} color={isFutureDate() ? colors.border : colors.textPrimary} />
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          style={[s.timeGridButton, { width: 90 }]}
+          onPress={() => { setShowStartPicker(!showStartPicker); setShowEndPicker(false); }}
+          activeOpacity={0.6}
+        >
+          <Text style={[s.timeGridButtonText, { textAlign: 'center' }]}>{startStr}</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Three-column grid: Start | Duration | End */}
-      <View style={[s.timeGrid, { marginTop: spacing.xs }]}>
-        {/* Start Time */}
-        <View style={s.timeGridCol}>
-          <Text style={[s.label, { marginTop: 0 }]}>Start</Text>
+      {/* End Row */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: spacing.xs }}>
+        <View style={[s.dateSelectorRail, { flex: 1, padding: 0 }]}>
           <TouchableOpacity
-            style={s.timeGridButton}
-            onPress={() => { setShowStartPicker(!showStartPicker); setShowEndPicker(false); }}
+            style={s.dateSelectBtn}
+            onPress={() => {
+              const prev = new Date(computedEnd);
+              prev.setDate(prev.getDate() - 1);
+              const diffMin = Math.round((prev.getTime() - loggedAt.getTime()) / 60000);
+              setDurationMin(String(Math.max(1, diffMin)));
+            }}
             activeOpacity={0.6}
           >
-            <Text style={s.timeGridButtonText}>{startStr}</Text>
+            <Feather name="chevron-left" size={16} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={s.dateSelectorText}>
+            {computedEnd.toDateString() === now.toDateString() ? 'Today' : computedEnd.toDateString() === yesterday.toDateString() ? 'Yesterday' : computedEnd.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </Text>
+          <TouchableOpacity
+            style={s.dateSelectBtn}
+            onPress={() => {
+              const next = new Date(computedEnd);
+              next.setDate(next.getDate() + 1);
+              if (next <= new Date()) {
+                const diffMin = Math.round((next.getTime() - loggedAt.getTime()) / 60000);
+                setDurationMin(String(Math.max(1, diffMin)));
+              }
+            }}
+            activeOpacity={0.6}
+          >
+            <Feather name="chevron-right" size={16} color={computedEnd.toDateString() === now.toDateString() ? colors.border : colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
-        {/* Duration */}
-        <View style={{ width: 64 }}>
-          <Text style={[s.label, { marginTop: 0 }]}>Min</Text>
-          <TextInput
-            style={s.durationInput}
-            value={durationMin}
-            onChangeText={setDurationMin}
-            keyboardType="numeric"
-            placeholder="30"
-            placeholderTextColor={colors.textMuted}
-          />
-        </View>
+        <TouchableOpacity
+          style={[s.timeGridButton, { width: 90 }]}
+          onPress={() => { setShowEndPicker(!showEndPicker); setShowStartPicker(false); }}
+          activeOpacity={0.6}
+        >
+          <Text style={[s.timeGridButtonText, { textAlign: 'center' }]}>{endStr}</Text>
+        </TouchableOpacity>
+      </View>
 
-        {/* End Time */}
-        <View style={s.timeGridCol}>
-          <Text style={[s.label, { marginTop: 0 }]}>End</Text>
-          <TouchableOpacity
-            style={s.timeGridButton}
-            onPress={() => { setShowEndPicker(!showEndPicker); setShowStartPicker(false); }}
-            activeOpacity={0.6}
-          >
-            <Text style={s.timeGridButtonText}>{endStr}</Text>
-          </TouchableOpacity>
-        </View>
+      {/* Duration (Hidden by default, or subtle below) */}
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: spacing.sm }}>
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+           <Feather name="clock" size={12} color={colors.textMuted} />
+           <TextInput
+             style={{ fontSize: 12, color: colors.textMuted, padding: 0, minWidth: 20, textAlign: 'right' }}
+             value={durationMin}
+             onChangeText={setDurationMin}
+             keyboardType="numeric"
+           />
+           <Text style={{ fontSize: 12, color: colors.textMuted }}>min</Text>
+         </View>
       </View>
 
       {/* Start Time Picker */}

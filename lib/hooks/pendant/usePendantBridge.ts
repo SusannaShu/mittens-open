@@ -152,33 +152,15 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               throw new Error('Could not hear anything and no photo was captured.');
             }
 
-            // If voice recording yielded no transcript, treat as photo-only capture
-            // Don't show "[Voice Recording]" when nothing was recognized
-            const hasVoice = !!transcript;
-            const pInitMsg = {
-              id: `pendant-${Date.now()}`,
-              role: 'user',
-              text: transcript || '[Photo Capture]',
-              audio: hasVoice ? audioPath : undefined,
-              photos: framePath ? [framePath] : undefined,
-              timestamp: new Date(),
-              source: 'pendant',
-            };
-            if (options?.addMessage) {
-              options.addMessage(pInitMsg);
-              options.scrollToEnd?.();
-            } else {
-              const { DeviceEventEmitter } = require('react-native');
-              DeviceEventEmitter.emit('pendantMessageAdded', pInitMsg);
-            }
-
-            // Two-stage brain triage: classify intent, load context, execute
-            const { dispatchVoice } = require('../../services/ambient/pendantVoiceDispatch');
-            const result = await dispatchVoice(transcript, framePath, audioPath);
-            const responseText = result.response;
-            console.log(`[PendantBridge] Dispatch: ${result.intent}/${result.action}`);
-
-            console.log('[PendantBridge] Response:', responseText?.slice(0, 80));
+            const { runHeadlessPipeline } = require('../chat/headlessContext');
+            const photos = framePath ? [framePath] : [];
+            const resultMessages = await runHeadlessPipeline(transcript, photos, audioPath, undefined, 'pendant');
+            
+            // ResultMessages contains the full chat exchange. The last message is usually Mittens' reply
+            const mittensReply = resultMessages.reverse().find((m: any) => m.role === 'mittens');
+            const responseText = mittensReply ? mittensReply.text : null;
+            
+            console.log('[PendantBridge] Pipeline completed. Response:', responseText?.slice(0, 80));
 
             // Update pendant store with brain response
             pendantStore.updateCapture(captureId, {
@@ -186,58 +168,8 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               processed: true,
             });
 
-            const mRespMsg: any = {
-              id: `m-${Date.now()}`,
-              role: 'mittens',
-              text: responseText,
-              timestamp: new Date(),
-              source: 'pendant',
-            };
-
-            if (result.intent === 'meal' && Array.isArray(result.items) && result.items.length > 0) {
-              mRespMsg.pipelineFoods = result.items.map((i: any) => ({
-                name: i.name,
-                status: 'idle',
-                portionGrams: i.quantity ? i.quantity * 100 : 100, // rough placeholder
-              }));
-              mRespMsg.mealMetadata = {
-                logId: result.logId,
-                mealName: result.items[0]?.name || 'Meal',
-                mealType: 'snack',
-              };
-            }
-
-            if (options?.addMessage) {
-              options.addMessage(mRespMsg);
-              options.scrollToEnd?.();
-            } else {
-              const { DeviceEventEmitter } = require('react-native');
-              DeviceEventEmitter.emit('pendantMessageAdded', mRespMsg);
-              if (mRespMsg.pipelineFoods) {
-                DeviceEventEmitter.emit('pendantStartPipeline', { messageId: mRespMsg.id, foods: mRespMsg.pipelineFoods });
-              }
-            }
-
             if (responseText) {
               speak(responseText);
-            }
-
-            // Save to DB (non-blocking)
-            try {
-              const { getDataProvider } = require('../../providers/providerFactory');
-              const dataProvider = await getDataProvider();
-              await dataProvider.saveMessage({
-                role: 'user',
-                text: transcript || '[Photo Capture]',
-                metadata: { source: 'pendant', audioPath: hasVoice ? audioPath : undefined, photos: framePath ? [framePath] : undefined },
-              });
-              await dataProvider.saveMessage({
-                role: 'mittens',
-                text: responseText,
-                metadata: { source: 'pendant' },
-              });
-            } catch {
-              // DB save failure is non-blocking
             }
 
           } catch (err: any) {

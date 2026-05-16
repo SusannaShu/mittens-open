@@ -265,6 +265,7 @@ export async function initializeDatabase(): Promise<void> {
       default_outdoors INTEGER DEFAULT 0,
       show_in_timer INTEGER DEFAULT 1,
       show_in_manual_log INTEGER DEFAULT 1,
+      mention_during_break INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
       is_built_in INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
@@ -446,6 +447,8 @@ export async function initializeDatabase(): Promise<void> {
       icon TEXT DEFAULT 'circle',
       created_at TEXT DEFAULT (datetime('now'))
     )`,
+    // Add mention_during_break to activity_types
+    `ALTER TABLE activity_types ADD COLUMN mention_during_break INTEGER DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

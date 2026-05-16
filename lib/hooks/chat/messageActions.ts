@@ -34,36 +34,18 @@ export function doDeleteMessage(
             const { getDataMode } = require('../../providers/providerFactory');
             const dataMode = await getDataMode();
 
-            if (dataMode === 'cloud') {
-              // Cloud mode: delete from Backend + cascade-delete associated logs
-              try {
-                const { getApiBase, getAuthToken } = require('../../api');
-                const base = getApiBase();
-                const token = getAuthToken();
-                const res = await fetch(`${base}/mittens-messages/since/${numericId}`, {
-                  method: 'DELETE',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                  },
-                });
-                if (!res.ok) {
-                  const errText = await res.text();
-                  Alert.alert('Error', `Delete failed: ${errText.slice(0, 100)}`);
-                  return;
-                }
-              } catch (err: any) {
-                Alert.alert('Error', err.message || 'Failed to delete from server');
-                return;
+            try {
+              const dataProvider = await getDataProvider();
+              if (dataProvider.deleteMessagesSince) {
+                await dataProvider.deleteMessagesSince(numericId);
+              } else {
+                // Fallback to direct DB query if needed
+                const { getDb } = require('../../database');
+                const db = getDb();
+                db.runSync('DELETE FROM mittens_messages WHERE id >= ?', [numericId]);
               }
-            } else {
-              // Local mode: delete from local DB
-              try {
-                const dataProvider = await getDataProvider();
-                await dataProvider.deleteMessagesSince?.(numericId);
-              } catch {
-                // Non-blocking for local
-              }
+            } catch (err: any) {
+              console.log('[doDeleteMessage] Local delete error:', err);
             }
           }
 
@@ -123,11 +105,13 @@ export function doVoiceFinalResult(
       role: 'user',
       text: finalText,
       timestamp: new Date(),
+      replyTo: ctx.replyTo || undefined,
     };
     ctx.addMessage(userMsg);
     ctx.setSending(true);
+    ctx.setReplyTo?.(null);
 
-    handleMessage(finalText, [], ctx)
+    handleMessage(finalText, [], ctx, null, userMsg.id)
       .catch(() => {
         ctx.addMessage({
           id: `e-${Date.now()}`,

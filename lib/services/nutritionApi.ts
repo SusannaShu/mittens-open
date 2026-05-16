@@ -75,7 +75,60 @@ export const nutritionApi = baseApi.injectEndpoints({
     }),
 
     analyzeText: build.mutation<any, { text: string; imageId?: number; mealType?: string }>({
-      queryFn: () => ({ data: { foods: [] } }),
+      queryFn: async ({ text }) => {
+        try {
+          const { identifyFoods } = require('../pipelines/food/identify');
+          const { estimateNutrientsBatch, flattenNutrients } = require('../pipelines/food/nutrients');
+          const { analyzeBioavailability } = require('../pipelines/food/bioavailability');
+
+          // Phase 1: Identify foods from text
+          const idResult = await identifyFoods([], text);
+          
+          if (idResult.foods.length === 0) {
+            return { data: { foods: [], items: [] } };
+          }
+
+          // Phase 2: Estimate nutrients using USDA matching
+          const nutrientResults = await estimateNutrientsBatch(idResult.foods);
+
+          // Phase 3: Bioavailability (requires base nutrients map)
+          const baseNutrientsMap: Record<string, any> = {};
+          nutrientResults.forEach((res: any, idx: number) => {
+            baseNutrientsMap[idResult.foods[idx].name] = res.nutrients;
+          });
+          const bioResult = await analyzeBioavailability([], idResult.foods, baseNutrientsMap);
+
+          // Merge results
+          const items = idResult.foods.map((food: any, idx: number) => {
+            const nResult = nutrientResults[idx];
+            return {
+              ...food,
+              nutrients: nResult.nutrients, // already flattened by estimateNutrientsBatch locally if we use the right return type, wait, estimateNutrientsBatch returns NutrientResult which has `nutrients: NutrientValues`. No, `estimateNutrients` returns full objects. We should flatten them.
+              _rawNutrients: nResult.nutrients,
+              meta: nResult.meta,
+              bioavailability: bioResult.adjustments.find((a: any) => a.food === food.name),
+            };
+          });
+
+          // Flatten nutrients for the UI which expects a simple key-value map
+          const { flattenNutrientsNullable } = require('./food/nutrientEstimator');
+          items.forEach((item: any) => {
+            item.nutrients = flattenNutrientsNullable(item._rawNutrients);
+          });
+
+          return { 
+            data: { 
+              foods: items, 
+              items,
+              mealName: idResult.mealName,
+              mealType: idResult.mealType,
+              mealNote: bioResult.mealNote
+            } 
+          };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
     }),
 
     smartSnap: build.mutation<any, { image: string; extraImages?: string[]; caption?: string; photoTimestamps?: string[] }>({

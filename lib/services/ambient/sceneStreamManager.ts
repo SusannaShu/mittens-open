@@ -229,19 +229,12 @@ class SceneStreamManager {
     // Phase 2.5b: Face Recognition (runs whenever people > 0, regardless of activity/nutrition)
     let recognizedNames: string[] = [];
     if (classification.people > 0) {
-      const faceIdx = logger.startPhase('face', 'recognition');
       try {
         const { checkFaceRecognition } = require('./sceneFaceRecognition');
         const faceResult = await checkFaceRecognition(framePath, null, logger);
         recognizedNames = faceResult.recognizedNames || [];
-        logger.completePhase(
-          faceIdx,
-          recognizedNames.length > 0
-            ? `Recognized: ${recognizedNames.join(', ')}`
-            : 'No known faces',
-        );
       } catch (err: any) {
-        logger.failPhase(faceIdx, err?.message || 'Face recognition failed');
+        console.warn('[SceneStream] Face recognition failed:', err?.message);
       }
     }
 

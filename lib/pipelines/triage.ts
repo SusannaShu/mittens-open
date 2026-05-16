@@ -123,7 +123,7 @@ Classify this photo and message to determine what should be logged and what can 
 User says: "${caption || '(photo only)'}"
 
 For EACH detected intent, determine:
-1. Which pipeline to trigger (meal, activity, pantry, sleep)
+1. Which pipeline to trigger (meal, activity, pantry, sleep, timer, chat)
 2. Which analysis phases have concrete evidence in the input
 
 PIPELINES:
@@ -131,6 +131,8 @@ PIPELINES:
 - activity: movement, events, work, social situations
 - pantry: stored, raw, or unprepped food (fridge, shelf, groceries)
 - sleep: sleep-related content
+- timer: explicit request to start or stop a timer/focus session
+- chat: conversational, greetings, or unclear
 
 PHASE EVIDENCE (only list phases where you see concrete visual or textual cues):
 
@@ -138,6 +140,7 @@ For activity pipeline:
 - "detect": always include when activity pipeline triggers
 - "environment": visible indoor/outdoor setting cues (room, park, building, nature)
 - "social": visible people OR text mentions of others
+- "faces": ONLY include if faces are clearly visible and could be identified
 - "objects": visible tools, devices, or equipment being used
 - "lifeDesign": sufficient context to assess work/health/play/love balance
 
@@ -153,17 +156,20 @@ Return ALL that apply. A single submission can trigger multiple logs.
 
 JSON: {"intents":[
   {"pipeline":"meal","confidence":0.9,"phases":["identify", "pantryDelta"]},
-  {"pipeline":"activity","confidence":0.8,"activityType":"walk","phases":["detect","environment"]}
+  {"pipeline":"activity","confidence":0.8,"activityType":"walk","phases":["detect","environment", "faces"]},
+  {"pipeline":"chat","confidence":0.9,"phases":[]},
+  {"pipeline":"timer","confidence":0.9,"activityType":"work","phases":[]}
 ]}
 
-pipeline must be: meal, activity, pantry, sleep
-activityType (if activity): walk, run, bike, workout, sun, work, social, rest, stress, soul, cooking, commute, other
+pipeline must be: meal, activity, pantry, sleep, timer, chat
+activityType (if activity or timer): walk, run, bike, workout, sun, work, social, rest, stress, soul, cooking, commute, other
 
 Guidance:
 - pantry = stored, raw, or unprepped food (fridge, shelf, groceries). meal = prepared, plated, or being eaten.
 - Person exercising, outdoors, at desk, socializing = activity (set activityType)
 - Selfie/sunset with no food = activity context (detect + environment), social only if people visible
 - A photo of scenery/objects alone: detect + environment, skip social/objects/lifeDesign
+- "start a timer for work" or "working on mittens" = timer pipeline, activityType: work
 - If unsure about a phase, leave it out of the phases list`;
 
   console.log('[Triage] Vision triage START, images:', images.length, 'caption:', caption?.slice(0, 40));
@@ -200,11 +206,12 @@ const TRIAGE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          pipeline: { type: 'string', enum: ['meal', 'activity', 'pantry', 'sleep', 'email', 'watch', 'chat'] },
+          pipeline: { type: 'string', enum: ['meal', 'activity', 'pantry', 'sleep', 'email', 'watch', 'timer', 'chat'] },
           confidence: { type: 'number' },
           activityType: { type: 'string' },
           mealType: { type: 'string' },
           storageType: { type: 'string' },
+          extractedName: { type: 'string' },
           phases: { type: 'array', items: { type: 'string' } },
         },
         required: ['pipeline', 'confidence'],
@@ -224,18 +231,22 @@ For each detected intent, also specify which analysis phases have evidence in th
 
 pipeline: meal (mentions eating/food), activity (movement, events, work, social situations),
 sleep (sleep mention), email (emails, orders, inbox), watch (websites, news, feeds),
-chat (conversational, question, or unclear)
+timer (start or stop a focus timer), chat (conversational, question, or unclear)
 
 For meal: include "identify" ONLY if specific foods or drinks are named. "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate. Include "pantryDelta" ONLY if they are cooking or eating at home (skip if eating out).
 
 For activity: include phases with evidence — "detect" always, "social" if people mentioned,
 "environment" if location mentioned, "objects" if tools/devices mentioned,
+"faces" if specific people are named or introduced,
 "lifeDesign" if enough context for work/health/play/love assessment.
 "pantryDelta" if they specifically mention grocery shopping or restocking.
 
 Can return multiple intents.
 
-JSON: {"intents":[{"pipeline":"activity","confidence":0.9,"activityType":"work","phases":["detect","environment"]}]}`;
+JSON: {"intents":[
+  {"pipeline":"activity","confidence":0.9,"activityType":"work","phases":["detect","environment"]},
+  {"pipeline":"timer","confidence":0.9,"phases":[]}
+]}`;
 
   const fallback = { intents: [{ pipeline: 'chat', confidence: 0.5 }] };
   const result = await brain.json(prompt, TRIAGE_SCHEMA, fallback, { temperature: 0.1 });
@@ -273,6 +284,7 @@ function normalizeTriageResult(parsed: any): TriageResult {
           mealType: i.mealType,
           activityType: i.activityType,
           storageType: i.storageType,
+          extractedName: i.extractedName,
         },
       }))
       .filter((i: any) => i.confidence >= 0.3); // Do not log if below confidence level

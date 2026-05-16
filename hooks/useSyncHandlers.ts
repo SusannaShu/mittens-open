@@ -66,6 +66,7 @@ export function useSyncHandlers(selectedDate: string, refetch: () => void) {
   const [manualLoggedAt, setManualLoggedAt] = useState(new Date());
   const [manualText, setManualText] = useState('');
   const [manualPhotos, setManualPhotos] = useState<string[]>([]);
+  const [manualUsdaFoods, setManualUsdaFoods] = useState<any[]>([]);
   const [analyzingManual, setAnalyzingManual] = useState(false);
   const [manualMealType, setManualMealType] = useState('snack');
 
@@ -177,7 +178,37 @@ export function useSyncHandlers(selectedDate: string, refetch: () => void) {
   };
 
   const handleMealSubmit = async () => {
-    if (!manualText.trim() && manualPhotos.length === 0) return;
+    if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length === 0) return;
+
+    if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length > 0) {
+      const items = manualUsdaFoods.map(f => {
+        const ratio = (f.amountGram || 100) / 100;
+        const scaledNutrients: any = {};
+        if (f.nutrients) {
+          for (const [k, v] of Object.entries(f.nutrients)) {
+            scaledNutrients[k] = Math.round(((v as number) * ratio) * 100) / 100;
+          }
+        }
+        return {
+          name: f.customName || f.name,
+          portion_g: f.amountGram || 100,
+          household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
+          nutrients: scaledNutrients,
+          usda_match: f.name,
+          nutrient_source: 'usda',
+        };
+      });
+      
+      setManualModalVisible(false);
+      setManualUsdaFoods([]);
+      
+      router.push({
+        pathname: '/results',
+        params: { data: JSON.stringify({ items, mealName: 'Manual Entry' }), mealType: manualMealType, photoTimestamp: manualLoggedAt.toISOString() },
+      });
+      return;
+    }
+
     setAnalyzingManual(true);
     try {
       let result: any;
@@ -196,6 +227,28 @@ export function useSyncHandlers(selectedDate: string, refetch: () => void) {
       } else {
         result = await analyzeText({ text: manualText.trim(), mealType: manualMealType }).unwrap();
       }
+
+      if (manualUsdaFoods.length > 0 && result) {
+        const manualItems = manualUsdaFoods.map(f => {
+          const ratio = (f.amountGram || 100) / 100;
+          const scaledNutrients: any = {};
+          if (f.nutrients) {
+            for (const [k, v] of Object.entries(f.nutrients)) {
+              scaledNutrients[k] = Math.round(((v as number) * ratio) * 100) / 100;
+            }
+          }
+          return {
+            name: f.customName || f.name,
+            portion_g: f.amountGram || 100,
+            household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
+            nutrients: scaledNutrients,
+            usda_match: f.name,
+            nutrient_source: 'usda',
+          };
+        });
+        result.items = [...(result.items || []), ...manualItems];
+      }
+
       if (manualText.trim() && result) {
         result = { ...result, mealName: result.mealName || manualText.trim() };
       }
@@ -212,6 +265,20 @@ export function useSyncHandlers(selectedDate: string, refetch: () => void) {
     } finally {
       setAnalyzingManual(false);
     }
+  };
+
+  const handleSkipManual = () => {
+    setManualModalVisible(false);
+    setManualText('');
+    setManualPhotos([]);
+    router.push({
+      pathname: '/results',
+      params: { 
+        data: JSON.stringify({ items: [] }), 
+        mealType: manualMealType, 
+        photoTimestamp: manualLoggedAt.toISOString() 
+      },
+    });
   };
 
   const handleEdit = useCallback((evt: CalendarEvent) => {
@@ -354,10 +421,13 @@ export function useSyncHandlers(selectedDate: string, refetch: () => void) {
     setManualText,
     manualPhotos,
     setManualPhotos,
+    manualUsdaFoods,
+    setManualUsdaFoods,
     analyzingManual,
     manualMealType,
     setManualMealType,
     handleMealSubmit,
+    handleSkipManual,
 
     // UI Handlers
     handleEdit,

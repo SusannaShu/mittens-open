@@ -116,6 +116,23 @@ export function buildActivityPrompt(transcript: string | null, context: string):
   ].join('\n');
 }
 
+export function buildTimerPrompt(transcript: string | null): string {
+  return [
+    'You are Mittens, an AI pendant. The user wants to start or stop an activity timer.',
+    `User said: "${transcript}"`,
+    '',
+    'Decide whether to start a new timer or stop the current one.',
+    'Return ONLY JSON:',
+    '{ "action": "start"|"stop",',
+    '  "response": "natural conversational response to speak",',
+    '  "timer": { "category": "work"|"journal"|"reading"|"drawing"|"nature"|"social"|"exercise"|"rest", "name": "...", "durationMin": 45 } }',
+    '',
+    'If the user is saying they are starting something, use action "start". Extract category from what they said (e.g. "I\'m working on mittens" -> category: "work", name: "working on mittens").',
+    'If they say they are done or taking a break, use action "stop".',
+    'Use 45 for durationMin unless they specified a different duration.',
+  ].join('\n');
+}
+
 // ─── JSON Parsers ────
 
 export function parseDispatchResponse(raw: string): DispatchResult {
@@ -248,5 +265,37 @@ export function executeActivityAction(
   } catch (err: any) {
     console.warn('[VoiceDispatch] Activity update parse failed:', err?.message);
     return { response: 'I had trouble updating that activity.', action: 'respond' };
+  }
+}
+
+// ─── Timer Action Executor ────
+
+export async function executeTimerAction(
+  raw: string,
+): Promise<{ response: string; action: string }> {
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return { response: 'I heard you but had trouble processing that.', action: 'respond' };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (parsed.action === 'start' && parsed.timer) {
+      const { startGlobalTimer } = require('../../../hooks/useFocusTimer');
+      const cat = parsed.timer.category || 'work';
+      const name = parsed.timer.name || cat;
+      const duration = parsed.timer.durationMin || 45;
+      await startGlobalTimer(cat, name, duration);
+      return { response: parsed.response || `Timer started for ${name}.`, action: 'start' };
+    } else if (parsed.action === 'stop') {
+      const { stopGlobalTimer } = require('../../../hooks/useFocusTimer');
+      await stopGlobalTimer();
+      return { response: parsed.response || 'Timer stopped.', action: 'stop' };
+    }
+
+    return { response: parsed.response || 'Got it.', action: 'respond' };
+  } catch (err: any) {
+    console.warn('[VoiceDispatch] Timer parse failed:', err?.message);
+    return { response: 'I had trouble managing the timer.', action: 'respond' };
   }
 }

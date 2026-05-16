@@ -222,7 +222,7 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
     }
   };
 
-  const { startPipeline, restartFood, restartFoodPortion, addFood, removeFood } =
+  const { startPipeline, restartFood, restartFoodPortion, addFood, removeFood, replaceWithUsda } =
     useNutrientPipeline({ updateFood, updateAllFoods, onPipelineComplete });
 
   useEffect(() => {
@@ -391,6 +391,10 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
     handlePipelineAddFood: (messageId: string, foodName: string) => {
       const msg = messages.find(m => m.id === messageId || m.clientId === messageId);
       if (msg?.pipelineFoods) addFood(messageId, foodName, msg.pipelineFoods);
+    },
+    handlePipelineUsdaReplace: (messageId: string, index: number, usdaFood: any) => {
+      const msg = messages.find(m => m.id === messageId || m.clientId === messageId);
+      if (msg?.pipelineFoods) replaceWithUsda(messageId, index, usdaFood, msg.pipelineFoods);
     },
 
     // Queue handlers (self-hosted Ollama)

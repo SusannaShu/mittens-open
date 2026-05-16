@@ -179,6 +179,7 @@ async function vlmQualityGate(
     '- Interactions: Are they interacting with different people or devices?',
     '- Objects: Are the foreground objects different? (e.g., oats cup vs coffee cup,',
     '  phone appeared, book opened -- even if the desk/room is identical)',
+    '- Item State/Quantity: Did the quantity or state of food, drink, or items change? (e.g., bowl was full and is now empty, or food was eaten)',
     '- Users: Did the number or identity of people change?',
     '',
     'If ANY of these dimensions changed, same_as_before MUST be false.',

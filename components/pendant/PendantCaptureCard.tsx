@@ -20,6 +20,8 @@ interface Props {
   selected?: boolean;
   /** Toggle selection on tap in selection mode */
   onToggleSelect?: (id: string) => void;
+  /** Retry a failed (brain offline) capture */
+  onRetry?: (capture: PendantCapture) => void;
 }
 
 function formatTime(ts: number): string {
@@ -41,6 +43,7 @@ export function PendantCaptureCard({
   selectionMode,
   selected,
   onToggleSelect,
+  onRetry,
 }: Props) {
   const isAudio = capture.type === 'BUTTON_PRESS';
   const icon = isAudio ? 'mic' : 'camera';
@@ -105,6 +108,19 @@ export function PendantCaptureCard({
             <View style={styles.offlineRow}>
               <Feather name="wifi-off" size={12} color="#D97706" />
               <Text style={styles.offlineText}>Brain not connected</Text>
+              {onRetry && (
+                <TouchableOpacity
+                  style={styles.retryBtn}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    onRetry(capture);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Feather name="refresh-cw" size={10} color="#D97706" />
+                  <Text style={styles.retryText}>Retry</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <Text style={styles.response} numberOfLines={2}>
@@ -219,5 +235,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#D97706',
     fontWeight: '600',
+    flex: 1,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D97706',
+  },
+  retryText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#D97706',
   },
 });

@@ -27,7 +27,7 @@ import { colors, fonts, radius, spacing } from '../lib/theme';
 import { usePendantFeed } from '../lib/hooks/pendant/usePendantFeed';
 import { PendantCaptureCard } from '../components/pendant/PendantCaptureCard';
 import { CaptureDetailModal } from '../components/pendant/CaptureDetailModal';
-import { PendantCapture, removeCaptures } from '../lib/services/pendant/pendantStore';
+import { PendantCapture, removeCaptures, updateCapture } from '../lib/services/pendant/pendantStore';
 import { DateRangePicker } from '../components/pendant/DateRangePicker';
 
 type TypeFilter = 'all' | 'vision' | 'voice';
@@ -104,6 +104,48 @@ export default function PendantFeedScreen() {
 
   const handleCapturePress = useCallback((capture: PendantCapture) => {
     setSelectedCapture(capture);
+  }, []);
+
+  /** Retry a capture that failed with "Brain offline" */
+  const handleRetry = useCallback(async (capture: PendantCapture) => {
+    if (!capture.framePath) return;
+
+    // Reset state to show processing
+    updateCapture(capture.id, {
+      brainResponse: undefined,
+      processed: false,
+      pipelineLog: undefined,
+      title: undefined,
+      description: undefined,
+    });
+
+    try {
+      const { getSceneStreamManager } = require('../lib/services/ambient/sceneStreamManager');
+      const manager = getSceneStreamManager();
+      const result = await manager.onPendantFrame(capture.framePath, capture.timestamp);
+
+      if (result) {
+        if (result.summary.toLowerCase().includes('skipped')) {
+          updateCapture(capture.id, {
+            processed: true,
+            brainResponse: result.summary,
+          });
+        } else {
+          updateCapture(capture.id, {
+            processed: true,
+            brainResponse: result.summary,
+            pipelineLog: result.log,
+            title: result.title,
+            description: result.description,
+          });
+        }
+      }
+    } catch (err: any) {
+      updateCapture(capture.id, {
+        processed: true,
+        brainResponse: `Retry failed: ${err?.message}`,
+      });
+    }
   }, []);
 
   const toggleSelect = useCallback((id: string) => {
@@ -299,6 +341,7 @@ export default function PendantFeedScreen() {
               selectionMode={selectionMode}
               selected={selectedIds.has(item.id)}
               onToggleSelect={toggleSelect}
+              onRetry={handleRetry}
             />
           )}
           ListHeaderComponent={renderHeader}
@@ -312,6 +355,7 @@ export default function PendantFeedScreen() {
         capture={selectedCapture}
         visible={!!selectedCapture}
         onClose={() => setSelectedCapture(null)}
+        onRetry={handleRetry}
       />
 
       {/* Selection Action Bar */}

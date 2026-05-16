@@ -137,8 +137,56 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
         `, conf=${face.confidence.toFixed(3)}`,
       );
 
+      let finalPhotoUri = photoUri;
+      if (face.boundingBox) {
+        try {
+          const { Image } = require('react-native');
+          const ImageManipulator = require('expo-image-manipulator');
+          
+          const { width: imgW, height: imgH } = await new Promise<{width: number, height: number}>((resolve, reject) => {
+            Image.getSize(photoUri, (w: number, h: number) => resolve({ width: w, height: h }), reject);
+          });
+
+          const bbox = face.boundingBox;
+          const rectX = bbox.x * imgW;
+          const rectY = (1.0 - (bbox.y + bbox.height)) * imgH;
+          const rectW = bbox.width * imgW;
+          const rectH = bbox.height * imgH;
+
+          // Add 30% margin around face
+          const margin = Math.max(rectW, rectH) * 0.3;
+
+          const cropX = Math.max(0, rectX - margin);
+          const cropY = Math.max(0, rectY - margin);
+          const cropW = Math.min(imgW - cropX, rectW + margin * 2);
+          const cropH = Math.min(imgH - cropY, rectH + margin * 2);
+
+          const cx = cropX + cropW / 2;
+          const cy = cropY + cropH / 2;
+          let sqSize = Math.max(cropW, cropH);
+
+          if (cx - sqSize / 2 < 0) sqSize = cx * 2;
+          if (cy - sqSize / 2 < 0) sqSize = cy * 2;
+          if (cx + sqSize / 2 > imgW) sqSize = (imgW - cx) * 2;
+          if (cy + sqSize / 2 > imgH) sqSize = (imgH - cy) * 2;
+
+          const finalX = Math.max(0, cx - sqSize / 2);
+          const finalY = Math.max(0, cy - sqSize / 2);
+
+          const manipResult = await ImageManipulator.manipulateAsync(
+            photoUri,
+            [{ crop: { originX: finalX, originY: finalY, width: sqSize, height: sqSize } }],
+            { format: ImageManipulator.SaveFormat.JPEG, compress: 0.8 }
+          );
+          finalPhotoUri = manipResult.uri;
+          console.log('[FaceRec:Upload] Auto-cropped image to bounding box');
+        } catch (cropErr) {
+          console.warn('[FaceRec:Upload] Failed to auto-crop:', cropErr);
+        }
+      }
+
       // Save embedding
-      saveEmbedding(currentPersonId, face.embedding, face.confidence, photoUri);
+      saveEmbedding(currentPersonId, face.embedding, face.confidence, finalPhotoUri);
       console.log(`[FaceRec:Upload] Saved embedding for person ${currentPersonId}`);
 
       // Refresh embeddings list

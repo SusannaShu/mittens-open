@@ -27,6 +27,7 @@ interface Props {
   capture: PendantCapture | null;
   visible: boolean;
   onClose: () => void;
+  onRetry?: (capture: PendantCapture) => void;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -41,9 +42,10 @@ function formatTimestamp(ts: number): string {
   });
 }
 
-export function CaptureDetailModal({ capture, visible, onClose }: Props) {
+export function CaptureDetailModal({ capture, visible, onClose, onRetry }: Props) {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
   const soundRef = useRef<any>(null);
 
   // Cleanup audio on close
@@ -200,6 +202,28 @@ export function CaptureDetailModal({ capture, visible, onClose }: Props) {
             <View style={styles.responseSection}>
               <Text style={styles.sectionLabel}>Mittens Response</Text>
               <Text style={styles.responseText}>{capture.brainResponse}</Text>
+              {capture.brainResponse.startsWith('Brain offline:') && onRetry && (
+                <TouchableOpacity
+                  style={[styles.retryBtn, retrying && styles.retryBtnDisabled]}
+                  onPress={() => {
+                    if (retrying) return;
+                    setRetrying(true);
+                    onRetry(capture);
+                    setTimeout(() => setRetrying(false), 3000);
+                  }}
+                  activeOpacity={0.7}
+                  disabled={retrying}
+                >
+                  <Feather
+                    name={retrying ? 'loader' : 'refresh-cw'}
+                    size={14}
+                    color="#D97706"
+                  />
+                  <Text style={styles.retryBtnText}>
+                    {retrying ? 'Retrying...' : 'Try Again'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View style={styles.responseSection}>
@@ -368,6 +392,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     fontStyle: 'italic',
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#D97706',
+    backgroundColor: 'rgba(217, 119, 6, 0.08)',
+  },
+  retryBtnDisabled: {
+    opacity: 0.5,
+  },
+  retryBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#D97706',
   },
   metaSection: {
     backgroundColor: colors.bgCard,

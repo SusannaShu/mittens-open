@@ -26,6 +26,8 @@ let lastNudgeDate: string | null = null;
 
 /** Morning greeting state */
 let morningGreetedDate: string | null = null;
+let isUserAwakeFlag: boolean = false;
+let isUserAwakeDate: string | null = null;
 let wakeNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // --- Schedule Config (LMST-derived) ---
@@ -87,7 +89,22 @@ export function isNearBedtime(): boolean {
   return diffMin >= -120 && diffMin <= 360;
 }
 
-// --- Morning Greeting ---
+// --- Morning Greeting & Awake State ---
+
+/** Check if we've received ANY pendant data today (user is awake) */
+export function isUserAwake(): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (isUserAwakeDate !== today) {
+    isUserAwakeFlag = false;
+  }
+  return isUserAwakeFlag;
+}
+
+/** Mark user as awake (called on ANY BLE data receive, before dedup) */
+export function markUserAwake(): void {
+  isUserAwakeDate = new Date().toISOString().slice(0, 10);
+  isUserAwakeFlag = true;
+}
 
 /** Check if first capture of the day has been greeted. */
 export function hasMorningGreeted(): boolean {
@@ -137,8 +154,8 @@ export function scheduleWakeNudge(): void {
 
   const delayMs = nudgeTime.getTime() - now.getTime();
   if (delayMs <= 0) {
-    // Already past nudge time -- check if morning greeting happened
-    if (!hasMorningGreeted()) {
+    // Already past nudge time -- check if user is already awake
+    if (!isUserAwake()) {
       fireWakeNudge();
     }
     return;
@@ -148,7 +165,7 @@ export function scheduleWakeNudge(): void {
 
   wakeNudgeTimer = setTimeout(() => {
     wakeNudgeTimer = null;
-    if (!hasMorningGreeted()) {
+    if (!isUserAwake()) {
       fireWakeNudge();
     }
   }, delayMs);

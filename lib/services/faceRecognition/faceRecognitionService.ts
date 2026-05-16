@@ -25,6 +25,8 @@ import {
   getOwner,
 } from './faceRecognitionApi';
 
+const FileSystem = require('expo-file-system/legacy');
+
 // =============================================
 // CONFIGURATION
 // =============================================
@@ -88,7 +90,8 @@ export async function introducePerson(
 
   // Save embeddings for the first face detected (assumed to be the introduced person)
   const face = faces[0];
-  saveEmbedding(person.id, face.embedding, face.confidence, framePath);
+  const persistedUri = await copyFrameForFace(framePath, person.id);
+  saveEmbedding(person.id, face.embedding, face.confidence, persistedUri);
 
   // Record the interaction
   recordInteraction(person.id);
@@ -302,11 +305,18 @@ function reinforceRecognition(
     pruneEmbeddings(MAX_EMBEDDINGS_PER_PERSON - 1);
   }
 
-  saveEmbedding(personId, embedding, 0.9, framePath); // Slightly lower confidence for auto-reinforced
-  console.log(
-    `[FaceRec] Reinforced person ${personId}` +
-    ` (now ${count + 1} embeddings, dim=${embedding.length})`,
-  );
+  // Copy frame to persistent location so it survives capture cleanup
+  copyFrameForFace(framePath, personId).then(persistedUri => {
+    saveEmbedding(personId, embedding, 0.9, persistedUri);
+    console.log(
+      `[FaceRec] Reinforced person ${personId}` +
+      ` (now ${count + 1} embeddings, dim=${embedding.length})`,
+    );
+  }).catch(err => {
+    // Fallback: save with original path
+    saveEmbedding(personId, embedding, 0.9, framePath);
+    console.warn('[FaceRec] Frame copy failed, using original path:', err?.message);
+  });
 }
 
 // =============================================
@@ -389,4 +399,37 @@ function cosineSimilarity(a: number[], b: number[]): number {
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
   if (denom === 0) return 0;
   return dot / denom;
+}
+
+// =============================================
+// IMAGE PERSISTENCE
+// =============================================
+
+/**
+ * Copies a frame to a permanent location for face recognition storage.
+ * Since pendant frames are regularly cleaned up, we must duplicate
+ * the image so the avatar/gallery doesn't break.
+ */
+async function copyFrameForFace(framePath: string, personId: number): Promise<string> {
+  try {
+    const facesDir = `${FileSystem.documentDirectory}faces/`;
+    const dirInfo = await FileSystem.getInfoAsync(facesDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(facesDir, { intermediates: true });
+    }
+
+    const filename = `face_${personId}_${Date.now()}.jpg`;
+    const destPath = `${facesDir}${filename}`;
+
+    await FileSystem.copyAsync({
+      from: framePath,
+      to: destPath,
+    });
+
+    console.log(`[FaceRec] Copied face image to persistent storage: ${filename}`);
+    return destPath;
+  } catch (err: any) {
+    console.warn('[FaceRec] Failed to copy face frame:', err?.message);
+    throw err;
+  }
 }

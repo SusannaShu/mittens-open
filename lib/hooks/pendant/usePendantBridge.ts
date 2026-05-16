@@ -282,6 +282,12 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             framePath,
           });
 
+          // Mark user as awake since we received pendant data (prevents wake nudge)
+          try {
+            const { markUserAwake } = require('../../services/ambient/sleepNudge');
+            markUserAwake();
+          } catch { /* ignore */ }
+
           // Track mapping so queue drain can update the correct capture
           frameCaptures.set(framePath, captureId);
 

@@ -163,18 +163,36 @@ export function recordLocationPoint(entry: {
 
     if (distFromLast > DISTANCE_JUMP_M) {
       const currentMotionCheck = activeSession.motion_type || 'unknown';
-      const isAtKnownPlace = currentMotionCheck === 'stationary' && !!activeSession.place_name;
 
-      // When stationary at a known place (Home, D12, etc.), large GPS jumps
-      // are usually indoor drift -- silently absorb them instead of bridging.
-      // BUT ONLY if the OS is not actively reporting movement!
-      if (isAtKnownPlace && (motionType === 'stationary' || motionType === 'unknown')) {
-        console.log(`[sessionBuilder] GPS jump ${distFromLast.toFixed(0)}m at known place '${activeSession.place_name}' -- suppressing jitter`);
-        return;
+      if (currentMotionCheck === 'stationary') {
+        // When stationary, large GPS jumps are often indoor drift/reflections.
+        // Require consecutive movement confirmation before bridging to avoid phantom transit.
+        if (motionType !== 'stationary' && motionType !== 'unknown') {
+          consecutiveMovement++;
+          if (!firstMovement) {
+            firstMovement = { time: nowMs, lat: entry.latitude, lon: entry.longitude, motion: motionType };
+          }
+          firstMovement.motion = motionType;
+        } else if (motionType === 'stationary') {
+          if (consecutiveMovement > 0) {
+            console.log(`[sessionBuilder] Confirmed stationary reading during jump, resetting movement counter (was ${consecutiveMovement})`);
+            consecutiveMovement = 0;
+            firstMovement = null;
+          }
+        }
+
+        // Require at least 3 consecutive points at the new location to prove it's not a 1-off jitter
+        if (consecutiveMovement < 3) {
+          console.log(`[sessionBuilder] GPS jump ${distFromLast.toFixed(0)}m while stationary. Waiting for confirmation (${consecutiveMovement}/3)`);
+          return;
+        }
       }
 
       const transitMotion = resolveTransitMotion(motionType, distFromLast);
       console.log(`[sessionBuilder] Distance jump ${distFromLast.toFixed(0)}m: bridging with '${transitMotion}' session`);
+
+      consecutiveMovement = 0;
+      firstMovement = null;
 
       closeSession(db, activeSession.id, now);
       createBridgeSession(
@@ -271,10 +289,11 @@ export function recordLocationPoint(entry: {
       // Fidgeting / walking in house -> displacement < 80m.
       // Real travel -> displacement > 80m.
       const isFarAway = displacement > 80;
-      const isConfirmedMovement = consecutiveMovement >= 3;
+      const isConfirmedMovement = consecutiveMovement >= MIN_CONSECUTIVE_MOVEMENT;
+      const isQuickConfirmedMovement = consecutiveMovement >= 3;
 
       if (isFarAway) {
-        if (isConfirmedMovement || displacement > 150) {
+        if (isConfirmedMovement || (displacement > 150 && isQuickConfirmedMovement)) {
           const transitionTime = firstMovement ? new Date(firstMovement.time).toISOString() : now;
           const startLat = firstMovement ? firstMovement.lat : entry.latitude;
           const startLon = firstMovement ? firstMovement.lon : entry.longitude;

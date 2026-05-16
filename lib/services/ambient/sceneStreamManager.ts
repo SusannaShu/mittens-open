@@ -116,13 +116,13 @@ class SceneStreamManager {
 
     // Phase 0: Morning greeting (before quality gate)
     // First capture of the day after wake time -> "Good morning"
-    if (!skipGate && !hasMorningGreeted()) {
+    if (!skipGate && !(await hasMorningGreeted())) {
       const cfg = getScheduleConfig();
       const now = new Date();
       const nowMin = now.getHours() * 60 + now.getMinutes();
       // Only greet if we are past 4:00 AM (prevent 2 AM bathroom trips from triggering 'Good morning')
       if (now.getHours() >= 4 && nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
-        markMorningGreeted();
+        await markMorningGreeted();
         const name = getOwnerName();
         const greeting = `Good morning ${name}!`;
         console.log(`[SceneStream] Morning greeting: "${greeting}"`);

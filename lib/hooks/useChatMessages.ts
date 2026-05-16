@@ -9,6 +9,8 @@ import { getUserDisplayName } from '../userContext';
 import { useGetProfileQuery } from '../services/profileApi';
 import { useGetMessagesQuery, useSaveMessageBatchMutation } from '../services/messagesApi';
 import { getDataMode, getDataProvider } from '../providers/providerFactory';
+import { useDispatch } from 'react-redux';
+import { nutritionApi } from '../services/nutritionApi';
 
 export function useChatMessages() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -43,27 +45,41 @@ export function useChatMessages() {
   const { data: profile } = useGetProfileQuery();
   const { data: messageHistory, isLoading: messagesLoading, isError: messagesError } = useGetMessagesQuery({ limit: 10 }, { skip: isLocalMode });
   const [saveMessageBatch] = useSaveMessageBatchMutation();
+  const dispatch = useDispatch();
 
   /** Map raw API message to ChatMessage */
-  const mapMessage = (m: any): ChatMessage => ({
-    id: `db-${m.id}`,
-    role: m.role,
-    text: m.text || '',
-    photos: m.photos && m.photos.length > 0
-      ? m.photos.map((p: any) => {
-          if (typeof p === 'string') {
-            // Relative Backend path -> prepend API base
-            if (p.startsWith('/uploads/')) return `${getApiBase()}${p}`;
-            return p;
-          }
-          if (p?.url) {
-            const url = p.url;
-            if (url.startsWith('/uploads/')) return `${getApiBase()}${url}`;
-            return url;
-          }
-          return null;
-        }).filter(Boolean)
-      : undefined,
+  const mapMessage = (m: any): ChatMessage => {
+    const fixPath = (p?: string) => {
+      if (!p) return p;
+      if (typeof p === 'string' && p.includes('/Documents/')) {
+        const FileSystem = require('expo-file-system/legacy');
+        let docDir = FileSystem.documentDirectory;
+        if (docDir && docDir.endsWith('/')) docDir = docDir.slice(0, -1);
+        const parts = p.split('/Documents/');
+        return docDir + '/' + parts[1];
+      }
+      return p;
+    };
+
+    return {
+      id: `db-${m.id}`,
+      role: m.role,
+      text: m.text || '',
+      photos: m.photos && m.photos.length > 0
+        ? m.photos.map((p: any) => {
+            if (typeof p === 'string') {
+              // Relative Backend path -> prepend API base
+              if (p.startsWith('/uploads/')) return `${getApiBase()}${p}`;
+              return fixPath(p);
+            }
+            if (p?.url) {
+              const url = p.url;
+              if (url.startsWith('/uploads/')) return `${getApiBase()}${url}`;
+              return fixPath(url);
+            }
+            return null;
+          }).filter(Boolean)
+        : undefined,
     activityType: m.activityType || undefined,
     itemsLogged: m.metadata?.itemsLogged || undefined,
     logEntry: m.metadata?.logEntry || undefined,
@@ -75,8 +91,18 @@ export function useChatMessages() {
     locationPrompt: m.metadata?.locationPrompt || undefined,
     pantryPipelineItems: m.metadata?.pantryPipelineItems || undefined,
     pantryPipelineStatus: m.metadata?.pantryPipelineStatus || undefined,
-    timestamp: new Date(m.created_at),
-  });
+    pipelineFoods: m.metadata?.pipelineFoods || undefined,
+    mealMetadata: m.metadata?.mealMetadata || undefined,
+    audio: fixPath(m.metadata?.audio),
+    timestamp: (() => {
+      let t = m.created_at;
+      if (typeof t === 'string' && !t.includes('T') && !t.includes('Z')) {
+        t = t.replace(' ', 'T') + 'Z';
+      }
+      return new Date(t);
+    })(),
+  };
+};
 
   /** Show welcome message for new users / empty history */
   const showWelcome = useCallback(() => {
@@ -208,11 +234,17 @@ export function useChatMessages() {
           itemsLogged: msg.itemsLogged,
           pipelineFoods: (msg as any).pipelineFoods,
           mealMetadata: (msg as any).mealMetadata,
+          audio: msg.audio,
         }
       }]);
+      
+      // Invalidate nutrition cache if this is a meal log
+      if ((msg as any).mealMetadata || (msg as any).pipelineFoods || msg.text.includes('Logging')) {
+        dispatch(nutritionApi.util.invalidateTags(['DailySummary', 'MealPlan']));
+      }
     });
     return () => sub.remove();
-  }, [addMessage, saveMessageBatch]);
+  }, [addMessage, saveMessageBatch, dispatch]);
 
   /** Check if two dates are different days */
   const isDifferentDay = (a: Date, b: Date) => {

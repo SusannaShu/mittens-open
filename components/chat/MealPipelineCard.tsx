@@ -111,7 +111,7 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState(food.name);
   const [editingPortion, setEditingPortion] = useState(false);
-  const [editPortion, setEditPortion] = useState(String(food.portion_g));
+  const [editPortion, setEditPortion] = useState(food.portion_g != null ? String(food.portion_g) : '');
 
   const handleSubmitName = useCallback(() => {
     const trimmed = editName.trim();
@@ -190,15 +190,15 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
             <Text style={s.foodPortion}>g</Text>
           </View>
         ) : food.status === 'complete' ? (
-          <TouchableOpacity onPress={() => { setEditPortion(String(food.portion_g)); setEditingPortion(true); }}>
+          <TouchableOpacity onPress={() => { setEditPortion(food.portion_g != null ? String(food.portion_g) : ''); setEditingPortion(true); }}>
             <Text style={s.foodPortionEditable}>
-              {food.household_portion ? `${food.portion_g}g -- ${food.household_portion}` : `${food.portion_g}g`}
+              {food.household_portion ? `${food.portion_g ?? '?'}g -- ${food.household_portion}` : `${food.portion_g ?? '?'}g`}
               {food.cooking ? ` -- ${food.cooking}` : ''}
             </Text>
           </TouchableOpacity>
         ) : (
           <Text style={s.foodPortion}>
-            {food.household_portion ? `${food.portion_g}g -- ${food.household_portion}` : `${food.portion_g}g`}
+            {food.household_portion ? `${food.portion_g ?? '?'}g -- ${food.household_portion}` : `${food.portion_g ?? '?'}g`}
             {food.cooking ? ` -- ${food.cooking}` : ''}
           </Text>
         )}

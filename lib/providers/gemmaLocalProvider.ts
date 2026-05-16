@@ -241,6 +241,7 @@ PORTION ESTIMATION RULES:
 - Use plate/bowl/utensils as size references (dinner plate ~25cm, fork ~20cm)
 - A single stick/piece is ~15g, a small bowl ~80g, a handful ~25g
 - ALWAYS provide BOTH grams AND a household measure (1/2 cup, 2 pieces, 1 tbsp, etc.)
+- If unsure of the exact weight, guess a reasonable amount in grams based on the item size. NEVER output null or undefined for grams.
 
 Rate confidence 0.0-1.0: 0.9+ clearly visible, 0.6-0.8 likely, <0.5 guess.
 

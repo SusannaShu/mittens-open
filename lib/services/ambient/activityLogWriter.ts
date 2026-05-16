@@ -84,18 +84,43 @@ async function createActivityLog(
     placeName = getCurrentPlace() || null;
   } catch { /* location not available */ }
 
+  let aeiouJson = null;
+  let isOutdoors = 0;
+  let isNature = 0;
+
+  const aeiouIdx = logger.startPhase('activity', 'aeiou');
+  try {
+    const { detectAeiou } = require('./aeiouDetector');
+    const sceneDesc = classification.description || classification.activity.description || '';
+    const obs = await detectAeiou(framePath, sceneDesc);
+    if (obs) {
+      aeiouJson = { ...obs, _raw: [obs] };
+      isOutdoors = obs.isOutdoors ? 1 : 0;
+      isNature = obs.isNature ? 1 : 0;
+      logger.completePhase(aeiouIdx, 'Detected AEIOU');
+    } else {
+      logger.completePhase(aeiouIdx, 'No AEIOU detected');
+    }
+  } catch (err: any) {
+    logger.failPhase(aeiouIdx, err?.message);
+  }
+
   const result = db.runSync(
     `INSERT INTO activity_logs (
       logged_at, log_name, activity_type, duration_min, mets,
-      life_categories, source, location, image_uris,
+      life_categories, aeiou, source, location, image_uris,
+      outdoors, is_nature,
       created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, ?, 'pendant', ?, ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, 'pendant', ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     [
       new Date().toISOString(),
       logName, actType, metValue,
       lifeDesignWeights ? JSON.stringify(lifeDesignWeights) : null,
+      aeiouJson ? JSON.stringify(aeiouJson) : null,
       placeName,
       framePath ? JSON.stringify([framePath]) : null,
+      isOutdoors,
+      isNature,
     ],
   );
 
@@ -114,7 +139,7 @@ async function updateActivityLog(
   logger: PipelineLogger,
 ): Promise<number | null> {
   const existing = db.getFirstSync(
-    'SELECT logged_at, image_uris, life_categories, aeiou FROM activity_logs WHERE id = ?',
+    'SELECT logged_at, image_uris, life_categories, aeiou, outdoors, is_nature FROM activity_logs WHERE id = ?',
     [logId],
   ) as any;
 
@@ -148,6 +173,9 @@ async function updateActivityLog(
 
   // AEIOU detection: single VLM phase per capture, aggregate on log
   let aeiouJson = existing?.aeiou ? JSON.parse(existing.aeiou) : null;
+  let isOutdoors = existing?.outdoors || 0;
+  let isNature = existing?.is_nature || 0;
+
   const aeiouIdx = logger.startPhase('activity', 'aeiou');
   try {
     const { detectAeiou, summarizeAeiou } = require('./aeiouDetector');
@@ -166,6 +194,8 @@ async function updateActivityLog(
         const summary = await summarizeAeiou(rawObs);
         aeiouJson = { ...summary, _raw: rawObs };
       }
+      isOutdoors = aeiouJson.isOutdoors || rawObs.some((o: any) => o.isOutdoors) ? 1 : isOutdoors;
+      isNature = aeiouJson.isNature || rawObs.some((o: any) => o.isNature) ? 1 : isNature;
       logger.completePhase(aeiouIdx, `${rawObs.length} observations`);
     } else {
       logger.completePhase(aeiouIdx, 'No AEIOU detected');
@@ -177,13 +207,15 @@ async function updateActivityLog(
   db.runSync(
     `UPDATE activity_logs SET
       duration_min = ?, image_uris = ?,
-      life_categories = ?, aeiou = ?, updated_at = datetime('now')
+      life_categories = ?, aeiou = ?, outdoors = ?, is_nature = ?, updated_at = datetime('now')
     WHERE id = ?`,
     [
       durationMin,
       JSON.stringify(existingImages),
       lifeCategories ? JSON.stringify(lifeCategories) : null,
       aeiouJson ? JSON.stringify(aeiouJson) : null,
+      isOutdoors,
+      isNature,
       logId,
     ],
   );

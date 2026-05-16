@@ -18,6 +18,8 @@ export interface AeiouObservation {
   interactions?: string;
   objects?: string;
   users?: string;
+  isOutdoors?: boolean;
+  isNature?: boolean;
 }
 
 /**
@@ -47,7 +49,7 @@ export async function detectAeiou(
       `Scene context: ${sceneDescription || 'unknown'}`,
       '',
       'Return JSON only. Omit any field you cannot determine:',
-      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"..."}',
+      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"...","isOutdoors":true|false,"isNature":true|false}',
     ].join('\n');
 
     const raw = await brain.vision(prompt, [framePath]);
@@ -80,7 +82,7 @@ export async function summarizeAeiou(
       ...observations.map((o, i) => `Frame ${i + 1}: ${JSON.stringify(o)}`),
       '',
       'Return JSON with summarized fields:',
-      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"..."}',
+      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"...","isOutdoors":true|false,"isNature":true|false}',
     ].join('\n');
 
     const raw = await brain.text(prompt);

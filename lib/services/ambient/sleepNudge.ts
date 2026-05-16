@@ -25,7 +25,7 @@ let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
 let lastNudgeDate: string | null = null;
 
 /** Morning greeting state */
-let morningGreetedDate: string | null = null;
+let memoryMorningGreetedDate: string | null = null;
 let isUserAwakeFlag: boolean = false;
 let isUserAwakeDate: string | null = null;
 let wakeNudgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -106,14 +106,30 @@ export function markUserAwake(): void {
   isUserAwakeFlag = true;
 }
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 /** Check if first capture of the day has been greeted. */
-export function hasMorningGreeted(): boolean {
-  return morningGreetedDate === new Date().toISOString().slice(0, 10);
+export async function hasMorningGreeted(): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+  if (memoryMorningGreetedDate === today) return true;
+  
+  try {
+    const val = await AsyncStorage.getItem('@morning_greeted_date');
+    if (val === today) {
+      memoryMorningGreetedDate = today;
+      return true;
+    }
+  } catch (e) {}
+  return false;
 }
 
 /** Mark morning greeting as done for today. */
-export function markMorningGreeted(): void {
-  morningGreetedDate = new Date().toISOString().slice(0, 10);
+export async function markMorningGreeted(): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  memoryMorningGreetedDate = today;
+  try {
+    await AsyncStorage.setItem('@morning_greeted_date', today);
+  } catch (e) {}
 }
 
 /** Get owner's name from profile for greetings. */
@@ -142,7 +158,7 @@ export function scheduleWakeNudge(): void {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  if (morningGreetedDate === today) {
+  if (memoryMorningGreetedDate === today) {
     // Already greeted today -- no nudge needed
     return;
   }

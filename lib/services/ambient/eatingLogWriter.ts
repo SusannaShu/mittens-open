@@ -90,13 +90,14 @@ export async function createNutritionLog(
 
   const result = db.runSync(
     `INSERT INTO nutrition_logs (
-      logged_at, meal_type, log_name, items, nutrients,
+      logged_at, meal_type, log_name, items, nutrients, summary_nutrients,
       source, image_uris, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'pendant', ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, ?, ?, ?, 'pendant', ?, datetime('now'), datetime('now'))`,
     [
       new Date().toISOString(),
       mealType, logName,
       JSON.stringify(finalItems),
+      Object.keys(nutrientTotals).length > 0 ? JSON.stringify(nutrientTotals) : null,
       Object.keys(nutrientTotals).length > 0 ? JSON.stringify(nutrientTotals) : null,
       JSON.stringify([framePath]),
     ],
@@ -179,11 +180,12 @@ export async function updateNutritionLog(
 
   db.runSync(
     `UPDATE nutrition_logs SET
-      items = ?, nutrients = ?, image_uris = ?,
+      items = ?, nutrients = ?, summary_nutrients = ?, image_uris = ?,
       ${logName ? 'log_name = ?,' : ''} updated_at = datetime('now')
     WHERE id = ?`,
     [
       JSON.stringify(updatedItems),
+      Object.keys(updatedNutrients).length > 0 ? JSON.stringify(updatedNutrients) : null,
       Object.keys(updatedNutrients).length > 0 ? JSON.stringify(updatedNutrients) : null,
       JSON.stringify(existingImages),
       ...(logName ? [logName] : []),

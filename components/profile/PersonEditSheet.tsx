@@ -79,9 +79,22 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
   };
 
   const handleUploadPhoto = async () => {
-    if (!person.id || person.id === 0) {
-      Alert.alert('Save First', 'Save this person before uploading face photos.');
-      return;
+    let currentPersonId = draft.id;
+
+    if (!currentPersonId || currentPersonId === 0) {
+      if (!draft.name.trim()) {
+        Alert.alert('Name Required', 'Please enter a name first so we can save the person before adding photos.');
+        return;
+      }
+      try {
+        const { PersonService } = require('../../lib/services/personService');
+        const newPerson = await PersonService.create(draft);
+        currentPersonId = newPerson.id;
+        setDraft(prev => ({ ...prev, id: currentPersonId }));
+      } catch (e) {
+        Alert.alert('Error', 'Failed to save person.');
+        return;
+      }
     }
 
     try {
@@ -125,11 +138,11 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
       );
 
       // Save embedding
-      saveEmbedding(person.id, face.embedding, face.confidence, photoUri);
-      console.log(`[FaceRec:Upload] Saved embedding for person ${person.id}`);
+      saveEmbedding(currentPersonId, face.embedding, face.confidence, photoUri);
+      console.log(`[FaceRec:Upload] Saved embedding for person ${currentPersonId}`);
 
       // Refresh embeddings list
-      const loaded = getEmbeddingsForPerson(person.id);
+      const loaded = getEmbeddingsForPerson(currentPersonId);
       setEmbeddings(loaded);
 
       Alert.alert('Face Learned', `Mittens will use this photo to remember ${draft.name}.`);
@@ -158,8 +171,8 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
   };
 
   return (
-    <Modal visible transparent animationType="slide">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <Modal visible transparent animationType="fade">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
         {/* Backdrop */}
         <TouchableOpacity style={st.overlay} activeOpacity={1} onPress={onClose} />
 
@@ -176,7 +189,7 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={true} style={{ flex: 1 }}>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={true} style={{ flexShrink: 1 }}>
             <Text style={st.fieldLabel}>Name</Text>
             <TextInput
               style={st.input}
@@ -234,8 +247,7 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
             />
 
             {/* Photo gallery with upload + "Not X" per photo */}
-            {person.id && person.id > 0 ? (
-              <View style={{ marginTop: spacing.md }}>
+            <View style={{ marginTop: spacing.md }}>
                 <Text style={st.fieldLabel}>Pictures Used to Remember ({embeddings.length})</Text>
 
                 {/* Upload Photo button */}
@@ -276,8 +288,7 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
                     ))}
                   </ScrollView>
                 ) : null}
-              </View>
-            ) : null}
+            </View>
 
             {/* Delete person */}
             {person.id && person.id > 0 ? (
@@ -312,12 +323,12 @@ export function PersonEditSheet({ person, onSave, onClose, onDelete }: Props) {
 /* ── Styles ── */
 
 const st = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingHorizontal: spacing.lg, paddingTop: spacing.sm,
-    maxHeight: '70%',
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    maxHeight: '85%',
+    width: '100%',
   },
   dragHandle: {
     width: 36, height: 4, borderRadius: 2, backgroundColor: '#DDD',

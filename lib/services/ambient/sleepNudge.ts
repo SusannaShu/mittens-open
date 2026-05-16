@@ -106,6 +106,7 @@ async function executeSleepCheck(): Promise<void> {
       deliverNudge({
         type: 'bedtime',
         message: result.message || 'Time to start winding down for bed.',
+        urgent: true
       });
     }
 
@@ -161,7 +162,7 @@ async function classifyBedtimeScene(framePath: string): Promise<SleepNudgeResult
 
 // --- Helpers ---
 
-function getBedtimeConfig(): { bedtimeHour: number; bedtimeMin: number } {
+export function getBedtimeConfig(): { bedtimeHour: number; bedtimeMin: number } {
   try {
     const { getDb } = require('../../database');
     const db = getDb();

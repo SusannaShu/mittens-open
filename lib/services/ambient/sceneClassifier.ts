@@ -72,7 +72,11 @@ function buildPrompt(ctx: ClassifierContext): string {
     '    "conf": 0-1',
     '  },',
     '  "people": 0 (number of visible faces/people),',
-    '  "description": "one-line overall scene description"',
+    '  "description": "one-line overall scene description",',
+    '  "sleepContext": {',
+    '    "isDark": true/false (is the photo totally dark/black?),',
+    '    "screensVisible": true/false (are laptops/phones/bright screens visible?)',
+    '  } or null',
     '}',
   ];
 
@@ -129,11 +133,18 @@ function parseClassification(
       confidence: Number(rawAct.conf || rawAct.confidence || 0),
     };
 
+    const rawSleep = parsed.sleepContext;
+    const sleepContext = rawSleep ? {
+      isDark: Boolean(rawSleep.isDark),
+      screensVisible: Boolean(rawSleep.screensVisible)
+    } : undefined;
+
     return {
       nutrition,
       activity,
       people: Number(parsed.people || parsed.ppl || 0),
       description: parsed.description || parsed.desc || '',
+      sleepContext
     };
   } catch (err) {
     console.warn('[Classifier] Parse failed, using fallback');

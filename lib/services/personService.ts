@@ -16,7 +16,7 @@ export class PersonService {
     const db = getDb();
     const rows = db.getAllSync(
       `SELECT p.*,
-        (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+        (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at DESC LIMIT 1) as avatar_uri
        FROM people p 
        WHERE LOWER(p.name) LIKE ? OR LOWER(p.nickname) LIKE ? 
        ORDER BY p.interaction_count DESC LIMIT 10`,
@@ -33,7 +33,7 @@ export class PersonService {
     const db = getDb();
     const rows = db.getAllSync(
       `SELECT p.*,
-        (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+        (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at DESC LIMIT 1) as avatar_uri
        FROM people p 
        ORDER BY p.last_seen_at DESC, p.interaction_count DESC LIMIT ?`,
       [limit]

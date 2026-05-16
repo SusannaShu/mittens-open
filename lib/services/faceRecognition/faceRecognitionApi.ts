@@ -49,7 +49,7 @@ export function findPersonByName(name: string): KnownPerson | null {
   const db = getDb();
   const row = db.getFirstSync(
     `SELECT p.*,
-      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at DESC LIMIT 1) as avatar_uri
      FROM people p WHERE LOWER(p.name) = LOWER(?)`,
     [name],
   ) as any;
@@ -73,7 +73,7 @@ export function getPersonById(id: number): KnownPerson | null {
   const db = getDb();
   const row = db.getFirstSync(
     `SELECT p.*,
-      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at DESC LIMIT 1) as avatar_uri
      FROM people p WHERE p.id = ?`,
     [id],
   ) as any;
@@ -85,7 +85,7 @@ export function getAllPeople(): KnownPerson[] {
   const db = getDb();
   const rows = db.getAllSync(
     `SELECT p.*,
-      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at ASC LIMIT 1) as avatar_uri
+      (SELECT image_uri FROM face_embeddings fe WHERE fe.person_id = p.id AND fe.image_uri IS NOT NULL ORDER BY captured_at DESC LIMIT 1) as avatar_uri
      FROM people p ORDER BY p.last_seen_at DESC`,
   ) as any[];
   return (rows || []).map(rowToPerson);

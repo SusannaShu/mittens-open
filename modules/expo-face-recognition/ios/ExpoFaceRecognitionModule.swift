@@ -126,20 +126,24 @@ public class ExpoFaceRecognitionModule: Module {
 
         guard let croppedCG = cgImage.cropping(to: expandedRect) else { continue }
 
-        // Strict CoreML extraction only
+        // Strict CoreML extraction only, or fallback to Vision Feature Print
         var embedding: [Float]? = nil
         if let model = self.faceNetModel {
           embedding = try? await self.extractEmbeddingCoreML(
             faceCG: croppedCG,
             model: model
           )
+        } else {
+          // Fall back to Apple Vision's native image feature print
+          embedding = try? await self.extractEmbeddingVision(faceCG: croppedCG)
         }
 
-        if embedding == nil {
-          NSLog("[FaceRecognition] Failed to extract CoreML embedding for face (model missing or inference failed)")
+        if embedding == nil || embedding!.isEmpty {
+          NSLog("[FaceRecognition] Failed to extract embedding for face")
+          continue
         }
 
-        guard let emb = embedding else { continue }
+        let emb = embedding!
 
         let faceResult: [String: Any] = [
           "embedding": emb,
@@ -275,7 +279,53 @@ public class ExpoFaceRecognitionModule: Module {
     }
   }
 
+  // ═══════════════════════════════════════
+  // MARK: - Embedding Extraction (Apple Vision Fallback)
+  // ═══════════════════════════════════════
 
+  private func extractEmbeddingVision(
+    faceCG: CGImage
+  ) async throws -> [Float] {
+    return try await withCheckedThrowingContinuation { continuation in
+      let request = VNGenerateImageFeaturePrintRequest { request, error in
+        if let error = error {
+          continuation.resume(throwing: error)
+          return
+        }
+        guard let result = request.results?.first as? VNFeaturePrintObservation else {
+          continuation.resume(returning: [])
+          return
+        }
+        
+        let count = result.elementCount
+        var embedding = [Float](repeating: 0, count: count)
+        result.data.withUnsafeBytes { rawBuffer in
+            if let ptr = rawBuffer.bindMemory(to: Float.self).baseAddress {
+                for i in 0..<count {
+                    embedding[i] = ptr[i]
+                }
+            }
+        }
+        
+        // L2 normalize the embedding
+        let norm = sqrt(embedding.reduce(0) { $0 + $1 * $1 })
+        if norm > 0 {
+          embedding = embedding.map { $0 / norm }
+        }
+        
+        continuation.resume(returning: embedding)
+      }
+      
+      let handler = VNImageRequestHandler(cgImage: faceCG, options: [:])
+      DispatchQueue.global(qos: .userInitiated).async {
+        do {
+          try handler.perform([request])
+        } catch {
+          continuation.resume(throwing: error)
+        }
+      }
+    }
+  }
 
   // ═══════════════════════════════════════
   // MARK: - Image Utilities

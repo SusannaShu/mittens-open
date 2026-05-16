@@ -59,7 +59,7 @@ export function materializeSchedule(
     bedtimeUtc:   lmstToUtc(
       normalizeLmstMinutes(s.bedtimeLmst), 
       lon,
-      s.bedtimeLmst < 0 ? dayAnchor : addDaysUtc(dayAnchor, -1)
+      s.bedtimeLmst < 0 ? dayAnchor : addDaysUtc(dayAnchor, 1)
     ),
   };
 }

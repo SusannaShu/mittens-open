@@ -10,6 +10,7 @@ import type { FrameClassification, ClassifierContext } from './types';
 import { classifyFrame } from './sceneClassifier';
 import { executeLogDecision } from './sceneLogWriter';
 import { PipelineLogger, PipelineLog } from '../../pipelines/logger';
+import { getBedtimeConfig } from './sleepNudge';
 
 // Singleton
 let instance: SceneStreamManager | null = null;
@@ -126,6 +127,33 @@ class SceneStreamManager {
     if (classification.error) {
       console.warn('[SceneStream] Brain error:', classification.error);
       return { summary: classification.error, log: logger.finalize() };
+    }
+
+    // Phase 2.5: Sleep check
+    if (classification.sleepContext) {
+      try {
+        const { bedtimeHour, bedtimeMin } = getBedtimeConfig();
+        const now = new Date();
+        const diffHours = now.getHours() - bedtimeHour;
+        const diffMins = now.getMinutes() - bedtimeMin;
+        let totalDiffMins = diffHours * 60 + diffMins;
+        if (totalDiffMins < 0) totalDiffMins += 24 * 60;
+
+        // If within 6 hours past bedtime
+        if (totalDiffMins >= 0 && totalDiffMins < 6 * 60) {
+          if (!classification.sleepContext.isDark || classification.sleepContext.screensVisible) {
+             const { deliverNudge } = require('./nudgeComposer');
+             deliverNudge({
+               type: 'bedtime',
+               message: 'It is past your bedtime. Please put away screens and go to sleep.',
+               urgent: true
+             });
+             console.log('[SceneStream] Triggered bedtime nudge (not dark / screens visible)');
+          }
+        }
+      } catch (err: any) {
+        console.warn('[SceneStream] Bedtime check failed:', err?.message);
+      }
     }
 
     // Nothing detected at all

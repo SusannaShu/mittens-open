@@ -10,6 +10,21 @@ const FITZPATRICK_COLORS: Record<number, string> = {
   4: '#C68642', 5: '#8D5524', 6: '#3C2218',
 };
 
+function calculateTDEE(profile: any): number {
+  if (profile.tdeeKcal) return profile.tdeeKcal;
+  const wKg = profile.weightKg || (profile.weightLb ? profile.weightLb * 0.453592 : 0);
+  const hCm = profile.heightCm || (profile.heightIn ? profile.heightIn * 2.54 : 0);
+  if (!wKg || !hCm || !profile.age) return 0;
+  
+  let bmr = 10 * wKg + 6.25 * hCm - 5 * profile.age;
+  bmr += profile.sex === 'male' ? 5 : -161;
+  
+  const activityMultipliers: Record<string, number> = {
+    sedentary: 1.2, lightly_active: 1.375, moderately_active: 1.55, very_active: 1.725
+  };
+  return Math.round(bmr * (activityMultipliers[profile.activityLevel] || 1.2));
+}
+
 interface Props {
   profileContext: any;
   collapsed: boolean;
@@ -29,11 +44,6 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
   const [editActivity, setEditActivity] = useState('sedentary');
   const [editSkinType, setEditSkinType] = useState('fitzpatrick-4');
   const [editWorkIntervalMins, setEditWorkIntervalMins] = useState(45);
-  const [editWakeTime, setEditWakeTime] = useState('');
-  const [editBreakfastTime, setEditBreakfastTime] = useState('');
-  const [editLunchTime, setEditLunchTime] = useState('');
-  const [editDinnerTime, setEditDinnerTime] = useState('');
-  const [editBedtime, setEditBedtime] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleEdit = () => {
@@ -53,11 +63,6 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
     setEditActivity(profileContext?.activityLevel || 'sedentary');
     setEditSkinType(profileContext?.skinType || 'fitzpatrick-4');
     setEditWorkIntervalMins(profileContext?.workIntervalMins || 45);
-    setEditWakeTime(profileContext?.wakeTime || '');
-    setEditBreakfastTime(profileContext?.breakfastTime || '');
-    setEditLunchTime(profileContext?.lunchTime || '');
-    setEditDinnerTime(profileContext?.dinnerTime || '');
-    setEditBedtime(profileContext?.bedtime || '');
     setIsEditing(true);
   };
 
@@ -84,8 +89,6 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
       const payload: any = {
         age: parseInt(editAge, 10), sex: editSex, activityLevel: editActivity,
         skinType: editSkinType, preferredUnit: editUnit, workIntervalMins: editWorkIntervalMins,
-        wakeTime: editWakeTime, breakfastTime: editBreakfastTime,
-        lunchTime: editLunchTime, dinnerTime: editDinnerTime, bedtime: editBedtime,
       };
       if (editUnit === 'imperial') {
         payload.heightIn = (parseInt(editHeightFt, 10) || 0) * 12 + (parseInt(editHeightIn, 10) || 0);
@@ -115,7 +118,7 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {!isEditing && collapsed && (
-            <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleEdit(); }}>
+            <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleEdit(); if (collapsed) onToggle(); }}>
               <Text style={styles.editLink}>Edit</Text>
             </TouchableOpacity>
           )}
@@ -168,12 +171,17 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
               </View>
               <View style={styles.editRow}>
                 <Text style={styles.profileKey}>Activity</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
-                  {['sedentary', 'lightly_active', 'moderately_active', 'very_active'].map(act => (
+                <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 4, flex: 1, justifyContent: 'flex-end' }}>
+                  {['sedentary', 'lightly_active', 'moderately_active', 'very_active'].map(act => {
+                    const label = act === 'lightly_active' ? 'Light' : 
+                                  act === 'moderately_active' ? 'Moderate' : 
+                                  act === 'very_active' ? 'Very' : 'Sedentary';
+                    return (
                     <TouchableOpacity key={act} style={[styles.actBtn, editActivity === act && styles.actBtnActive]} onPress={() => setEditActivity(act)}>
-                      <Text style={[styles.actText, editActivity === act && styles.actTextActive]}>{act.split('_')[0]}</Text>
+                      <Text style={[styles.actText, editActivity === act && styles.actTextActive]}>{label}</Text>
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </View>
               </View>
               <View style={styles.editRow}>
@@ -199,26 +207,6 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
                     </TouchableOpacity>
                   ))}
                 </View>
-              </View>
-              <View style={styles.editRow}>
-                <Text style={styles.profileKey}>Target Wake Time</Text>
-                <TextInput style={styles.editInput} value={editWakeTime} onChangeText={setEditWakeTime} placeholder="e.g. 07:00" />
-              </View>
-              <View style={styles.editRow}>
-                <Text style={styles.profileKey}>Target Breakfast</Text>
-                <TextInput style={styles.editInput} value={editBreakfastTime} onChangeText={setEditBreakfastTime} placeholder="e.g. 07:30" />
-              </View>
-              <View style={styles.editRow}>
-                <Text style={styles.profileKey}>Target Lunch</Text>
-                <TextInput style={styles.editInput} value={editLunchTime} onChangeText={setEditLunchTime} placeholder="e.g. 12:30" />
-              </View>
-              <View style={styles.editRow}>
-                <Text style={styles.profileKey}>Target Dinner</Text>
-                <TextInput style={styles.editInput} value={editDinnerTime} onChangeText={setEditDinnerTime} placeholder="e.g. 19:00" />
-              </View>
-              <View style={styles.editRow}>
-                <Text style={styles.profileKey}>Target Bedtime</Text>
-                <TextInput style={styles.editInput} value={editBedtime} onChangeText={setEditBedtime} placeholder="e.g. 23:00" />
               </View>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
                 <TouchableOpacity style={[styles.saveBtn, { flex: 1, backgroundColor: '#EEE' }]} onPress={() => setIsEditing(false)} disabled={saving}>
@@ -266,7 +254,7 @@ export function ProfileBioSection({ profileContext, collapsed, onToggle, onSaved
               </View>
               <View style={styles.profileRow}>
                 <Text style={styles.profileKey}>ESTIMATED TDEE:</Text>
-                <Text style={styles.profileVal}>~{profileContext.tdeeKcal} kcal/day</Text>
+                <Text style={styles.profileVal}>~{calculateTDEE(profileContext) || '?'} kcal/day</Text>
               </View>
               <View style={styles.profileRow}>
                 <Text style={styles.profileKey}>FOCUS TIMER:</Text>

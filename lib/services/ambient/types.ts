@@ -65,6 +65,11 @@ export interface FrameClassification {
   description: string;
   /** Set when classification failed due to brain connectivity */
   error?: string;
+  /** Extracted sleep context for bedtime nudges */
+  sleepContext?: {
+    isDark: boolean;
+    screensVisible: boolean;
+  };
 }
 
 /** Context provided to the classifier alongside the frame */

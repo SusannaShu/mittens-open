@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
-import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Pressable, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Pressable, KeyboardAvoidingView, Platform, Keyboard, ActivityIndicator } from 'react-native';
 import { colors, spacing } from '../../../lib/theme';
 import ActivityTimeInputs from '../../common/ActivityTimeInputs';
 import { s } from '../TodayModals';
@@ -246,72 +246,95 @@ export function ManualEntryModal({
     <Modal visible={visible} transparent animationType="fade">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <Pressable style={s.modalOverlay} onPress={handleClose}>
-          <ScrollView style={{ maxHeight: '100%' }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} keyboardShouldPersistTaps="handled">
-            <View onStartShouldSetResponder={() => true} onResponderRelease={() => Keyboard.dismiss()}>
-              <View style={s.modalContent}>
-                <Text style={s.modalTitle}>Manual Entry</Text>
+          <View
+            onStartShouldSetResponder={() => true}
+            onResponderRelease={() => Keyboard.dismiss()}
+            style={{ backgroundColor: colors.bg, borderRadius: 16, maxHeight: '90%', overflow: 'hidden' }}
+          >
+            {/* Scrollable content area */}
+            <ScrollView
+              contentContainerStyle={{ padding: spacing.xl, paddingBottom: spacing.md }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={s.modalTitle}>Manual Entry</Text>
 
-          {/* Entry type tabs */}
-          <EntryTypeTabs value={entryType} onChange={setEntryType} />
+              {/* Entry type tabs */}
+              <EntryTypeTabs value={entryType} onChange={setEntryType} />
 
-          {/* Shared date + time picker */}
-          {entryType === 'activity' ? (
-             <ActivityTimeInputs loggedAt={loggedAt} setLoggedAt={onLoggedAtChange} durationMin={actDuration} setDurationMin={setActDuration} />
-          ) : (
-             renderDateTimePicker()
-          )}
+              {/* Shared date + time picker */}
+              {entryType === 'activity' ? (
+                <ActivityTimeInputs loggedAt={loggedAt} setLoggedAt={onLoggedAtChange} durationMin={actDuration} setDurationMin={setActDuration} />
+              ) : (
+                renderDateTimePicker()
+              )}
 
-          {/* Future indicator */}
-          {isFuture && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.md, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#F5F5F5', borderRadius: 8 }}>
-              <Feather name="calendar" size={12} color={colors.textMuted} />
-              <Text style={{ fontSize: 11, color: colors.textMuted, fontWeight: '500' }}>Planning -- reflection fields will be available after this time passes</Text>
-            </View>
-          )}
+              {/* Future indicator */}
+              {isFuture && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.md, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#F5F5F5', borderRadius: 8 }}>
+                  <Feather name="calendar" size={12} color={colors.textMuted} />
+                  <Text style={{ fontSize: 11, color: colors.textMuted, fontWeight: '500' }}>Planning -- reflection fields will be available after this time passes</Text>
+                </View>
+              )}
 
-          {/* ─── Meal Form ─── */}
-          {entryType === 'meal' && (
-            <MealForm
-              text={text}
-              onTextChange={onTextChange}
-              usdaFoods={usdaFoods}
-              onUsdaFoodsChange={onUsdaFoodsChange}
-              photos={photos}
-              onPhotosChange={onPhotosChange}
-              mealType={mealType}
-              onMealTypeChange={onMealTypeChange}
-              analyzing={analyzing}
-              onSubmit={onSubmit}
+              {/* Meal Form */}
+              {entryType === 'meal' && (
+                <MealForm
+                  text={text}
+                  onTextChange={onTextChange}
+                  usdaFoods={usdaFoods}
+                  onUsdaFoodsChange={onUsdaFoodsChange}
+                  photos={photos}
+                  onPhotosChange={onPhotosChange}
+                  mealType={mealType}
+                  onMealTypeChange={onMealTypeChange}
+                  analyzing={analyzing}
+                  onSubmit={onSubmit}
+                  onClose={handleClose}
+                  isFuture={isFuture}
+                />
+              )}
 
-              onClose={handleClose}
-              isFuture={isFuture}
-            />
-          )}
+              {/* Activity Form */}
+              {entryType === 'activity' && (
+                <ActivityForm
+                  onActivitySubmit={onActivitySubmit}
+                  loggedAt={loggedAt}
+                  onClose={handleClose}
+                  isFuture={isFuture}
+                />
+              )}
 
-          {/* ─── Activity Form ─── */}
-          {entryType === 'activity' && (
-            <ActivityForm
-              onActivitySubmit={onActivitySubmit}
-              loggedAt={loggedAt}
-              onClose={handleClose}
-              isFuture={isFuture}
-            />
-          )}
+              {/* Sleep Form */}
+              {entryType === 'sleep' && (
+                <SleepForm
+                  loggedAt={loggedAt}
+                  onSleepSubmit={onSleepSubmit}
+                  onClose={handleClose}
+                  isFuture={isFuture}
+                />
+              )}
+            </ScrollView>
 
-          {/* ─── Sleep Form ─── */}
-          {entryType === 'sleep' && (
-            <SleepForm
-              loggedAt={loggedAt}
-              onSleepSubmit={onSleepSubmit}
-              onClose={handleClose}
-              isFuture={isFuture}
-            />
-          )}
-        </View>
-        </View>
-        </ScrollView>
+            {/* Sticky bottom action bar -- always visible */}
+            {entryType === 'meal' && (
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg }}>
+                <TouchableOpacity style={s.modalBtnCancel} onPress={handleClose} disabled={analyzing}>
+                  <Text style={s.modalBtnTextCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.modalBtnSave}
+                  onPress={onSubmit}
+                  disabled={analyzing || (!text.trim() && photos.length === 0 && (!usdaFoods || usdaFoods.length === 0))}
+                >
+                  {analyzing ? <ActivityIndicator color={colors.bg} size="small" /> : <Text style={s.modalBtnTextSave}>Save</Text>}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </Pressable>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
+

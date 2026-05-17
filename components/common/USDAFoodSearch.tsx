@@ -8,10 +8,14 @@ interface USDAFoodSearchProps {
   onAddFood: (food: USDAReference & { amountGram: number, customName?: string }) => void;
 }
 
+/**
+ * USDA food search -- always shows the search box so users
+ * can add multiple items sequentially.
+ */
 export default function USDAFoodSearch({ onAddFood }: USDAFoodSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<USDAReference[]>([]);
-  const [selectedFood, setSelectedFood] = useState<USDAReference | null>(null);
+  const [pendingFood, setPendingFood] = useState<USDAReference | null>(null);
   const [amountGram, setAmountGram] = useState('100');
   const [customName, setCustomName] = useState('');
 
@@ -23,73 +27,90 @@ export default function USDAFoodSearch({ onAddFood }: USDAFoodSearchProps) {
     } else {
       setResults([]);
     }
-    setSelectedFood(null);
+    setPendingFood(null);
   };
 
   const handleSelect = (food: USDAReference) => {
-    setSelectedFood(food);
+    setPendingFood(food);
     setResults([]);
-    setCustomName(food.name.split(',')[0]); // Simple base name
+    setCustomName(food.name.split(',')[0]);
+    setAmountGram('100');
   };
 
   const handleAdd = () => {
-    if (selectedFood) {
+    if (pendingFood) {
       const g = parseInt(amountGram, 10) || 100;
       onAddFood({
-        ...selectedFood,
+        ...pendingFood,
         amountGram: g,
-        customName: customName || selectedFood.name
+        customName: customName || pendingFood.name
       });
+      // Reset for next search
       setQuery('');
-      setSelectedFood(null);
+      setPendingFood(null);
       setAmountGram('100');
+      setCustomName('');
     }
   };
 
-  if (selectedFood) {
-    return (
-      <View style={styles.selectedContainer}>
-        <View style={styles.selectedHeader}>
-          <Text style={styles.selectedTitle} numberOfLines={1}>{selectedFood.name}</Text>
-          <TouchableOpacity onPress={() => setSelectedFood(null)}>
-            <Feather name="x" size={16} color={colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.inputRow}>
-          <TextInput
-            style={[styles.input, { flex: 2 }]}
-            value={customName}
-            onChangeText={setCustomName}
-            placeholder="Display name"
-          />
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={amountGram}
-            onChangeText={setAmountGram}
-            keyboardType="number-pad"
-            placeholder="Grams"
-          />
-          <Text style={styles.unitText}>g</Text>
-          <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
-            <Feather name="plus" size={16} color={colors.bg} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
+      {/* Inline edit for selected food */}
+      {pendingFood && (
+        <View style={styles.pendingRow}>
+          <View style={styles.pendingInfo}>
+            <Text style={styles.pendingName} numberOfLines={1}>{pendingFood.name}</Text>
+            <View style={styles.pendingInputs}>
+              <TextInput
+                style={[styles.input, { flex: 2 }]}
+                value={customName}
+                onChangeText={setCustomName}
+                placeholder="Display name"
+                placeholderTextColor={colors.textMuted}
+              />
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={amountGram}
+                onChangeText={setAmountGram}
+                keyboardType="number-pad"
+                placeholder="g"
+                placeholderTextColor={colors.textMuted}
+              />
+              <Text style={styles.unitText}>g</Text>
+            </View>
+          </View>
+          <View style={styles.pendingActions}>
+            <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
+              <Feather name="plus" size={14} color={colors.bg} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => setPendingFood(null)}
+            >
+              <Feather name="x" size={14} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Search box -- always visible */}
       <View style={styles.searchBox}>
         <Feather name="search" size={14} color={colors.textMuted} />
         <TextInput
           style={styles.searchInput}
           value={query}
           onChangeText={handleSearch}
-          placeholder="Search exact USDA foods (manual log)..."
+          placeholder="Search USDA foods..."
           placeholderTextColor={colors.textMuted}
         />
+        {query.length > 0 && (
+          <TouchableOpacity onPress={() => { setQuery(''); setResults([]); }}>
+            <Feather name="x" size={14} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Dropdown results */}
       {results.length > 0 && (
         <ScrollView style={styles.resultsList} keyboardShouldPersistTaps="handled">
           {results.map((r) => (
@@ -106,92 +127,103 @@ export default function USDAFoodSearch({ onAddFood }: USDAFoodSearchProps) {
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#FAFAFA',
     borderWidth: 1,
     borderColor: '#eee',
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
-    height: 40,
+    height: 36,
   },
   searchInput: {
     flex: 1,
     marginLeft: spacing.xs,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textPrimary,
   },
   resultsList: {
-    maxHeight: 150,
+    maxHeight: 140,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#eee',
     borderTopWidth: 0,
-    borderBottomLeftRadius: radius.md,
-    borderBottomRightRadius: radius.md,
+    borderBottomLeftRadius: radius.sm,
+    borderBottomRightRadius: radius.sm,
   },
   resultItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: spacing.sm,
+    paddingVertical: 8,
+    paddingHorizontal: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#eee',
   },
   resultName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textPrimary,
   },
   resultCals: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textMuted,
     marginLeft: spacing.sm,
   },
-  selectedContainer: {
-    backgroundColor: '#f8f9fa',
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    marginBottom: spacing.md,
-  },
-  selectedHeader: {
+  pendingRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: '#F7F7F7',
+    borderRadius: radius.sm,
+    padding: 8,
     marginBottom: spacing.xs,
+    gap: 8,
   },
-  selectedTitle: {
-    fontSize: 12,
+  pendingInfo: { flex: 1 },
+  pendingName: {
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textPrimary,
-    flex: 1,
+    marginBottom: 4,
   },
-  inputRow: {
+  pendingInputs: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 4,
   },
   input: {
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: radius.sm,
-    height: 36,
-    paddingHorizontal: spacing.sm,
-    fontSize: 13,
+    borderRadius: 4,
+    height: 30,
+    paddingHorizontal: 6,
+    fontSize: 12,
   },
   unitText: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textMuted,
   },
+  pendingActions: {
+    justifyContent: 'center',
+    gap: 4,
+  },
   addBtn: {
-    width: 36,
-    height: 36,
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
+    width: 28,
+    height: 28,
+    backgroundColor: colors.textPrimary,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-  }
+  },
+  cancelBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });

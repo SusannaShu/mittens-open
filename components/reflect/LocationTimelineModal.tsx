@@ -35,6 +35,8 @@ interface TimelineRow {
   timeStr: string;
   type: 'capture' | 'activity' | 'scene';
   classification?: string;
+  /** Scene title from triage (free-form, e.g. "Indoor screen view") */
+  sceneTitle?: string;
   framePath?: string;
   transcript?: string;
   brainResponse?: string;
@@ -197,7 +199,7 @@ export default function LocationTimelineModal({ visible, session, title, onClose
                     >
                       <View style={[styles.badge, { backgroundColor: SCENE_COLORS[row.classification || ''] || '#E5E5EA' }]}>
                         <Text style={styles.badgeText}>
-                          {row.classification || 'unknown'}
+                          {row.classification || row.sceneTitle || 'unknown'}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -255,6 +257,11 @@ export default function LocationTimelineModal({ visible, session, title, onClose
                       <Feather name="mic" size={12} color={colors.textSecondary} />
                       <Text style={styles.transcriptText}>"{row.transcript}"</Text>
                     </View>
+                  )}
+
+                  {/* Scene title + description */}
+                  {row.sceneTitle && !row.brainResponse && (
+                    <Text style={styles.responseText}>{row.sceneTitle}</Text>
                   )}
 
                   {/* Mittens response */}
@@ -375,10 +382,11 @@ function buildTimelineRows(session: LocationSession): TimelineRow[] {
           timestamp: cap.timestamp,
           timeStr: formatTime(cap.timestamp),
           type: 'capture',
-          classification: extractClassification(cap.brainResponse),
+          classification: extractClassification(cap.title, cap.brainResponse),
+          sceneTitle: cap.title || undefined,
           framePath: cap.framePath,
           transcript: cap.transcript || undefined,
-          brainResponse: extractMittensResponse(cap.brainResponse),
+          brainResponse: cap.brainResponse || cap.description || undefined,
           phases,
         });
       }
@@ -437,20 +445,30 @@ function buildTimelineRows(session: LocationSession): TimelineRow[] {
   return rows;
 }
 
-/** Extract scene classification from brain response text */
-function extractClassification(brainResponse?: string): string | undefined {
-  if (!brainResponse) return undefined;
-  const lower = brainResponse.toLowerCase();
-  const types = ['work', 'social', 'rest', 'exercise', 'eating', 'cooking', 'commute', 'reading', 'scrolling', 'meditation'];
-  return types.find((t) => lower.includes(t));
-}
+/** Extract scene classification from triage title or brain response text */
+function extractClassification(title?: string, brainResponse?: string): string | undefined {
+  const types = ['work', 'social', 'rest', 'exercise', 'eating', 'cooking', 'commute',
+    'reading', 'scrolling', 'meditation', 'walk', 'run', 'bike', 'workout'];
 
-/** Extract the Mittens-facing response (nudges, face recognition) */
-function extractMittensResponse(brainResponse?: string): string | undefined {
-  if (!brainResponse) return undefined;
-  if (brainResponse.length > 100) return brainResponse.slice(0, 100) + '...';
-  if (brainResponse.includes('recognized') || brainResponse.includes('stretch') || brainResponse.includes('break')) {
-    return brainResponse;
+  // Check title first (from triage)
+  if (title) {
+    const lower = title.toLowerCase();
+    const match = types.find((t) => lower.includes(t));
+    if (match) return match;
+
+    // Map common triage titles to activity types
+    if (lower.includes('screen') || lower.includes('desk') || lower.includes('laptop') || lower.includes('computer')) return 'scrolling';
+    if (lower.includes('park') || lower.includes('hik') || lower.includes('outdoor')) return 'walk';
+    if (lower.includes('gym') || lower.includes('sport')) return 'exercise';
+    if (lower.includes('kitchen') || lower.includes('cook')) return 'cooking';
+    if (lower.includes('sleep') || lower.includes('bed') || lower.includes('dark')) return 'rest';
   }
+
+  // Fallback: try brainResponse
+  if (brainResponse) {
+    const lower = brainResponse.toLowerCase();
+    return types.find((t) => lower.includes(t));
+  }
+
   return undefined;
 }

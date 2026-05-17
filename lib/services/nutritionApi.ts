@@ -136,7 +136,56 @@ export const nutritionApi = baseApi.injectEndpoints({
     }),
 
     smartSnapAsync: build.mutation<{ jobId: string; status: string }, { image: string; extraImages?: string[]; caption?: string; photoTimestamps?: string[] }>({
-      queryFn: () => ({ data: { jobId: 'local-noop', status: 'completed' } }),
+      queryFn: async ({ image, extraImages, caption }) => {
+        try {
+          const { identifyFoods } = require('../pipelines/food/identify');
+          const { estimateNutrientsBatch, flattenNutrients } = require('../pipelines/food/nutrients');
+          const { analyzeBioavailability } = require('../pipelines/food/bioavailability');
+
+          // Collect all image URIs
+          const images = [image, ...(extraImages || [])];
+
+          // Phase 1: Identify foods from photo(s)
+          const idResult = await identifyFoods(images, caption || '');
+          if (idResult.foods.length === 0) {
+            return { data: { jobId: 'local-photo', status: 'completed', result: { foods: [], items: [] } } };
+          }
+
+          // Phase 2: Estimate nutrients
+          const nutrientResults = await estimateNutrientsBatch(idResult.foods);
+
+          // Phase 3: Bioavailability
+          const baseNutrientsMap: Record<string, any> = {};
+          nutrientResults.forEach((res: any, idx: number) => {
+            baseNutrientsMap[idResult.foods[idx].name] = res.nutrients;
+          });
+          const bioResult = await analyzeBioavailability(images, idResult.foods, baseNutrientsMap);
+
+          // Merge results
+          const items = idResult.foods.map((food: any, idx: number) => {
+            const nResult = nutrientResults[idx];
+            return {
+              ...food,
+              nutrients: nResult.nutrients,
+              meta: nResult.meta,
+              bioavailability: bioResult.adjustments.find((a: any) => a.food === food.name),
+            };
+          });
+
+          const result = {
+            foods: items,
+            items,
+            mealName: idResult.mealName,
+            mealType: idResult.mealType,
+            mealNote: bioResult.mealNote,
+            imageUrl: image,
+          };
+
+          return { data: { jobId: 'local-photo', status: 'completed', result } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
     }),
 
     chatAsync: build.mutation<{ jobId: string; status: string }, string | { message: string; replyTo?: { id: string; text: string }; tz?: number }>({
@@ -237,7 +286,27 @@ export const nutritionApi = baseApi.injectEndpoints({
     }),
 
     getTodayMealPlan: build.query<{ plan: any | null }, void>({
-      queryFn: () => ({ data: { plan: null } }),
+      queryFn: () => {
+        try {
+          const db = getDb();
+          const today = new Date().toLocaleDateString('en-CA');
+          const row = db.getFirstSync(
+            `SELECT * FROM daily_meal_plans WHERE plan_date = ? ORDER BY created_at DESC LIMIT 1`,
+            [today]
+          ) as any;
+          if (!row) return { data: { plan: null } };
+          const plan: any = {};
+          if (row.breakfast) plan.breakfast = JSON.parse(row.breakfast);
+          if (row.lunch) plan.lunch = JSON.parse(row.lunch);
+          if (row.dinner) plan.dinner = JSON.parse(row.dinner);
+          if (row.snacks) plan.snacks = JSON.parse(row.snacks);
+          if (row.gap_coverage) plan.gapCoverage = JSON.parse(row.gap_coverage);
+          if (row.grocery_list) plan.groceryList = JSON.parse(row.grocery_list);
+          return { data: { plan } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
       providesTags: ['MealPlan'],
     }),
 
@@ -247,9 +316,83 @@ export const nutritionApi = baseApi.injectEndpoints({
     }),
 
     generateMealPlanAsync: build.mutation<{ success: boolean; jobId: string; status: string; message: string }, { customConstraint?: string } | void>({
-      queryFn: () => ({
-        data: { success: false, jobId: 'local-noop', status: 'completed', message: 'Meal plan generation requires a backend.' },
-      }),
+      queryFn: async (args) => {
+        try {
+          const { getBrain } = require('../brain/selector');
+          const brain = await getBrain();
+          const db = getDb();
+          const today = new Date().toLocaleDateString('en-CA');
+
+          // Gather context: today's logged meals
+          const loggedRows = db.getAllSync(
+            `SELECT log_name, items FROM nutrition_logs WHERE date(logged_at) = ? ORDER BY logged_at ASC`,
+            [today]
+          ) as any[];
+          const loggedMeals = loggedRows.map((r: any) => r.log_name || 'unnamed meal').join(', ');
+
+          // Gather pantry items
+          const pantryRows = db.getAllSync(
+            `SELECT item_name, quantity, unit FROM smart_pantry WHERE quantity > 0 ORDER BY item_name`
+          ) as any[];
+          const pantryList = pantryRows.map((r: any) => `${r.item_name} (${r.quantity} ${r.unit})`).join(', ');
+
+          // Gather profile
+          const profile = db.getFirstSync(`SELECT * FROM nutrition_profile WHERE id = 1`) as any;
+          const dietInfo = profile?.dietary_preferences || 'none specified';
+          const disliked = profile?.disliked_foods || 'none';
+
+          const customConstraint = (args as any)?.customConstraint || '';
+
+          const prompt = `Generate a daily meal plan for the remaining meals today.
+
+Already eaten today: ${loggedMeals || 'nothing yet'}
+Pantry available: ${pantryList || 'unknown'}
+Dietary preferences: ${dietInfo}
+Disliked foods: ${disliked}
+${customConstraint ? `Special request: ${customConstraint}` : ''}
+
+Create practical, nutrient-dense meals using pantry items when possible.
+Focus on covering common micronutrient gaps (vitamin D, magnesium, potassium, omega-3, iron, zinc).
+
+JSON: {
+  "breakfast": {"items": ["food1", "food2"], "prepTip": "quick tip"},
+  "lunch": {"items": ["food1", "food2"], "prepTip": "quick tip"},
+  "dinner": {"items": ["food1", "food2"], "prepTip": "quick tip"},
+  "groceryList": [{"food": "item name", "reason": "covers vitamin D gap"}]
+}`;
+
+          const raw = await brain.text(prompt, { temperature: 0.4 });
+
+          // Parse response
+          const match = raw.match(/\{[\s\S]*\}/);
+          let plan: any = {};
+          if (match) {
+            plan = JSON.parse(match[0]);
+          }
+
+          // Persist to SQLite
+          db.runSync(
+            `INSERT OR REPLACE INTO daily_meal_plans (plan_date, breakfast, lunch, dinner, snacks, gap_coverage, grocery_list, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [
+              today,
+              plan.breakfast ? JSON.stringify(plan.breakfast) : null,
+              plan.lunch ? JSON.stringify(plan.lunch) : null,
+              plan.dinner ? JSON.stringify(plan.dinner) : null,
+              plan.snacks ? JSON.stringify(plan.snacks) : null,
+              plan.gapCoverage ? JSON.stringify(plan.gapCoverage) : null,
+              plan.groceryList ? JSON.stringify(plan.groceryList) : null,
+            ]
+          );
+
+          return {
+            data: { success: true, jobId: 'local-meal-plan', status: 'completed', message: 'Meal plan generated' },
+          };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['MealPlan'],
     }),
 
     checkMealPlanJobStatus: build.query<{ status: 'processing' | 'completed' | 'failed'; result?: any; error?: string; message?: string }, string>({

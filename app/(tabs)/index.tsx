@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useGetDailySummaryQuery, useGetTodayMealPlanQuery, useGenerateMealPlanAsyncMutation, useLazyCheckMealPlanJobStatusQuery } from '../../lib/services/nutritionApi';
+import { useGetDailySummaryQuery, useGetTodayMealPlanQuery, useGenerateMealPlanAsyncMutation } from '../../lib/services/nutritionApi';
 import { nutritionApi } from '../../lib/services/nutritionApi';
 import { useGetProfileQuery } from '../../lib/services/profileApi';
 import { colors, spacing } from '../../lib/theme';
@@ -66,11 +66,9 @@ export default function TodayScreen() {
   const gapCoverage = rawMealPlan?.gapCoverage || null;
 
 
-  // Async meal plan generation + polling
+  // Meal plan generation
   const [generateMealPlanAsync] = useGenerateMealPlanAsyncMutation();
-  const [checkStatus] = useLazyCheckMealPlanJobStatusQuery();
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoGenTriggeredRef = useRef(false);
 
   // Weather state
@@ -133,37 +131,15 @@ export default function TodayScreen() {
     },
   });
 
-  // Auto-generate meal plan via async polling (mirrors VTO pattern)
+  // Generate meal plan via local brain (no polling needed -- runs synchronously)
   const triggerMealPlanRegeneration = () => {
     if (isGeneratingPlan) return;
     setIsGeneratingPlan(true);
 
-    generateMealPlanAsync().unwrap().then((res) => {
-      if (!res.jobId) {
-        setIsGeneratingPlan(false);
-        return;
-      }
-
-      // Poll for result every 3s
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const statusRes = await checkStatus(res.jobId, false).unwrap();
-
-          if (statusRes.status === 'completed') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            setIsGeneratingPlan(false);
-            // Invalidate MealPlan tag to refetch via RTK Query
-            dispatch(nutritionApi.util.invalidateTags(['MealPlan']));
-          } else if (statusRes.status === 'failed') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            setIsGeneratingPlan(false);
-          }
-        } catch {
-          // Keep polling on transient errors
-        }
-      }, 3000);
+    generateMealPlanAsync().unwrap().then(() => {
+      setIsGeneratingPlan(false);
+      // Invalidate MealPlan tag to refetch from SQLite
+      dispatch(nutritionApi.util.invalidateTags(['MealPlan']));
     }).catch(() => {
       setIsGeneratingPlan(false);
     });
@@ -180,22 +156,9 @@ export default function TodayScreen() {
   useEffect(() => {
     if (mealPlanData?.plan) {
       autoGenTriggeredRef.current = false;
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
       setIsGeneratingPlan(false);
     }
   }, [mealPlanData]);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, []);
 
   // Redirect to onboarding if not completed
   useEffect(() => {
@@ -410,7 +373,6 @@ export default function TodayScreen() {
         onMealTypeChange={h.setManualMealType}
         analyzing={h.analyzingManual}
         onSubmit={h.handleManualSubmit}
-        onSkip={h.handleSkipManual}
         onActivitySubmit={async (data) => {
           await h.logActivity({ ...data, loggedAt: data.loggedAt || new Date().toISOString() }).unwrap();
           refetch();

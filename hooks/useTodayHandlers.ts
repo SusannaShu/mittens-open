@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import {
   useUpdateEntryMutation, useUpdateEntryDirectMutation, useDeleteEntryMutation,
   useAnalyzeTextMutation, useSmartSnapAsyncMutation, useChatWithMittensMutation,
-  useDislikeFoodMutation, useLazyCheckJobStatusQuery,
+  useDislikeFoodMutation,
 } from '../lib/services/nutritionApi';
 import { useAddPantryItemMutation, useDeletePantryItemMutation, useUpdatePantryItemMutation } from '../lib/services/profileApi';
 import { useLogActivityMutation, useReflectActivityMutation, useDeleteActivityMutation, ActivityEntry } from '../lib/services/activityApi';
@@ -19,7 +19,7 @@ export function useTodayHandlers(refetch: () => void) {
   const [deleteEntry] = useDeleteEntryMutation();
   const [analyzeText] = useAnalyzeTextMutation();
   const [smartSnapAsync] = useSmartSnapAsyncMutation();
-  const [checkJobStatus] = useLazyCheckJobStatusQuery();
+
   const [chatWithMittens] = useChatWithMittensMutation();
   const [dislikeFoodMutation] = useDislikeFoodMutation();
   const [addPantryItem] = useAddPantryItemMutation();
@@ -263,18 +263,9 @@ export function useTodayHandlers(refetch: () => void) {
     try {
       let result: any;
       if (manualPhotos.length > 0) {
-        const { jobId } = await smartSnapAsync({ image: manualPhotos[0], extraImages: manualPhotos.slice(1) }).unwrap();
-        // Poll for result
-        const pollForResult = async (id: string, maxAttempts = 60, intervalMs = 3000): Promise<any> => {
-          for (let i = 0; i < maxAttempts; i++) {
-            await new Promise(resolve => setTimeout(resolve, intervalMs));
-            const { data } = await checkJobStatus(id, false);
-            if (data?.status === 'completed') return data.result;
-            if (data?.status === 'failed') throw new Error(data.error || 'Job failed');
-          }
-          throw new Error('Request timed out');
-        };
-        result = await pollForResult(jobId);
+        // Local brain returns result directly (no async job polling needed)
+        const snapResult = await smartSnapAsync({ image: manualPhotos[0], extraImages: manualPhotos.slice(1) }).unwrap();
+        result = (snapResult as any).result || snapResult;
       } else {
         result = await analyzeText({ text: manualText.trim(), mealType: manualMealType }).unwrap();
       }

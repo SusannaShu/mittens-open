@@ -189,7 +189,6 @@ export default function ChatScreen() {
         onMealTypeChange={h.setManualMealType}
         analyzing={h.analyzingManual}
         onSubmit={h.handleManualSubmit}
-        onSkip={h.handleSkipManual}
         onActivitySubmit={async (data) => {
           try {
             await h.logActivity(data).unwrap();

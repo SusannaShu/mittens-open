@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../../lib/theme';
 import PhotoCapture from '../../common/PhotoCapture';
+import VoiceMealInput from '../../common/VoiceMealInput';
 import MealTypePicker from '../MealTypePicker';
 import USDAFoodSearch from '../../common/USDAFoodSearch';
 import { PillRow } from './PillRow';
@@ -21,13 +23,20 @@ interface MealFormProps {
   onSubmit: () => void;
   onClose: () => void;
   isFuture: boolean;
-  onSkip?: () => void;
+}
+
+/** Detect whether a photo string is a file/content URI or raw base64 */
+function photoSource(photo: string) {
+  if (photo.startsWith('file://') || photo.startsWith('ph://') || photo.startsWith('content://') || photo.startsWith('http')) {
+    return { uri: photo };
+  }
+  return { uri: `data:image/jpeg;base64,${photo}` };
 }
 
 export function MealForm({
   text, onTextChange, usdaFoods, onUsdaFoodsChange,
   photos, onPhotosChange, mealType, onMealTypeChange,
-  analyzing, onSubmit, onSkip, onClose, isFuture,
+  analyzing, onSubmit, onClose, isFuture,
 }: MealFormProps) {
   const [mealPace, setMealPace] = useState('');
   const [mealChewing, setMealChewing] = useState('');
@@ -35,19 +44,25 @@ export function MealForm({
   const [mealStress, setMealStress] = useState('');
   const [mealSocial, setMealSocial] = useState('');
 
+  const handleVoiceTranscript = (transcript: string) => {
+    const separator = text.trim() ? ', ' : '';
+    onTextChange(text + separator + transcript);
+  };
+
   return (
     <>
-      <Text style={s.modalSub}>Type what you ate or add a photo. AI will analyze and estimate portions.</Text>
+      <Text style={s.modalSub}>Type what you ate, speak it, or add a photo. AI will analyze and estimate portions.</Text>
       <MealTypePicker value={mealType} onChange={onMealTypeChange} />
 
-      {/* Photo strip */}
+      {/* Photo strip + voice input */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: spacing.md }}>
         {photos.length < 4 && (
           <PhotoCapture onCapture={(p) => onPhotosChange([...photos, ...p].slice(0, 4))} />
         )}
+        <VoiceMealInput onTranscript={handleVoiceTranscript} />
         {photos.map((photo, idx) => (
           <View key={idx} style={{ position: 'relative' }}>
-            <Image source={{ uri: `data:image/jpeg;base64,${photo}` }} style={{ width: 56, height: 56, borderRadius: 8 }} />
+            <Image source={photoSource(photo)} style={{ width: 56, height: 56, borderRadius: 8 }} />
             <TouchableOpacity
               onPress={() => onPhotosChange(photos.filter((_, i) => i !== idx))}
               style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: 9, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}
@@ -67,8 +82,15 @@ export function MealForm({
         multiline
       />
 
+      {/* Manual search divider */}
       {onUsdaFoodsChange && usdaFoods && (
         <>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: spacing.md }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+            <Text style={{ fontSize: 11, color: colors.textMuted, fontWeight: '500' }}>or search manually</Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+          </View>
+
           <USDAFoodSearch onAddFood={(f) => onUsdaFoodsChange([...usdaFoods, f])} />
           {usdaFoods.length > 0 && (
             <View style={{ marginBottom: spacing.md }}>
@@ -121,17 +143,14 @@ export function MealForm({
       )}
 
       <View style={s.modalActions}>
-        <View style={{ flexDirection: 'row', gap: spacing.md, flex: 1 }}>
-          <TouchableOpacity style={s.modalBtnCancel} onPress={onClose} disabled={analyzing}>
-            <Text style={s.modalBtnTextCancel}>Cancel</Text>
-          </TouchableOpacity>
-          {onSkip && (
-            <TouchableOpacity style={s.modalBtnCancel} onPress={onSkip} disabled={analyzing}>
-              <Text style={s.modalBtnTextCancel}>Skip to Manual</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <TouchableOpacity style={s.modalBtnSave} onPress={onSubmit} disabled={analyzing || (!text.trim() && photos.length === 0)}>
+        <TouchableOpacity style={s.modalBtnCancel} onPress={onClose} disabled={analyzing}>
+          <Text style={s.modalBtnTextCancel}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={s.modalBtnSave}
+          onPress={onSubmit}
+          disabled={analyzing || (!text.trim() && photos.length === 0 && (!usdaFoods || usdaFoods.length === 0))}
+        >
           {analyzing ? <ActivityIndicator color={colors.bg} size="small" /> : <Text style={s.modalBtnTextSave}>Analyze</Text>}
         </TouchableOpacity>
       </View>

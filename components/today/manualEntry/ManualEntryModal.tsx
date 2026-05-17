@@ -31,7 +31,7 @@ interface ManualEntryModalProps {
   onMealTypeChange: (t: string) => void;
   analyzing: boolean;
   onSubmit: () => void;
-  onSkip?: () => void;
+
   // Activity fields
   onActivitySubmit: (data: {
     logName: string; activityType: string; duration_min?: number; loggedAt?: string;
@@ -47,7 +47,7 @@ export function ManualEntryModal({
   visible, onClose, loggedAt, onLoggedAtChange,
   initialDate, initialTab,
   text, onTextChange, usdaFoods, onUsdaFoodsChange, photos, onPhotosChange,
-  mealType, onMealTypeChange, analyzing, onSubmit, onSkip,
+  mealType, onMealTypeChange, analyzing, onSubmit,
   onActivitySubmit, onSleepSubmit,
 }: ManualEntryModalProps) {
   const [entryType, setEntryType] = useState<ManualEntryType>(initialTab || 'meal');
@@ -282,7 +282,7 @@ export function ManualEntryModal({
               onMealTypeChange={onMealTypeChange}
               analyzing={analyzing}
               onSubmit={onSubmit}
-              onSkip={onSkip}
+
               onClose={handleClose}
               isFuture={isFuture}
             />

@@ -435,7 +435,6 @@ export default function ReflectScreen() {
         onMealTypeChange={h.setManualMealType}
         analyzing={h.analyzingManual}
         onSubmit={h.handleMealSubmit}
-        onSkip={h.handleSkipManual}
         onActivitySubmit={async (data) => {
           await h.logActivity({ ...data, loggedAt: data.loggedAt || new Date().toISOString() } as any).unwrap();
           h.setManualModalVisible(false);

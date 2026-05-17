@@ -213,11 +213,13 @@ class SceneStreamManager {
 
     const cfg = getScheduleConfig();
     const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes();
-    if (now.getHours() >= 4 && nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
+    const hr = now.getHours();
+    const nowMin = hr * 60 + now.getMinutes();
+    if (hr >= 4 && nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
       await markMorningGreeted();
       const name = getOwnerName();
-      const greeting = `Good morning ${name}!`;
+      const timeGreeting = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+      const greeting = `${timeGreeting} ${name}!`;
       console.log(`[SceneStream] Morning greeting: "${greeting}"`);
 
       try {

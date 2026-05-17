@@ -4,6 +4,10 @@
  * Runs one VLM call per capture frame and returns any detected AEIOU signals.
  * Only returns fields that are actually observed -- never fabricates.
  *
+ * NOTE: isOutdoors and isNature are handled by the scene triage prompt
+ * (sceneClassifier.ts) and are NOT extracted here. This module focuses
+ * purely on the rich AEIOU text fields.
+ *
  * AEIOU framework:
  *   A = Activities: What is the person doing?
  *   E = Environments: What kind of place is this?
@@ -18,7 +22,9 @@ export interface AeiouObservation {
   interactions?: string;
   objects?: string;
   users?: string;
+  /** @deprecated Use triage.signals.outdoors instead */
   isOutdoors?: boolean;
+  /** @deprecated Use triage.signals.nature instead */
   isNature?: boolean;
 }
 
@@ -49,7 +55,7 @@ export async function detectAeiou(
       `Scene context: ${sceneDescription || 'unknown'}`,
       '',
       'Return JSON only. Omit any field you cannot determine:',
-      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"...","isOutdoors":true|false,"isNature":true|false}',
+      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"..."}',
     ].join('\n');
 
     const raw = await brain.vision(prompt, [framePath]);
@@ -82,7 +88,7 @@ export async function summarizeAeiou(
       ...observations.map((o, i) => `Frame ${i + 1}: ${JSON.stringify(o)}`),
       '',
       'Return JSON with summarized fields:',
-      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"...","isOutdoors":true|false,"isNature":true|false}',
+      '{"activity":"...","environment":"...","interactions":"...","objects":"...","users":"..."}',
     ].join('\n');
 
     const raw = await brain.text(prompt);

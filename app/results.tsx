@@ -22,6 +22,8 @@ export default function ConfirmScreen() {
   const [logging, setLogging] = useState(false);
   const [addText, setAddText] = useState('');
   const [addingItem, setAddingItem] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   useEffect(() => {
     try {
@@ -35,6 +37,16 @@ export default function ConfirmScreen() {
       // invalid
     }
   }, [dataStr]);
+
+  useEffect(() => {
+    if (searchQuery.trim().length > 1) {
+      const { lookupUSDAAll } = require('../lib/services/food/nutrientEstimator');
+      const results = lookupUSDAAll(searchQuery.trim(), 0.4, 5);
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchQuery]);
 
   if (!foods.length) {
     return (
@@ -124,18 +136,7 @@ export default function ConfirmScreen() {
     setFoods(newFoods);
   };
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (searchQuery.trim().length > 1) {
-      const { lookupUSDAAll } = require('../lib/services/food/nutrientEstimator');
-      const results = lookupUSDAAll(searchQuery.trim(), 0.4, 5);
-      setSearchResults(results);
-    } else {
-      setSearchResults([]);
-    }
-  }, [searchQuery]);
 
   const handleAddUSDAItem = (ref: any) => {
     const { scaleNutrients, flattenNutrientsNullable } = require('../lib/services/food/nutrientEstimator');

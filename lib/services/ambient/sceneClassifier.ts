@@ -1,41 +1,56 @@
 /**
- * ambient/sceneClassifier.ts -- Dual-classifier for pendant frames.
+ * ambient/sceneClassifier.ts -- Multi-signal scene triage for pendant frames.
  *
- * Single VLM call that extracts BOTH nutrition and activity signals.
- * A frame can produce both a nutrition log AND an activity log.
- * No rigid scene-type enum -- activity type is free-form for display.
+ * Single VLM call that extracts independent health signals from every frame:
+ *   - nature (touch grass score)
+ *   - outdoors (vitamin D score)
+ *   - movement + type (MET health score)
+ *   - screenUse (sedentary timer)
+ *   - foodContext (eating/grocery/cooking/pantry triggers deeper pipeline)
+ *
+ * Every frame always gets a title and description -- no more "Nothing detected."
  */
 
 import type {
-  FrameClassification,
+  SceneTriage,
+  SceneSignals,
+  DetectedFoodItem,
   ClassifierContext,
 } from './types';
 
-/** Classify a pendant frame into nutrition + activity signals */
-export async function classifyFrame(
+const DEFAULT_SIGNALS: SceneSignals = {
+  nature: false,
+  outdoors: false,
+  movement: false,
+  screenUse: false,
+  foodContext: null,
+};
+
+/** Triage a pendant frame into multi-signal health data */
+export async function triageFrame(
   framePath: string,
   context: ClassifierContext,
-): Promise<FrameClassification> {
+): Promise<SceneTriage> {
   const { getBrain } = require('../../brain/selector');
   const brain = await getBrain();
 
   const prompt = buildPrompt(context);
 
-  const fallback: FrameClassification = {
-    nutrition: { detected: false, items: [] },
-    activity: { detected: false, confidence: 0 },
-    people: 0,
+  const fallback: SceneTriage = {
+    title: 'Capture',
     description: '',
+    signals: { ...DEFAULT_SIGNALS },
+    foodItems: [],
+    people: 0,
   };
 
   try {
     const raw = await brain.vision(prompt, [framePath]);
-    return parseClassification(raw, fallback);
+    return parseTriage(raw, fallback);
   } catch (err: any) {
     const msg = err?.message || String(err);
     console.error('[Classifier] Vision failed:', msg);
 
-    // Detect brain connectivity issues so the UI can surface them
     const isConnectivityError =
       err?.name === 'ConnectionError' ||
       msg.includes('Network request failed') ||
@@ -58,26 +73,30 @@ export async function classifyFrame(
 function buildPrompt(ctx: ClassifierContext): string {
   const parts: string[] = [
     'Analyze this photo from a wearable camera. The person wearing the camera is the subject.',
+    'You MUST always provide a title and description for the scene.',
     'Respond JSON only:',
     '{',
-    '  "nutrition": {',
-    '    "detected": true/false (any food, drink, or snack visible?),',
-    '    "items": [{"name": "...", "qty": 1, "unit": "whole", "conf": 0.9}] or [],',
-    '    "context": "brief eating context" or null',
+    '  "title": "short scene title (2-5 words, e.g. Park afternoon, Morning commute, Desk work)",',
+    '  "description": "one-line description of the overall scene",',
+    '  "signals": {',
+    '    "nature": true/false (trees, grass, water, flowers, parks, garden visible?),',
+    '    "outdoors": true/false (is this outside, not inside a building?),',
+    '    "movement": true/false (person is walking, running, cycling, exercising?),',
+    '    "movementType": "walking" or null (free-form: walking, running, cycling, hiking, gym, yoga, dancing, swimming, etc),',
+    '    "screenUse": true/false (laptop, phone, tablet, monitor visible and being used?),',
+    '    "foodContext": "eating"|"grocery"|"cooking"|"pantry"|null',
     '  },',
-    '  "activity": {',
-    '    "detected": true/false (recognizable activity?),',
-    '    "type": "working" (free-form label: working, cooking, gym, resting, socializing, commuting, etc),',
-    '    "description": "one-line description",',
-    '    "conf": 0-1',
-    '  },',
+    '  "foodItems": [{"name":"...", "qty":1, "unit":"whole", "conf":0.9}] or [] (only if food visible),',
     '  "people": 0 (number of visible faces/people),',
-    '  "description": "one-line overall scene description",',
-    '  "sleepContext": {',
-    '    "isDark": true/false (is the photo totally dark/black?),',
-    '    "screensVisible": true/false (are laptops/phones/bright screens visible?)',
-    '  } or null',
+    '  "sleepContext": {"isDark": true/false, "screensVisible": true/false} or null',
     '}',
+    '',
+    'foodContext definitions:',
+    '- "eating": consuming food/drink, plated food, cup in hand, snacking',
+    '- "grocery": in a store/market, items on shelves, shopping cart, checkout',
+    '- "cooking": preparing food, cutting, stirring, using stove/oven/blender',
+    '- "pantry": looking at fridge, freezer, pantry shelf, food storage',
+    '- null: no food-related activity',
   ];
 
   if (ctx.place) {
@@ -97,54 +116,58 @@ function buildPrompt(ctx: ClassifierContext): string {
 
 // --- Response Parsing ---
 
-function parseClassification(
+function parseTriage(
   raw: string,
-  fallback: FrameClassification,
-): FrameClassification {
+  fallback: SceneTriage,
+): SceneTriage {
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return fallback;
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Parse nutrition signal
-    const rawNut = parsed.nutrition || {};
-    const nutrition = {
-      detected: Boolean(rawNut.detected),
-      items: Array.isArray(rawNut.items)
-        ? rawNut.items
-            .map((item: any) => ({
-              name: String(item.name || item.n || ''),
-              qty: item.qty || item.q || undefined,
-              unit: item.unit || item.u || undefined,
-              confidence: Number(item.conf || item.confidence || 0.5),
-            }))
-            .filter((item: any) => item.name.length > 0)
-        : [],
-      context: rawNut.context || undefined,
+    // Parse signals
+    const rawSig = parsed.signals || {};
+    const validFoodContexts = ['eating', 'grocery', 'cooking', 'pantry'];
+    const signals: SceneSignals = {
+      nature: Boolean(rawSig.nature),
+      outdoors: Boolean(rawSig.outdoors),
+      movement: Boolean(rawSig.movement),
+      movementType: rawSig.movementType || undefined,
+      screenUse: Boolean(rawSig.screenUse),
+      foodContext: validFoodContexts.includes(rawSig.foodContext)
+        ? rawSig.foodContext
+        : null,
     };
 
-    // Parse activity signal
-    const rawAct = parsed.activity || {};
-    const activity = {
-      detected: Boolean(rawAct.detected),
-      type: rawAct.type || undefined,
-      description: rawAct.description || undefined,
-      confidence: Number(rawAct.conf || rawAct.confidence || 0),
-    };
+    // Parse food items
+    const foodItems: DetectedFoodItem[] = Array.isArray(parsed.foodItems)
+      ? parsed.foodItems
+          .map((item: any) => ({
+            name: String(item.name || item.n || ''),
+            qty: item.qty || item.q || undefined,
+            unit: item.unit || item.u || undefined,
+            confidence: Number(item.conf || item.confidence || 0.5),
+          }))
+          .filter((item: any) => item.name.length > 0)
+      : [];
 
+    // Parse sleep context
     const rawSleep = parsed.sleepContext;
-    const sleepContext = rawSleep ? {
-      isDark: Boolean(rawSleep.isDark),
-      screensVisible: Boolean(rawSleep.screensVisible)
-    } : undefined;
+    const sleepContext = rawSleep
+      ? {
+          isDark: Boolean(rawSleep.isDark),
+          screensVisible: Boolean(rawSleep.screensVisible),
+        }
+      : undefined;
 
     return {
-      nutrition,
-      activity,
-      people: Number(parsed.people || parsed.ppl || 0),
+      title: parsed.title || fallback.title,
       description: parsed.description || parsed.desc || '',
-      sleepContext
+      signals,
+      foodItems,
+      people: Number(parsed.people || parsed.ppl || 0),
+      sleepContext,
     };
   } catch (err) {
     console.warn('[Classifier] Parse failed, using fallback');

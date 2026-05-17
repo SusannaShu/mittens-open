@@ -1,23 +1,23 @@
 /**
- * ambient/sceneLogWriter.ts -- Log creation from dual classifier output.
+ * ambient/sceneLogWriter.ts -- Log creation from scene triage output.
  *
- * Creates nutrition_logs and/or activity_logs based on the FrameClassification.
+ * Creates nutrition_logs and/or activity_logs based on the SceneTriage.
  * A single frame can produce BOTH a nutrition log AND an activity log.
  *
- * Nutrition pipeline now has a food context phase:
+ * Nutrition pipeline routes by foodContext signal:
  *   eating  -> VLM dedup -> identify -> nutrients -> chat card
  *   grocery -> grocery pipeline (item tracking, receipt, pantry)
  *   cooking -> cooking pipeline (ingredients, timers, plate detection)
+ *   pantry  -> pantry scan
  *
  * Activity logic lives in activityLogWriter.ts.
  */
 
-import type { FrameClassification } from './types';
+import type { SceneTriage } from './types';
 import type { PipelineLogger } from '../../pipelines/logger';
 import { guessMealType } from './logWriterHelpers';
 import { dedupNutrition } from './nutritionDedup';
 import { handleActivity } from './activityLogWriter';
-import { classifyFoodContext } from './foodContextClassifier';
 import {
   handleGroceryFrame,
   checkGroceryExit,
@@ -51,11 +51,11 @@ export interface LogResult {
 }
 
 /**
- * Create or update logs based on dual classifier output.
+ * Create or update logs based on scene triage output.
  * Both nutrition and activity can fire for the same frame.
  */
 export async function executeLogDecision(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   logger: PipelineLogger,
 ): Promise<LogResult> {
@@ -66,34 +66,24 @@ export async function executeLogDecision(
   let logName: string | null = null;
   let mealType: string | null = null;
 
-  // Nutrition pipeline (with food context routing)
-  if (classification.nutrition.detected) {
-    const result = await handleNutrition(classification, framePath, logger);
+  // Nutrition pipeline (routed by foodContext signal)
+  if (triage.signals.foodContext != null) {
+    const result = await handleNutrition(triage, framePath, logger);
     nutritionLogId = result.logId;
     nutritionSummary = result.summary;
     pipelineFoods = result.pipelineFoods;
     logName = result.logName;
     mealType = result.mealType;
   } else {
-    // No nutrition detected -- check if grocery session should close
+    // No food detected -- check if grocery session should close
     if (getActiveGrocerySession()) {
       await checkGroceryExit(logger);
     }
   }
 
   // Activity pipeline (delegated to activityLogWriter)
-  if (classification.activity.detected) {
-    activityLogId = await handleActivity(classification, framePath, logger);
-
-    // At-home sedentary detection: auto-start timer if sitting/screen
-    try {
-      const { getCurrentPlace } = require('../location/locationService');
-      const place = getCurrentPlace();
-      if (place === 'Home') {
-        const { checkSedentaryState } = require('./sedentaryDetector');
-        checkSedentaryState(framePath).catch(() => { /* non-blocking */ });
-      }
-    } catch { /* location or sedentary service not loaded */ }
+  if (triage.signals.movement) {
+    activityLogId = await handleActivity(triage, framePath, logger);
   }
 
   return { nutritionLogId, activityLogId, nutritionSummary, pipelineFoods, logName, mealType };
@@ -101,47 +91,36 @@ export async function executeLogDecision(
 
 // --- Nutrition Pipeline ---
 
-
-
-
 async function handleNutrition(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   logger: PipelineLogger,
 ): Promise<NutritionResult> {
-  // Phase: Food Context Classification
-  let place: string | undefined;
-  try {
-    const { getCurrentPlace } = require('../location/locationService');
-    place = getCurrentPlace() || undefined;
-  } catch { /* location not available */ }
-
+  // foodContext already determined by triage -- no separate VLM call needed
+  const foodCtx = triage.signals.foodContext!;
   const ctxIdx = logger.startPhase('food', 'context');
-  const foodCtx = await classifyFoodContext(
-    framePath, classification.nutrition.items, place,
-  );
-  logger.completePhase(ctxIdx, `${foodCtx.context} (${Math.round(foodCtx.confidence * 100)}%)`);
+  logger.completePhase(ctxIdx, `${foodCtx} (from triage)`);
 
-  switch (foodCtx.context) {
+  switch (foodCtx) {
     case 'grocery':
-      return handleGroceryContext(classification, framePath, logger);
+      return handleGroceryContext(triage, framePath, logger);
 
     case 'cooking':
-      return handleCookingContext(classification, framePath, foodCtx.cookingAction, logger);
+      return handleCookingContext(triage, framePath, undefined, logger);
 
     case 'pantry':
-      return handlePantryContext(classification, framePath, logger);
+      return handlePantryContext(triage, framePath, logger);
 
     case 'eating':
     default:
-      return handleEatingContext(classification, framePath, logger);
+      return handleEatingContext(triage, framePath, logger);
   }
 }
 
 // --- Eating Context ---
 
 async function handleEatingContext(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   logger: PipelineLogger,
 ): Promise<NutritionResult> {
@@ -150,8 +129,6 @@ async function handleEatingContext(
   if (cookingSession) {
     const plateResult = await handleCookingToEating(framePath, logger);
     if (plateResult.action === 'ask_confirm' && plateResult.plateItems.length > 0) {
-      // Return plate detection as the result -- log will be created
-      // after user confirms via chat interaction
       return {
         logId: null,
         summary: `Meal ready! Detected on plate: ${plateResult.plateItems.map(i => i.name).join(', ')}. Awaiting confirmation.`,
@@ -174,7 +151,7 @@ async function handleEatingContext(
 
   // Standard eating flow: VLM Dedup -> Identify -> Nutrients
   const dedupIdx = logger.startPhase('food', 'dedup');
-  const dedupResult = await dedupNutrition(framePath, classification.nutrition.items);
+  const dedupResult = await dedupNutrition(framePath, triage.foodItems);
   logger.completePhase(dedupIdx, `${dedupResult.action}: ${dedupResult.reason}`);
 
   if (dedupResult.action === 'skip') {
@@ -191,25 +168,25 @@ async function handleEatingContext(
   const db = getDb();
 
   if (dedupResult.action === 'add' && dedupResult.targetLogId) {
-    return updateNutritionLog(dedupResult.targetLogId, classification, framePath, db, logger);
+    return updateNutritionLog(dedupResult.targetLogId, triage, framePath, db, logger);
   }
 
-  return createNutritionLog(classification, framePath, db, logger);
+  return createNutritionLog(triage, framePath, db, logger);
 }
 
 // --- Grocery Context ---
 
 async function handleGroceryContext(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   logger: PipelineLogger,
 ): Promise<NutritionResult> {
   const result = await handleGroceryFrame(
-    framePath, classification.nutrition.items, logger,
+    framePath, triage.foodItems, logger,
   );
 
   return {
-    logId: null, // Grocery doesn't create nutrition logs
+    logId: null,
     summary: result.summary,
     pipelineFoods: null,
     logName: null,
@@ -220,17 +197,17 @@ async function handleGroceryContext(
 // --- Cooking Context ---
 
 async function handleCookingContext(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   cookingAction: string | undefined,
   logger: PipelineLogger,
 ): Promise<NutritionResult> {
   const result = await handleCookingFrame(
-    framePath, classification.nutrition.items, cookingAction, logger,
+    framePath, triage.foodItems, cookingAction, logger,
   );
 
   return {
-    logId: null, // Cooking doesn't create nutrition logs (eating transition does)
+    logId: null,
     summary: result.summary,
     pipelineFoods: null,
     logName: null,
@@ -241,16 +218,16 @@ async function handleCookingContext(
 // --- Pantry Context ---
 
 async function handlePantryContext(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   logger: PipelineLogger,
 ): Promise<NutritionResult> {
   const result = await handlePantryFrame(
-    framePath, classification.nutrition.items, logger,
+    framePath, triage.foodItems, logger,
   );
 
   return {
-    logId: null, // Pantry view doesn't create nutrition logs
+    logId: null,
     summary: result.summary,
     pipelineFoods: null,
     logName: null,

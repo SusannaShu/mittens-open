@@ -67,6 +67,44 @@ export async function checkSedentaryState(
   return { ...detection, timerStarted: true };
 }
 
+/**
+ * Trigger sedentary timer from a pre-computed signal (no VLM call).
+ * Called by sceneStreamManager when triage detects screenUse at home.
+ */
+export async function triggerFromSignal(
+  screenUse: boolean,
+): Promise<SedentaryResult> {
+  const fallback: SedentaryResult = {
+    detected: false,
+    posture: 'unknown',
+    screenUse: false,
+    timerStarted: false,
+  };
+
+  if (!screenUse) return fallback;
+
+  // Guard: cooldown
+  if (Date.now() - lastAutoStartAt < AUTO_START_COOLDOWN_MS) {
+    return fallback;
+  }
+
+  // Guard: timer already running
+  if (await isTimerRunning()) return fallback;
+
+  lastAutoStartAt = Date.now();
+  const breakMin = await getBreakInterval();
+
+  emitAutoTimer('screen time', breakMin);
+  emitReadout(`Starting screen time timer of ${breakMin} minutes.`);
+
+  return {
+    detected: true,
+    posture: 'sitting',
+    screenUse: true,
+    timerStarted: true,
+  };
+}
+
 // --- Detection ---
 
 async function detectSedentary(framePath: string): Promise<SedentaryResult> {

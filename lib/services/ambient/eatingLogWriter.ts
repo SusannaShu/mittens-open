@@ -7,7 +7,7 @@
  * and pantry delta extraction.
  */
 
-import type { FrameClassification } from './types';
+import type { SceneTriage } from './types';
 import type { PipelineLogger } from '../../pipelines/logger';
 import { guessMealType, aggregateNutrients, mergeItems } from './logWriterHelpers';
 
@@ -24,7 +24,7 @@ export interface NutritionResult {
 // --- Create Nutrition Log ---
 
 export async function createNutritionLog(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   db: any,
   logger: PipelineLogger,
@@ -35,7 +35,7 @@ export async function createNutritionLog(
   let nutrientTotals: Record<string, number> = {};
 
   // Phase: identify foods via vision
-  if (classification.nutrition.items.length > 0 && framePath) {
+  if (triage.foodItems.length > 0 && framePath) {
     const idx = logger.startPhase('food', 'identify');
     try {
       const { identifyFoods } = require('../../pipelines/food/identify');
@@ -51,10 +51,10 @@ export async function createNutritionLog(
   }
 
   // Phase: ask user when VLM couldn't identify specific foods
-  if (identifiedFoods.length === 0 && classification.nutrition.items.length > 0) {
+  if (identifiedFoods.length === 0 && triage.foodItems.length > 0) {
     const askIdx = logger.startPhase('food', 'askUser');
     try {
-      const rawItems = classification.nutrition.items.map((i: any) => i.name || i.n).join(', ');
+      const rawItems = triage.foodItems.map((i: any) => i.name || i.n).join(', ');
       const question = `I see you are having ${mealType}. I can see ${rawItems} but I am not sure what it is. What are you eating?`;
       const { mittensAsk } = require('./mittensAsk');
       const answer = await mittensAsk(question);
@@ -83,7 +83,7 @@ export async function createNutritionLog(
   await runPantryDelta(framePath, logger);
 
   // Build log entry
-  const finalItems = identifiedFoods.length > 0 ? identifiedFoods : classification.nutrition.items;
+  const finalItems = identifiedFoods.length > 0 ? identifiedFoods : triage.foodItems;
   const logName = finalItems.length > 0
     ? finalItems.map((i: any) => i.name || i.n).join(', ')
     : `${mealType} (pendant)`;
@@ -124,7 +124,7 @@ export async function createNutritionLog(
 
 export async function updateNutritionLog(
   logId: number,
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   db: any,
   logger: PipelineLogger,
@@ -144,7 +144,7 @@ export async function updateNutritionLog(
   let updatedNutrients = existing?.nutrients ? JSON.parse(existing.nutrients) : {};
 
   // Re-run identify to find new items
-  if (classification.nutrition.items.length > 0 && framePath) {
+  if (triage.foodItems.length > 0 && framePath) {
     const idx = logger.startPhase('food', 'identify');
     try {
       const { identifyFoods } = require('../../pipelines/food/identify');

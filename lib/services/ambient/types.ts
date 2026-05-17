@@ -80,6 +80,44 @@ export interface ClassifierContext {
 }
 
 // =============================================
+// MULTI-SIGNAL SCENE TRIAGE
+// =============================================
+
+/** Independent health signals extracted from every frame */
+export interface SceneSignals {
+  /** Nature visible: trees, grass, water, flowers, parks */
+  nature: boolean;
+  /** Outdoors: not inside a building */
+  outdoors: boolean;
+  /** Body movement detected: walking, running, cycling, etc */
+  movement: boolean;
+  /** Movement type label if movement is true */
+  movementType?: string;
+  /** Screen/sedentary: using phone, laptop, sitting at desk */
+  screenUse: boolean;
+  /** Food context detected: eating, cooking, grocery, pantry */
+  foodContext: 'eating' | 'grocery' | 'cooking' | 'pantry' | null;
+}
+
+/** Combined output from the scene triage (Phase 2) */
+export interface SceneTriage {
+  /** Always-present title (free-form, e.g. "Park afternoon") */
+  title: string;
+  /** Always-present one-line description */
+  description: string;
+  /** Independent health signals */
+  signals: SceneSignals;
+  /** Detected food items (only when foodContext is non-null) */
+  foodItems: DetectedFoodItem[];
+  /** Number of people/faces visible */
+  people: number;
+  /** Sleep context for bedtime nudges */
+  sleepContext?: { isDark: boolean; screensVisible: boolean };
+  /** Set when classification failed */
+  error?: string;
+}
+
+// =============================================
 // CAPTURE CADENCE
 // =============================================
 
@@ -188,7 +226,7 @@ export interface SleepNudgeResult {
 
 /** Result from a pipeline run, stored for debug trace */
 export interface PipelineResult {
-  classification: FrameClassification;
+  triage: SceneTriage;
   nutritionLogId?: number | null;
   activityLogId?: number | null;
   /** Natural language summary of what the nutrition pipeline did */

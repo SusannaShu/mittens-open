@@ -4,12 +4,16 @@
  * Extracted from sceneLogWriter.ts to keep files under 400 lines.
  * Handles pendant-triggered activity logging with MET lookup,
  * life design inference, and time-based dedup.
+ *
+ * Now accepts SceneTriage -- uses signals.outdoors and signals.nature
+ * directly instead of a separate AEIOU VLM call for those booleans.
+ * AEIOU still runs for the rich text fields (activity, environment, etc).
  */
 
-import type { FrameClassification } from './types';
+import type { SceneTriage } from './types';
 import type { PipelineLogger } from '../../pipelines/logger';
 
-// --- MET Lookup (approximate, for free-form activity types) ---
+// --- MET Lookup (approximate, for free-form movement types) ---
 
 const MET_TABLE: Record<string, number> = {
   working: 1.3, resting: 1.0, reading: 1.3,
@@ -26,7 +30,7 @@ const ACTIVITY_DEDUP_WINDOW_MS = 30 * 60 * 1000;
 // --- Main Dispatch ---
 
 export async function handleActivity(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   logger: PipelineLogger,
 ): Promise<number | null> {
@@ -41,25 +45,25 @@ export async function handleActivity(
   } catch { /* trailActivityBridge not loaded */ }
 
   if (trailLogId != null) {
-    return updateActivityLog(trailLogId, classification, framePath, db, logger);
+    return updateActivityLog(trailLogId, triage, framePath, db, logger);
   }
 
   const recentLog = findRecentActivityLog(db);
   if (recentLog) {
-    return updateActivityLog(recentLog.id, classification, framePath, db, logger);
+    return updateActivityLog(recentLog.id, triage, framePath, db, logger);
   }
-  return createActivityLog(classification, framePath, db, logger);
+  return createActivityLog(triage, framePath, db, logger);
 }
 
 // --- Create ---
 
 async function createActivityLog(
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   db: any,
   logger: PipelineLogger,
 ): Promise<number | null> {
-  const actType = classification.activity.type || 'unknown';
+  const actType = triage.signals.movementType || 'unknown';
   const logName = `${actType} (pendant)`;
   const metValue = lookupMET(actType);
   let lifeDesignWeights: Record<string, number> | null = null;
@@ -84,19 +88,22 @@ async function createActivityLog(
     placeName = getCurrentPlace() || null;
   } catch { /* location not available */ }
 
-  let aeiouJson = null;
-  let isOutdoors = 0;
-  let isNature = 0;
+  // Use outdoors/nature directly from triage signals (no separate VLM call)
+  const isOutdoors = triage.signals.outdoors ? 1 : 0;
+  const isNature = triage.signals.nature ? 1 : 0;
 
+  // AEIOU detection for rich text fields only
+  let aeiouJson = null;
   const aeiouIdx = logger.startPhase('activity', 'aeiou');
   try {
     const { detectAeiou } = require('./aeiouDetector');
-    const sceneDesc = classification.description || classification.activity.description || '';
+    const sceneDesc = triage.description || '';
     const obs = await detectAeiou(framePath, sceneDesc);
     if (obs) {
+      // Override isOutdoors/isNature from triage signals (more reliable from main prompt)
+      obs.isOutdoors = triage.signals.outdoors;
+      obs.isNature = triage.signals.nature;
       aeiouJson = { ...obs, _raw: [obs] };
-      isOutdoors = obs.isOutdoors ? 1 : 0;
-      isNature = obs.isNature ? 1 : 0;
       logger.completePhase(aeiouIdx, 'Detected AEIOU');
     } else {
       logger.completePhase(aeiouIdx, 'No AEIOU detected');
@@ -107,7 +114,7 @@ async function createActivityLog(
 
   let nutrientImpact: any = {};
   if (isOutdoors || isNature) {
-     nutrientImpact.vitamin_d = 0;
+    nutrientImpact.vitamin_d = 0;
   }
   const hasNutrientImpact = Object.keys(nutrientImpact).length > 0;
 
@@ -140,7 +147,7 @@ async function createActivityLog(
 
 async function updateActivityLog(
   logId: number,
-  classification: FrameClassification,
+  triage: SceneTriage,
   framePath: string,
   db: any,
   logger: PipelineLogger,
@@ -163,7 +170,7 @@ async function updateActivityLog(
       const { inferLifeDesign } = require('../../pipelines/activity/lifeDesign');
       const result = await inferLifeDesign(
         { photos: framePath ? [framePath] : [] },
-        { activityType: classification.activity.type || 'unknown' },
+        { activityType: triage.signals.movementType || 'unknown' },
       );
       if (result.lifeCategories) {
         const frameN = existingImages.length;
@@ -178,29 +185,33 @@ async function updateActivityLog(
     }
   }
 
-  // AEIOU detection: single VLM phase per capture, aggregate on log
+  // Use triage signals for outdoors/nature, merge with existing
+  let isOutdoors = triage.signals.outdoors ? 1 : (existing?.outdoors || 0);
+  let isNature = triage.signals.nature ? 1 : (existing?.is_nature || 0);
+
+  // AEIOU detection for rich text fields
   let aeiouJson = existing?.aeiou ? JSON.parse(existing.aeiou) : null;
-  let isOutdoors = existing?.outdoors || 0;
-  let isNature = existing?.is_nature || 0;
 
   const aeiouIdx = logger.startPhase('activity', 'aeiou');
   try {
     const { detectAeiou, summarizeAeiou } = require('./aeiouDetector');
-    const sceneDesc = classification.description || classification.activity.description || '';
+    const sceneDesc = triage.description || '';
     const obs = await detectAeiou(framePath, sceneDesc);
     if (obs) {
-      // Accumulate raw observations and re-summarize
+      // Override isOutdoors/isNature with triage signals
+      obs.isOutdoors = triage.signals.outdoors;
+      obs.isNature = triage.signals.nature;
+
       const rawObs = aeiouJson?._raw || [];
       rawObs.push(obs);
 
       if (rawObs.length === 1) {
-        // First observation: use directly
         aeiouJson = { ...obs, _raw: rawObs };
       } else {
-        // Multiple observations: summarize
         const summary = await summarizeAeiou(rawObs);
         aeiouJson = { ...summary, _raw: rawObs };
       }
+      // Merge: once outdoors/nature is true, it stays true for the session
       isOutdoors = aeiouJson.isOutdoors || rawObs.some((o: any) => o.isOutdoors) ? 1 : isOutdoors;
       isNature = aeiouJson.isNature || rawObs.some((o: any) => o.isNature) ? 1 : isNature;
       logger.completePhase(aeiouIdx, `${rawObs.length} observations`);
@@ -213,9 +224,9 @@ async function updateActivityLog(
 
   let nutrientImpact = existing?.nutrient_impact ? JSON.parse(existing.nutrient_impact) : {};
   if (isOutdoors || isNature) {
-     nutrientImpact.vitamin_d = (durationMin || 0) * 1.5;
+    nutrientImpact.vitamin_d = (durationMin || 0) * 1.5;
   } else if (nutrientImpact.vitamin_d !== undefined) {
-     delete nutrientImpact.vitamin_d;
+    delete nutrientImpact.vitamin_d;
   }
   const hasNutrientImpact = Object.keys(nutrientImpact).length > 0;
 

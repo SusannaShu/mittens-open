@@ -1,13 +1,14 @@
 /**
  * ambient/sceneStreamManager.ts -- Ambient intelligence brain.
  *
- * Simplified pipeline: quality gate -> dual classify -> log.
- * No scene matching, no lifecycle, no open-scene tracking.
- * Each frame independently decides: nutrition? activity? both?
+ * Multi-signal pipeline: quality gate -> scene triage -> log.
+ * Every frame gets a title and description. Independent signals
+ * (nature, outdoors, movement, screenUse, foodContext) route to
+ * appropriate downstream handlers.
  */
 
-import type { FrameClassification, ClassifierContext } from './types';
-import { classifyFrame } from './sceneClassifier';
+import type { SceneTriage } from './types';
+import { triageFrame } from './sceneClassifier';
 import { executeLogDecision } from './sceneLogWriter';
 import { PipelineLogger, PipelineLog } from '../../pipelines/logger';
 import {
@@ -19,37 +20,41 @@ import {
   scheduleWakeNudge,
 } from './sleepNudge';
 
-// Singleton
+// ─── Types ───
+
+export interface FrameResult {
+  summary: string;
+  log?: PipelineLog;
+  title?: string;
+  description?: string;
+}
+
+// ─── Singleton ───
+
 let instance: SceneStreamManager | null = null;
 export function getSceneStreamManager(): SceneStreamManager {
   if (!instance) {
     instance = new SceneStreamManager();
-    // Arm the 30-min-after-wake nudge timer on first access
     try { scheduleWakeNudge(); } catch { /* non-critical */ }
   }
   return instance;
 }
 
+// ─── Manager ───
+
 class SceneStreamManager {
-  /** Lock to prevent concurrent frame processing */
   private processing = false;
-  /** Queue frames that arrive during processing */
   private pendingFrames: Array<{
     framePath: string;
     timestamp: number;
-    onResult?: (framePath: string, result: { summary: string; log?: PipelineLog; title?: string; description?: string }) => void;
+    onResult?: (framePath: string, result: FrameResult) => void;
   }> = [];
 
-  /**
-   * Main entry point: a new pendant frame arrived.
-   * Called from usePendantBridge.ts on each motion frame.
-   */
   async onPendantFrame(
     framePath: string,
     timestamp: number,
-    onQueueResult?: (framePath: string, result: { summary: string; log?: PipelineLog; title?: string; description?: string }) => void,
-  ): Promise<{ summary: string; log?: PipelineLog; title?: string; description?: string } | null> {
-    // Queue if already processing
+    onQueueResult?: (framePath: string, result: FrameResult) => void,
+  ): Promise<FrameResult | null> {
     if (this.processing) {
       this.pendingFrames.push({ framePath, timestamp, onResult: onQueueResult });
       console.log('[SceneStream] Frame queued (processing in progress)');
@@ -57,7 +62,7 @@ class SceneStreamManager {
     }
 
     this.processing = true;
-    let result: { summary: string; log?: PipelineLog } = { summary: '' };
+    let result: FrameResult = { summary: '' };
     try {
       result = await this.processFrame(framePath, timestamp);
     } catch (err) {
@@ -86,15 +91,10 @@ class SceneStreamManager {
     return result;
   }
 
-  /**
-   * Retry a previously failed capture.
-   * Skips the quality gate (frame already passed once or was kept despite skip)
-   * and bypasses the queue lock.
-   */
   async retryCapture(
     framePath: string,
     timestamp: number,
-  ): Promise<{ summary: string; log?: PipelineLog; title?: string; description?: string }> {
+  ): Promise<FrameResult> {
     console.log('[SceneStream] Retrying capture:', framePath.slice(-30));
     try {
       return await this.processFrame(framePath, timestamp, true);
@@ -104,48 +104,20 @@ class SceneStreamManager {
     }
   }
 
-  // --- Core Processing ---
+  // ─── Core Processing ───
 
   private async processFrame(
     framePath: string,
     _timestamp: number,
     skipGate = false,
-  ): Promise<{ summary: string; log: PipelineLog; title?: string; description?: string }> {
+  ): Promise<FrameResult> {
     const logger = new PipelineLogger();
     const FileSystem = require('expo-file-system/legacy');
 
-    // Phase 0: Morning greeting (before quality gate)
-    // First capture of the day after wake time -> "Good morning"
-    if (!skipGate && !(await hasMorningGreeted())) {
-      const cfg = getScheduleConfig();
-      const now = new Date();
-      const nowMin = now.getHours() * 60 + now.getMinutes();
-      // Only greet if we are past 4:00 AM (prevent 2 AM bathroom trips from triggering 'Good morning')
-      if (now.getHours() >= 4 && nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
-        await markMorningGreeted();
-        const name = getOwnerName();
-        const greeting = `Good morning ${name}!`;
-        console.log(`[SceneStream] Morning greeting: "${greeting}"`);
+    // Phase 0: Morning greeting
+    await this.checkMorningGreeting(skipGate);
 
-        try {
-          const { speak } = require('../ai/voiceService');
-          speak(greeting);
-        } catch { /* voice not available */ }
-
-        try {
-          const { DeviceEventEmitter } = require('react-native');
-          DeviceEventEmitter.emit('pendantMessageAdded', {
-            id: `m-gm-${Date.now()}`,
-            role: 'mittens',
-            text: greeting,
-            timestamp: new Date(),
-            source: 'pendant',
-          });
-        } catch { /* emit not available */ }
-      }
-    }
-
-    // Phase 1: Quality Gate (skipped on retry)
+    // Phase 1: Quality Gate
     if (skipGate) {
       logger.skipPhase('gate', 'quality', 'Skipped (retry)');
     } else {
@@ -166,7 +138,107 @@ class SceneStreamManager {
       }
     }
 
-    // Consume GPS tag if this was a phone-triggered capture
+    // Consume GPS tag if phone-triggered capture
+    this.consumeGpsTag(framePath);
+
+    // Build context from phone state
+    const context = this.buildContext();
+
+    // Phase 2: Scene Triage (replaces dual classifier)
+    const triageIdx = logger.startPhase('classify', 'triage');
+    const triage = await triageFrame(framePath, context);
+
+    const signalLabels = this.buildSignalLabels(triage);
+    logger.completePhase(
+      triageIdx,
+      `${signalLabels}, ${triage.people} people`,
+    );
+
+    // Brain offline -- surface error
+    if (triage.error) {
+      console.warn('[SceneStream] Brain error:', triage.error);
+      return {
+        summary: triage.error,
+        log: logger.finalize(),
+        title: triage.title,
+        description: triage.description,
+      };
+    }
+
+    // Phase 2.5: Sleep check
+    this.checkBedtime(triage);
+
+    // Phase 2.5b: Face Recognition (whenever people > 0)
+    const recognizedNames = await this.runFaceRecognition(
+      triage, framePath, logger,
+    );
+
+    // Phase 2.5c: Sedentary auto-timer (screenUse at home, no separate VLM)
+    if (triage.signals.screenUse) {
+      this.checkSedentaryFromSignal(framePath);
+    }
+
+    // Determine which downstream pipelines to run
+    const hasFood = triage.signals.foodContext != null;
+    const hasMovement = triage.signals.movement;
+
+    // Phase 3: Log Creation (food and/or activity)
+    const logResult = await this.runLogPhase(
+      triage, hasFood, hasMovement, framePath, logger,
+    );
+
+    // Emit chat message for nutrition logs
+    if (logResult?.nutritionLogId && logResult.pipelineFoods) {
+      this.emitNutritionChat(logResult, framePath);
+    }
+
+    // Build summary for UI
+    const summary = this.buildSummary(
+      triage, logResult, recognizedNames, hasFood, hasMovement,
+    );
+
+    return {
+      summary,
+      log: logger.finalize(),
+      title: triage.title,
+      description: triage.description,
+    };
+  }
+
+  // ─── Sub-phases (extracted for readability) ───
+
+  private async checkMorningGreeting(skipGate: boolean): Promise<void> {
+    if (skipGate) return;
+    if (await hasMorningGreeted()) return;
+
+    const cfg = getScheduleConfig();
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    if (now.getHours() >= 4 && nowMin < (cfg.bedtimeHour * 60 + cfg.bedtimeMin)) {
+      await markMorningGreeted();
+      const name = getOwnerName();
+      const greeting = `Good morning ${name}!`;
+      console.log(`[SceneStream] Morning greeting: "${greeting}"`);
+
+      try {
+        const { speak } = require('../ai/voiceService');
+        speak(greeting);
+      } catch { /* voice not available */ }
+
+      try {
+        const { DeviceEventEmitter } = require('react-native');
+        DeviceEventEmitter.emit('pendantMessageAdded', {
+          id: `m-gm-${Date.now()}`,
+          role: 'mittens',
+          text: greeting,
+          timestamp: new Date(),
+          source: 'pendant',
+        });
+      } catch { /* emit not available */ }
+    }
+  }
+
+  private consumeGpsTag(framePath: string): void {
     try {
       const { getCaptureGate } = require('./captureGate');
       const gate = getCaptureGate();
@@ -175,158 +247,10 @@ class SceneStreamManager {
         gate.tagFrameInLocationLog(framePath, gpsTag.lat, gpsTag.lon);
       }
     } catch { /* captureGate not loaded */ }
-
-    // Build context from phone state
-    const context = this.buildContext();
-
-    // Phase 2: Dual Classifier
-    const classifyIdx = logger.startPhase('classify', 'dual');
-    const classification = await classifyFrame(framePath, context);
-    const nutLabel = classification.nutrition.detected
-      ? `nutrition(${classification.nutrition.items.map(i => i.name).join(',')})`
-      : 'no-nutrition';
-    const actLabel = classification.activity.detected
-      ? `activity(${classification.activity.type || '?'})`
-      : 'no-activity';
-    logger.completePhase(
-      classifyIdx,
-      `${nutLabel} + ${actLabel}, ${classification.people} people`,
-    );
-
-    // Brain offline -- surface error
-    if (classification.error) {
-      console.warn('[SceneStream] Brain error:', classification.error);
-      return { summary: classification.error, log: logger.finalize() };
-    }
-
-    // Phase 2.5: Sleep check
-    if (classification.sleepContext) {
-      try {
-        const cfg = getScheduleConfig();
-        const now = new Date();
-        const nowMin = now.getHours() * 60 + now.getMinutes();
-        const bedMin = cfg.bedtimeHour * 60 + cfg.bedtimeMin;
-        let diffMin = nowMin - bedMin;
-        if (diffMin < 0) diffMin += 1440;
-
-        // If within 6 hours past bedtime
-        if (diffMin >= 0 && diffMin < 6 * 60) {
-          if (!classification.sleepContext.isDark || classification.sleepContext.screensVisible) {
-             const { deliverNudge } = require('./nudgeComposer');
-             deliverNudge({
-               type: 'bedtime',
-               message: 'It is past your bedtime. Please put away screens and go to sleep.',
-               urgent: true
-             });
-             console.log('[SceneStream] Triggered bedtime nudge (not dark / screens visible)');
-          }
-        }
-      } catch (err: any) {
-        console.warn('[SceneStream] Bedtime check failed:', err?.message);
-      }
-    }
-
-    // Phase 2.5b: Face Recognition (runs whenever people > 0, regardless of activity/nutrition)
-    let recognizedNames: string[] = [];
-    if (classification.people > 0) {
-      try {
-        const { checkFaceRecognition } = require('./sceneFaceRecognition');
-        const faceResult = await checkFaceRecognition(framePath, null, logger);
-        recognizedNames = faceResult.recognizedNames || [];
-      } catch (err: any) {
-        console.warn('[SceneStream] Face recognition failed:', err?.message);
-      }
-    }
-
-    // Nothing detected at all
-    if (!classification.nutrition.detected && !classification.activity.detected) {
-      // Even with no food/activity, face check above already ran if people > 0
-      logger.skipPhase('log', 'write', 'Nothing detected');
-      let summary: string;
-      if (recognizedNames.length > 0) {
-        summary = `Recognized: ${recognizedNames.join(', ')}`;
-      } else if (classification.people > 0) {
-        summary = `${classification.people} ${classification.people === 1 ? 'person' : 'people'} detected`;
-      } else {
-        summary = 'Nothing detected';
-      }
-      return { summary, log: logger.finalize(), description: classification.description || undefined };
-    }
-
-    // Set triage summary for debug trace
-    const pipelines: string[] = [];
-    if (classification.nutrition.detected) pipelines.push('nutrition');
-    if (classification.activity.detected) pipelines.push('activity');
-    logger.setTriageSummary(pipelines.join(' + '));
-
-    // Phase 3: Log Creation
-    const logIdx = logger.startPhase('log', 'write');
-    let logResult: Awaited<ReturnType<typeof executeLogDecision>> | null = null;
-    try {
-      logResult = await executeLogDecision(classification, framePath, logger);
-      const parts: string[] = [];
-      if (logResult.nutritionLogId) parts.push(`meal #${logResult.nutritionLogId}`);
-      if (logResult.activityLogId) parts.push(`activity #${logResult.activityLogId}`);
-      logger.completePhase(logIdx, parts.join(' + ') || logResult.nutritionSummary || 'No logs created');
-    } catch (err: any) {
-      logger.failPhase(logIdx, err?.message);
-    }
-
-    // Emit chat message for nutrition logs (photo + MealPipelineCard)
-    if (logResult?.nutritionLogId && logResult.pipelineFoods) {
-      try {
-        const { DeviceEventEmitter } = require('react-native');
-        DeviceEventEmitter.emit('pendantMessageAdded', {
-          id: `m-nut-${Date.now()}`,
-          role: 'mittens',
-          text: logResult.nutritionSummary || 'Food detected.',
-          photos: [framePath],
-          timestamp: new Date(),
-          source: 'pendant',
-          pipelineFoods: logResult.pipelineFoods,
-          mealMetadata: {
-            mealName: logResult.logName,
-            mealType: logResult.mealType,
-            logId: logResult.nutritionLogId,
-            source: 'pendant',
-          },
-        });
-      } catch (emitErr: any) {
-        console.warn('[SceneStream] Chat emit failed:', emitErr?.message);
-      }
-    }
-
-
-    // Build summary for UI
-    const summaryParts: string[] = [];
-    if (logResult?.nutritionSummary) {
-      summaryParts.push(logResult.nutritionSummary);
-    } else if (classification.nutrition.detected) {
-      const names = classification.nutrition.items.map(i => i.name).join(', ');
-      summaryParts.push(names || 'food detected');
-    }
-    if (classification.activity.detected) {
-      summaryParts.push(classification.activity.type || 'activity');
-    }
-    const summary = `[${pipelines.join('+')}] ${summaryParts.join(' | ')}`;
-
-    const log = logger.finalize();
-
-    // Extract title/description for pendant store
-    const title = classification.activity.detected
-      ? (classification.activity.type || classification.description?.slice(0, 50) || 'Capture')
-      : (classification.nutrition.detected
-        ? classification.nutrition.items.map(i => i.name).join(', ')
-        : classification.description?.slice(0, 50) || 'Capture');
-    const description = classification.description || undefined;
-
-    return { summary, log, title, description };
   }
 
-  // --- Context Building ---
-
-  private buildContext(): ClassifierContext {
-    const context: ClassifierContext = {};
+  private buildContext(): { place?: string; motionType?: string; recentMemory?: string } {
+    const context: { place?: string; motionType?: string; recentMemory?: string } = {};
 
     try {
       const { getCurrentPlace, getLastMotionType } =
@@ -347,5 +271,178 @@ class SceneStreamManager {
     } catch { /* memoryUpsert not loaded */ }
 
     return context;
+  }
+
+  private buildSignalLabels(triage: SceneTriage): string {
+    const parts: string[] = [];
+    if (triage.signals.nature) parts.push('nature');
+    if (triage.signals.outdoors) parts.push('outdoors');
+    if (triage.signals.movement) parts.push(`movement(${triage.signals.movementType || '?'})`);
+    if (triage.signals.screenUse) parts.push('screen');
+    if (triage.signals.foodContext) parts.push(`food(${triage.signals.foodContext})`);
+    return parts.length > 0 ? parts.join('+') : 'ambient';
+  }
+
+  private checkBedtime(triage: SceneTriage): void {
+    if (!triage.sleepContext) return;
+    try {
+      const cfg = getScheduleConfig();
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const bedMin = cfg.bedtimeHour * 60 + cfg.bedtimeMin;
+      let diffMin = nowMin - bedMin;
+      if (diffMin < 0) diffMin += 1440;
+
+      if (diffMin >= 0 && diffMin < 6 * 60) {
+        if (!triage.sleepContext.isDark || triage.sleepContext.screensVisible) {
+          const { deliverNudge } = require('./nudgeComposer');
+          deliverNudge({
+            type: 'bedtime',
+            message: 'It is past your bedtime. Please put away screens and go to sleep.',
+            urgent: true,
+          });
+          console.log('[SceneStream] Triggered bedtime nudge (not dark / screens visible)');
+        }
+      }
+    } catch (err: any) {
+      console.warn('[SceneStream] Bedtime check failed:', err?.message);
+    }
+  }
+
+  private async runFaceRecognition(
+    triage: SceneTriage,
+    framePath: string,
+    logger: PipelineLogger,
+  ): Promise<string[]> {
+    if (triage.people <= 0) return [];
+    try {
+      const { checkFaceRecognition } = require('./sceneFaceRecognition');
+      const faceResult = await checkFaceRecognition(framePath, null, logger);
+      return faceResult.recognizedNames || [];
+    } catch (err: any) {
+      console.warn('[SceneStream] Face recognition failed:', err?.message);
+      return [];
+    }
+  }
+
+  private checkSedentaryFromSignal(framePath: string): void {
+    try {
+      const { getCurrentPlace } = require('../location/locationService');
+      const place = getCurrentPlace();
+      if (place === 'Home') {
+        const { triggerFromSignal } = require('./sedentaryDetector');
+        triggerFromSignal(true).catch(() => { /* non-blocking */ });
+      }
+    } catch { /* location or sedentary service not loaded */ }
+  }
+
+  private async runLogPhase(
+    triage: SceneTriage,
+    hasFood: boolean,
+    hasMovement: boolean,
+    framePath: string,
+    logger: PipelineLogger,
+  ): Promise<any> {
+    if (!hasFood && !hasMovement) {
+      // No actionable signals -- still logged title/description
+      const signalTags: string[] = [];
+      if (triage.signals.nature) signalTags.push('nature');
+      if (triage.signals.outdoors) signalTags.push('outdoors');
+      if (signalTags.length > 0) {
+        logger.completePhase(
+          logger.startPhase('log', 'tags'),
+          `Tagged: ${signalTags.join(', ')}`,
+        );
+      }
+      return null;
+    }
+
+    const pipelines: string[] = [];
+    if (hasFood) pipelines.push('nutrition');
+    if (hasMovement) pipelines.push('activity');
+    logger.setTriageSummary(pipelines.join(' + '));
+
+    const logIdx = logger.startPhase('log', 'write');
+    try {
+      const logResult = await executeLogDecision(triage, framePath, logger);
+      const parts: string[] = [];
+      if (logResult.nutritionLogId) parts.push(`meal #${logResult.nutritionLogId}`);
+      if (logResult.activityLogId) parts.push(`activity #${logResult.activityLogId}`);
+      logger.completePhase(logIdx, parts.join(' + ') || logResult.nutritionSummary || 'No logs created');
+      return logResult;
+    } catch (err: any) {
+      logger.failPhase(logIdx, err?.message);
+      return null;
+    }
+  }
+
+  private emitNutritionChat(logResult: any, framePath: string): void {
+    try {
+      const { DeviceEventEmitter } = require('react-native');
+      DeviceEventEmitter.emit('pendantMessageAdded', {
+        id: `m-nut-${Date.now()}`,
+        role: 'mittens',
+        text: logResult.nutritionSummary || 'Food detected.',
+        photos: [framePath],
+        timestamp: new Date(),
+        source: 'pendant',
+        pipelineFoods: logResult.pipelineFoods,
+        mealMetadata: {
+          mealName: logResult.logName,
+          mealType: logResult.mealType,
+          logId: logResult.nutritionLogId,
+          source: 'pendant',
+        },
+      });
+    } catch (emitErr: any) {
+      console.warn('[SceneStream] Chat emit failed:', emitErr?.message);
+    }
+  }
+
+  private buildSummary(
+    triage: SceneTriage,
+    logResult: any,
+    recognizedNames: string[],
+    hasFood: boolean,
+    hasMovement: boolean,
+  ): string {
+    // Always start with the title
+    const summaryParts: string[] = [];
+
+    if (logResult?.nutritionSummary) {
+      summaryParts.push(logResult.nutritionSummary);
+    } else if (hasFood && triage.foodItems.length > 0) {
+      summaryParts.push(triage.foodItems.map(i => i.name).join(', '));
+    }
+
+    if (hasMovement) {
+      summaryParts.push(triage.signals.movementType || 'movement');
+    }
+
+    if (recognizedNames.length > 0) {
+      summaryParts.push(`with ${recognizedNames.join(', ')}`);
+    }
+
+    // Build signal tags
+    const tags: string[] = [];
+    if (triage.signals.nature) tags.push('nature');
+    if (triage.signals.outdoors) tags.push('outdoors');
+    if (triage.signals.screenUse) tags.push('screen');
+
+    if (summaryParts.length > 0) {
+      const tagStr = tags.length > 0 ? ` [${tags.join(',')}]` : '';
+      return `${triage.title}: ${summaryParts.join(' | ')}${tagStr}`;
+    }
+
+    if (tags.length > 0) {
+      return `${triage.title} [${tags.join(',')}]`;
+    }
+
+    if (triage.people > 0) {
+      return `${triage.title}: ${triage.people} ${triage.people === 1 ? 'person' : 'people'}`;
+    }
+
+    // Fallback: always return the title (never "Nothing detected")
+    return triage.title;
   }
 }

@@ -8,6 +8,7 @@
 import { useState, useRef } from 'react';
 import { Alert, Platform, ActionSheetIOS } from 'react-native';
 import { useRouter } from 'expo-router';
+import { setResultsPayload } from '../resultsPayload';
 import { getApiBase, getAuthToken, uploadImage } from '../api';
 import { ChatMessage } from '../../components/chat/ChatBubble';
 import { PendingEntry } from '../../components/chat/EntryReviewCard';
@@ -782,10 +783,10 @@ export function useChatHandlers({ messages, setMessages, addMessage, saveMessage
         } catch { /* fallback */ }
       }
 
+      setResultsPayload({ items: items || [], mealName: entry.name });
       router.push({
         pathname: '/results',
         params: {
-          data: JSON.stringify({ items: items || [], mealName: entry.name }),
           imageId: entry.imageId?.toString() || undefined,
           imageUrl: entry.imageUrl || undefined,
           imageIds: entry.imageIds ? JSON.stringify(entry.imageIds) : undefined,

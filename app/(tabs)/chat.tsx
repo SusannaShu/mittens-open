@@ -33,7 +33,7 @@ const MITTENS_ICON = require('../../assets/icon.png');
 
 export default function ChatScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ loggedMeal?: string; loggedItemCount?: string; loggedImageUrl?: string; loggedId?: string; prompt?: string; editedLogId?: string; editedItems?: string; editedMealName?: string }>();
+  const params = useLocalSearchParams<{ loggedMeal?: string; loggedItemCount?: string; loggedImageUrl?: string; loggedId?: string; prompt?: string; editedLogId?: string; editedItems?: string; editedMealName?: string; mealType?: string; items?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   
   const [updateSleep] = useUpdateSleepLogMutation();
@@ -97,8 +97,20 @@ export default function ChatScreen() {
         lastEditedLogRef.current = params.editedLogId;
 
         const editedLogId = parseInt(params.editedLogId, 10);
-        const editedItems = params.editedItems ? JSON.parse(params.editedItems) : null;
-        const editedMealName = params.editedMealName || '';
+        let editedItems = params.editedItems ? JSON.parse(params.editedItems) : null;
+        let editedMealName = params.editedMealName || '';
+        let rowData: any = null;
+        try {
+          if (editedLogId) {
+            const { getDb } = require('../../lib/database');
+            const db = getDb();
+            rowData = db.getFirstSync('SELECT log_name, items, meal_type, logged_at FROM nutrition_logs WHERE id = ?', [editedLogId]) as any;
+            if (rowData) {
+              if (rowData.items) editedItems = JSON.parse(rowData.items);
+              if (rowData.log_name) editedMealName = rowData.log_name;
+            }
+          }
+        } catch { /* ignore */ }
 
         if (editedItems) {
           setMessages(prev => prev.map(m => {
@@ -112,6 +124,14 @@ export default function ChatScreen() {
               ...updated[entryIdx],
               items: editedItems,
               name: editedMealName || updated[entryIdx].name,
+              type: rowData?.meal_type || updated[entryIdx].type,
+              loggedAt: rowData?.logged_at || updated[entryIdx].loggedAt,
+              data: {
+                ...(updated[entryIdx].data || {}),
+                foods: editedItems,
+                logName: editedMealName || updated[entryIdx].name,
+                mealType: rowData?.meal_type || updated[entryIdx].type
+              }
             };
             return { ...m, pendingEntries: updated };
           }));
@@ -128,6 +148,21 @@ export default function ChatScreen() {
         const count = params.loggedItemCount ? parseInt(params.loggedItemCount, 10) : 0;
         const imageUrl = params.loggedImageUrl || undefined;
         const logId = params.loggedId ? parseInt(params.loggedId, 10) : undefined;
+        let dbItems = [];
+        if (params.items) {
+          try {
+            dbItems = JSON.parse(params.items);
+          } catch { /* ignore */ }
+        }
+        if (dbItems.length === 0 && logId) {
+          try {
+            const { getDb } = require('../../lib/database');
+            const db = getDb();
+            const row = db.getFirstSync('SELECT items FROM nutrition_logs WHERE id = ?', [logId]) as any;
+            if (row && row.items) dbItems = JSON.parse(row.items);
+          } catch { /* ignore */ }
+        }
+
         const confirmMsg: ChatMessage = {
           id: `logged-${Date.now()}`,
           role: 'mittens',
@@ -138,7 +173,8 @@ export default function ChatScreen() {
             itemCount: count,
             imageUrl: imageUrl,
             _logId: logId,
-            mealType: 'snack', // Default since explicit isn't passed here
+            mealType: params.mealType || 'snack',
+            items: dbItems,
           }],
           timestamp: new Date(),
         };

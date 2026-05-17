@@ -1,74 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors, spacing } from '../../../lib/theme';
 import PhotoCapture from '../../common/PhotoCapture';
-import { PillRow } from './PillRow';
 import { COVERAGE_PRESETS } from './constants';
 import { ActivityTypeService } from '../../../lib/services/activityTypeService';
-import { PersonService } from '../../../lib/services/personService';
 import type { ActivityTypeModel, Person } from '../../../lib/pipelines/types';
 import { s } from '../TodayModals';
 
-/* Small inline autocomplete for people names */
-function PeopleAutocomplete({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [suggestions, setSuggestions] = useState<Person[]>([]);
-
-  // Get the last name being typed (after last comma)
-  const getCurrentToken = useCallback(() => {
-    const parts = value.split(',');
-    return parts[parts.length - 1].trim();
-  }, [value]);
-
-  useEffect(() => {
-    const token = getCurrentToken();
-    if (token.length >= 1) {
-      PersonService.search(token).then(setSuggestions).catch(() => setSuggestions([]));
-    } else {
-      setSuggestions([]);
-    }
-  }, [getCurrentToken]);
-
-  const handleSelect = (name: string) => {
-    const parts = value.split(',').map(s => s.trim()).filter(Boolean);
-    parts[parts.length - 1] = name;
-    onChange(parts.join(', ') + ', ');
-    setSuggestions([]);
-  };
-
-  return (
-    <View style={{ marginTop: -spacing.sm, marginBottom: spacing.sm }}>
-      <TextInput
-        style={[s.modalInput, { minHeight: 40, paddingVertical: 8, marginBottom: 0 }]}
-        value={value}
-        onChangeText={onChange}
-        placeholder="Who was there? e.g. Jake, Mom"
-        placeholderTextColor={colors.textMuted}
-      />
-      {suggestions.length > 0 && (
-        <View style={{ backgroundColor: '#FAFAFA', borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, maxHeight: 120 }}>
-          {suggestions.slice(0, 4).map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={{ paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}
-              onPress={() => handleSelect(p.name)}
-            >
-              <Text style={{ fontSize: 13, color: colors.textPrimary }}>{p.name}{p.nickname ? ` (${p.nickname})` : ''}</Text>
-              <Text style={{ fontSize: 10, color: colors.textMuted }}>{p.interactionCount} interactions</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
+// New Shared Components
+import { ScaleSelector } from '../../common/ScaleSelector';
+import { LifeDesignSelector } from '../../common/LifeDesignSelector';
+import { AeiouEditor } from '../../common/AeiouEditor';
 
 interface ActivityFormProps {
   onActivitySubmit: (data: {
     logName: string; activityType: string; duration_min?: number; loggedAt?: string;
     location?: string; intensity?: string; outdoors?: boolean;
     photos?: string[]; engagement?: number; energy?: number;
-    aeiou?: Record<string, string>;
+    aeiou?: Record<string, string>; lifeCategories?: Record<string, number>;
   }) => void;
   loggedAt: Date;
   onClose: () => void;
@@ -90,9 +40,13 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
   const [actEngagement, setActEngagement] = useState<number | null>(null);
   const [actEnergy, setActEnergy] = useState<number | null>(null);
   const [actAeiou, setActAeiou] = useState<Record<string, string>>({});
+  const [actLifeCats, setActLifeCats] = useState<Record<string, number>>({});
   const [actCoveragePct, setActCoveragePct] = useState<number | null>(null);
   const [actSunscreen, setActSunscreen] = useState(false);
   const [actSubmitting, setActSubmitting] = useState(false);
+
+  // Track linked users
+  const [linkedUsers, setLinkedUsers] = useState<Person[]>([]);
 
   const handleActivitySubmit = async () => {
     if (!actName.trim()) return;
@@ -103,18 +57,23 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
         activityType: actType,
         loggedAt: loggedAt.toISOString(),
         location: actLocation.trim() || undefined,
-        outdoors: actAeiou.E === 'Outdoor' || actAeiou.E === 'Nature' || undefined,
+        outdoors: actAeiou.environment ? /outdoor|nature/i.test(actAeiou.environment) : undefined,
         coverage_pct: actCoveragePct ?? undefined,
         sunscreen: actSunscreen,
         photos: actPhotos.length > 0 ? actPhotos : undefined,
         engagement: actEngagement ?? undefined,
         energy: actEnergy ?? undefined,
         aeiou: Object.keys(actAeiou).length > 0 ? actAeiou : undefined,
+        lifeCategories: Object.keys(actLifeCats).length > 0 ? actLifeCats : undefined,
       } as any);
       onClose();
     } finally {
       setActSubmitting(false);
     }
+  };
+
+  const handleAeiouChange = (key: string, val: string) => {
+    setActAeiou(prev => ({ ...prev, [key]: val }));
   };
 
   return (
@@ -127,7 +86,20 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
           <TouchableOpacity
             key={t.key}
             style={[s.typePill, actType === t.key && s.typePillActive]}
-            onPress={() => setActType(t.key)}
+            onPress={() => {
+              setActType(t.key);
+              if (!actName) setActName(t.label);
+              if (t.defaultLifeCategories && Object.keys(actLifeCats).length === 0) {
+                setActLifeCats(t.defaultLifeCategories);
+              }
+              const envAeiou = t.defaultOutdoors ? 'outdoor' : (t.isNature ? 'nature' : '');
+              if (envAeiou && !actAeiou.environment) {
+                setActAeiou(prev => ({ ...prev, environment: envAeiou }));
+              }
+              if (t.exposureExtent && actCoveragePct === null) {
+                setActCoveragePct(t.exposureExtent);
+              }
+            }}
           >
             <Feather name={(t.icon || 'circle') as any} size={12} color={actType === t.key ? colors.bg : colors.textSecondary} />
             <Text style={[s.typePillText, actType === t.key && s.typePillTextActive]}>
@@ -168,54 +140,34 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
       {/* Activity reflection -- only for past events */}
       {!isFuture && (
         <>
-          <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 6, marginTop: spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5 }}>How did it feel?</Text>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 6, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>How did it feel?</Text>
 
-          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4 }}>Engagement (1-10)</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-            {[1,2,3,4,5,6,7,8,9,10].map((n) => (
-              <TouchableOpacity
-                key={n}
-                style={[{ width: 24, height: 24, borderRadius: 12, backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }, actEngagement === n && { backgroundColor: colors.textPrimary }]}
-                onPress={() => setActEngagement(actEngagement === n ? null : n)}
-                activeOpacity={0.6}
-              >
-                <Text style={[{ fontSize: 8, fontWeight: '600', color: colors.textMuted }, actEngagement === n && { color: colors.bg }]}>{n}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.md }}>
-            <Text style={{ fontSize: 8, color: colors.textMuted }}>Lo</Text>
-            <Text style={{ fontSize: 8, color: colors.textMuted }}>Flow</Text>
-            <Text style={{ fontSize: 8, color: colors.textMuted }}>Hi</Text>
-          </View>
-
-          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4 }}>Energy after (-5 to +5)</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-            {[-5,-4,-3,-2,-1,0,1,2,3,4,5].map((n) => (
-              <TouchableOpacity
-                key={n}
-                style={[{ width: 24, height: 24, borderRadius: 12, backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center' }, actEnergy === n && { backgroundColor: colors.textPrimary }]}
-                onPress={() => setActEnergy(actEnergy === n ? null : n)}
-                activeOpacity={0.6}
-              >
-                <Text style={[{ fontSize: 8, fontWeight: '600', color: colors.textMuted }, actEnergy === n && { color: colors.bg }]}>{n > 0 ? `+${n}` : n}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.md }}>
-            <Text style={{ fontSize: 8, color: colors.textMuted }}>Drained</Text>
-            <Text style={{ fontSize: 8, color: colors.textMuted }}>0</Text>
-            <Text style={{ fontSize: 8, color: colors.textMuted }}>Energized</Text>
-          </View>
-
-          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4 }}>Environment</Text>
-          <PillRow
-            pills={['Indoor', 'Outdoor', 'Nature', 'Urban', 'Home', 'Office'].map(v => ({ key: v, label: v }))}
-            value={actAeiou.E || ''}
-            onChange={(v: string) => setActAeiou(prev => ({ ...prev, E: prev.E === v ? '' : v }))}
+          <ScaleSelector
+            label="Engagement (1-10)"
+            value={actEngagement}
+            onChange={setActEngagement}
+            min={1}
+            max={10}
+            labels={{ start: 'Lo', center: 'Flow', end: 'Hi' }}
           />
 
-          {(actType === 'sun' || ((actAeiou.E === 'Outdoor' || actAeiou.E === 'Nature') && actType !== 'sleep')) && (
+          <ScaleSelector
+            label="Energy after (-5 to +5)"
+            value={actEnergy}
+            onChange={setActEnergy}
+            min={-5}
+            max={5}
+            labels={{ start: 'Drained', center: '0', end: 'Energized' }}
+            formatValue={(v) => v > 0 ? `+${v}` : `${v}`}
+          />
+
+          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}>Life Design</Text>
+          <LifeDesignSelector
+            lifeCats={actLifeCats}
+            onChange={(cat, val) => setActLifeCats(prev => ({ ...prev, [cat]: val }))}
+          />
+
+          {(actType === 'sun' || ((/outdoor|nature/i.test(actAeiou.environment || '')) && actType !== 'sleep')) && (
             <View style={{ marginBottom: spacing.md, backgroundColor: colors.border, padding: spacing.sm, borderRadius: 8 }}>
               <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 6, fontWeight: '600', textTransform: 'uppercase' }}>Skin Exposed</Text>
               <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm }}>
@@ -238,24 +190,13 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
             </View>
           )}
 
-          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4 }}>Interactions</Text>
-          <PillRow
-            pills={['Solo', '1-2 people', 'Small group', 'Large group'].map(v => ({ key: v, label: v }))}
-            value={actAeiou.I || ''}
-            onChange={(v: string) => setActAeiou(prev => ({ ...prev, I: prev.I === v ? '' : v }))}
-          />
-          {actAeiou.I && actAeiou.I !== 'Solo' && (
-            <PeopleAutocomplete
-              value={actAeiou.users || ''}
-              onChange={(t) => setActAeiou(prev => ({ ...prev, users: t }))}
-            />
-          )}
-
-          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4 }}>Objects</Text>
-          <PillRow
-            pills={['Screen', 'Physical', 'Nature', 'Mixed'].map(v => ({ key: v, label: v }))}
-            value={actAeiou.O || ''}
-            onChange={(v: string) => setActAeiou(prev => ({ ...prev, O: prev.O === v ? '' : v }))}
+          <Text style={{ fontSize: 10, color: colors.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}>AEIOU Reflection</Text>
+          <AeiouEditor
+            aeiou={actAeiou}
+            onChange={handleAeiouChange}
+            linkedUsers={linkedUsers}
+            onAddLinkedUser={(p) => setLinkedUsers(prev => [...prev, p])}
+            onRemoveLinkedUser={(id) => setLinkedUsers(prev => prev.filter(p => p.id !== id))}
           />
         </>
       )}
@@ -271,3 +212,4 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
     </>
   );
 }
+

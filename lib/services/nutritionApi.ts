@@ -10,28 +10,13 @@ import type { DailySummary, WeeklySummary, SnapResponse } from '../types';
 export const nutritionApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     getDailySummary: build.query<DailySummary, string | void>({
-      queryFn: (date) => {
+      queryFn: async (date) => {
         try {
-          const db = getDb();
           const localDate = date ? date.split('&')[0] : new Date().toLocaleDateString('en-CA');
-          const rows = db.getAllSync(
-            `SELECT * FROM nutrition_logs WHERE date(logged_at) = ? ORDER BY logged_at ASC`,
-            [localDate]
-          ) as any[];
-
-          const entries = rows.map((r: any) => ({
-            id: r.id,
-            loggedAt: r.logged_at,
-            mealType: r.meal_type,
-            logName: r.log_name || r.food_name || 'Meal',
-            items: r.items ? JSON.parse(r.items) : [],
-            summaryNutrients: r.summary_nutrients ? JSON.parse(r.summary_nutrients) : {},
-            source: r.source,
-            entryType: r.entry_type,
-            imageUris: r.image_uris ? JSON.parse(r.image_uris) : [],
-          }));
-
-          return { data: { date: localDate, entries, totals: {} } as any };
+          const { LocalDataProvider } = require('../providers/localDataProvider');
+          const provider = new LocalDataProvider();
+          const summary = await provider.getDailySummary(localDate);
+          return { data: summary as any };
         } catch (e: any) {
           return { error: { status: 'CUSTOM_ERROR', error: e.message } };
         }
@@ -53,11 +38,24 @@ export const nutritionApi = baseApi.injectEndpoints({
         try {
           const db = getDb();
           const now = loggedAt || new Date().toISOString();
-          db.runSync(
-            `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, source) VALUES (?, ?, ?, ?, 'vision')`,
-            [now, mealType, mealName, JSON.stringify(foods)]
+          let summary = {};
+          if (foods && Array.isArray(foods)) {
+            const acc: Record<string, number> = {};
+            foods.forEach(food => {
+               if (food.nutrients) {
+                  Object.keys(food.nutrients).forEach(key => {
+                    acc[key] = (acc[key] || 0) + (food.nutrients[key] || 0);
+                  });
+               }
+            });
+            summary = acc;
+          }
+
+          const result = db.runSync(
+            `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source) VALUES (?, ?, ?, ?, ?, 'vision')`,
+            [now, mealType, mealName, JSON.stringify(foods), JSON.stringify(summary)]
           );
-          return { data: { status: 'ok' } };
+          return { data: { status: 'ok', ids: [result.lastInsertRowId] } };
         } catch (e: any) {
           return { error: { status: 'CUSTOM_ERROR', error: e.message } };
         }
@@ -74,54 +72,70 @@ export const nutritionApi = baseApi.injectEndpoints({
       queryFn: () => ({ data: { foods: [] } }),
     }),
 
-    analyzeText: build.mutation<any, { text: string; imageId?: number; mealType?: string }>({
-      queryFn: async ({ text }) => {
+    analyzeText: build.mutation<any, { text?: string; mealType?: string; manualUsdaFoods?: any[] }>({
+      queryFn: async ({ text, mealType, manualUsdaFoods }) => {
         try {
           const { identifyFoods } = require('../pipelines/food/identify');
           const { estimateNutrientsBatch, flattenNutrients } = require('../pipelines/food/nutrients');
           const { analyzeBioavailability } = require('../pipelines/food/bioavailability');
 
+          let foodsToProcess: any[] = [];
+          let mealName = 'Meal';
+          let mealTypeStr = mealType || 'snack';
+
           // Phase 1: Identify foods from text
-          const idResult = await identifyFoods([], text);
+          if (text) {
+            const idResult = await identifyFoods([], text);
+            foodsToProcess = idResult.foods;
+            mealName = idResult.mealName;
+            mealTypeStr = idResult.mealType || mealTypeStr;
+          }
+
+          // Inject manual USDA foods directly into the pipeline
+          if (manualUsdaFoods && manualUsdaFoods.length > 0) {
+            const manualMapped = manualUsdaFoods.map((f: any) => ({
+              name: f.customName || f.name,
+              portion_g: f.amountGram || 100,
+              household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
+              cooking: '',
+            }));
+            foodsToProcess = [...foodsToProcess, ...manualMapped];
+            if (!text) {
+              mealName = manualMapped.map((f: any) => f.name).slice(0, 3).join(', ');
+            }
+          }
           
-          if (idResult.foods.length === 0) {
+          if (foodsToProcess.length === 0) {
             return { data: { foods: [], items: [] } };
           }
 
           // Phase 2: Estimate nutrients using USDA matching
-          const nutrientResults = await estimateNutrientsBatch(idResult.foods);
+          const nutrientResults = await estimateNutrientsBatch(foodsToProcess);
 
           // Phase 3: Bioavailability (requires base nutrients map)
           const baseNutrientsMap: Record<string, any> = {};
           nutrientResults.forEach((res: any, idx: number) => {
-            baseNutrientsMap[idResult.foods[idx].name] = res.nutrients;
+            baseNutrientsMap[foodsToProcess[idx].name] = res.nutrients;
           });
-          const bioResult = await analyzeBioavailability([], idResult.foods, baseNutrientsMap);
+          const bioResult = await analyzeBioavailability([], foodsToProcess, baseNutrientsMap);
 
           // Merge results
-          const items = idResult.foods.map((food: any, idx: number) => {
+          const items = foodsToProcess.map((food: any, idx: number) => {
             const nResult = nutrientResults[idx];
             return {
               ...food,
-              nutrients: nResult.nutrients, // already flattened by estimateNutrientsBatch locally if we use the right return type, wait, estimateNutrientsBatch returns NutrientResult which has `nutrients: NutrientValues`. No, `estimateNutrients` returns full objects. We should flatten them.
-              _rawNutrients: nResult.nutrients,
+              nutrients: nResult.nutrients,
               meta: nResult.meta,
               bioavailability: bioResult.adjustments.find((a: any) => a.food === food.name),
             };
-          });
-
-          // Flatten nutrients for the UI which expects a simple key-value map
-          const { flattenNutrientsNullable } = require('./food/nutrientEstimator');
-          items.forEach((item: any) => {
-            item.nutrients = flattenNutrientsNullable(item._rawNutrients);
           });
 
           return { 
             data: { 
               foods: items, 
               items,
-              mealName: idResult.mealName,
-              mealType: idResult.mealType,
+              mealName,
+              mealType: mealTypeStr,
               mealNote: bioResult.mealNote
             } 
           };

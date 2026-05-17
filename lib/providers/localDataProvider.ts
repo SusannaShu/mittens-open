@@ -168,7 +168,7 @@ export class LocalDataProvider implements DataProvider {
   async getDailyMeals(date: string): Promise<MealEntry[]> {
     const db = getDb();
     const rows = db.getAllSync(
-      `SELECT * FROM nutrition_logs WHERE date(logged_at) = ? AND entry_type = 'food' ORDER BY logged_at ASC`,
+      `SELECT * FROM nutrition_logs WHERE date(logged_at, 'localtime') = ? AND entry_type = 'food' ORDER BY logged_at ASC`,
       [date]
     ) as any[];
     return rows.map(r => this.rowToMealEntry(r));
@@ -246,7 +246,7 @@ export class LocalDataProvider implements DataProvider {
   async getDailyActivities(date: string): Promise<any[]> {
     const db = getDb();
     return db.getAllSync(
-      'SELECT * FROM activity_logs WHERE date(logged_at) = ? ORDER BY logged_at ASC',
+      'SELECT * FROM activity_logs WHERE date(logged_at, \'localtime\') = ? ORDER BY logged_at ASC',
       [date]
     ) as any[];
   }

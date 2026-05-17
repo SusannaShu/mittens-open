@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { setResultsPayload } from '../lib/resultsPayload';
 import {
   useUpdateEntryMutation, useUpdateEntryDirectMutation, useDeleteEntryMutation,
   useAnalyzeTextMutation, useSmartSnapAsyncMutation, useChatWithMittensMutation,
@@ -169,6 +170,8 @@ export function useTodayHandlers(refetch: () => void) {
               cooking: reanalyzed.cooking || item.cooking,
               household_portion: reanalyzed.household_portion || `${item.portion_g || 100}g`,
               nutrient_source: reanalyzed.nutrient_source || 'ai',
+              meta: reanalyzed.meta || item.meta,
+              bioavailability: reanalyzed.bioavailability || item.bioavailability,
               _nameChanged: undefined,
               _originalName: undefined,
             };
@@ -202,7 +205,19 @@ export function useTodayHandlers(refetch: () => void) {
     if (!editItemId || !editItemText.trim()) return;
     setSavingEdit(true);
     try {
-      await updateEntry({ id: editItemId, text: editItemText.trim() }).unwrap();
+      const result: any = await analyzeText({ text: editItemText.trim(), mealType: editMealType }).unwrap();
+      const newItems = result.items || result.foods || [];
+      if (newItems.length > 0) {
+        await updateEntryDirect({ 
+          id: editItemId, 
+          items: newItems, 
+          logName: result.mealName || editItemText.trim(), 
+          mealType: editMealType,
+          loggedAt: editLoggedAt.toISOString()
+        }).unwrap();
+      } else {
+        await updateEntry({ id: editItemId, text: editItemText.trim() }).unwrap();
+      }
       setEditModalVisible(false);
     } catch (e: any) {
       Alert.alert('Error', e.data?.message || 'Failed to update entry.');
@@ -228,36 +243,6 @@ export function useTodayHandlers(refetch: () => void) {
 
   const handleManualSubmit = async () => {
     if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length === 0) return;
-    
-    // Bypass AI if we ONLY have manual USDA foods
-    if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length > 0) {
-      const items = manualUsdaFoods.map(f => {
-        const ratio = (f.amountGram || 100) / 100;
-        const scaledNutrients: any = {};
-        if (f.nutrients) {
-          for (const [k, v] of Object.entries(f.nutrients)) {
-            scaledNutrients[k] = Math.round(((v as number) * ratio) * 100) / 100;
-          }
-        }
-        return {
-          name: f.customName || f.name,
-          portion_g: f.amountGram || 100,
-          household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
-          nutrients: scaledNutrients,
-          usda_match: f.name,
-          nutrient_source: 'usda',
-        };
-      });
-      
-      setManualModalVisible(false);
-      setManualUsdaFoods([]);
-      
-      router.push({
-        pathname: '/results',
-        params: { data: JSON.stringify({ items, mealName: 'Manual Entry' }), mealType: manualMealType, photoTimestamp: manualLoggedAt.toISOString() },
-      });
-      return;
-    }
 
     setAnalyzingManual(true);
     try {
@@ -267,29 +252,11 @@ export function useTodayHandlers(refetch: () => void) {
         const snapResult = await smartSnapAsync({ image: manualPhotos[0], extraImages: manualPhotos.slice(1) }).unwrap();
         result = (snapResult as any).result || snapResult;
       } else {
-        result = await analyzeText({ text: manualText.trim(), mealType: manualMealType }).unwrap();
-      }
-      
-      // If we have manual USDA foods, merge them with the AI result
-      if (manualUsdaFoods.length > 0 && result) {
-        const manualItems = manualUsdaFoods.map(f => {
-          const ratio = (f.amountGram || 100) / 100;
-          const scaledNutrients: any = {};
-          if (f.nutrients) {
-            for (const [k, v] of Object.entries(f.nutrients)) {
-              scaledNutrients[k] = Math.round(((v as number) * ratio) * 100) / 100;
-            }
-          }
-          return {
-            name: f.customName || f.name,
-            portion_g: f.amountGram || 100,
-            household_portion: f.amountGram ? `${f.amountGram}g` : '100g',
-            nutrients: scaledNutrients,
-            usda_match: f.name,
-            nutrient_source: 'usda',
-          };
-        });
-        result.items = [...(result.items || []), ...manualItems];
+        result = await analyzeText({ 
+          text: manualText.trim(), 
+          mealType: manualMealType,
+          manualUsdaFoods: manualUsdaFoods.length > 0 ? manualUsdaFoods : undefined
+        }).unwrap();
       }
 
       if (manualText.trim() && result) {
@@ -299,9 +266,18 @@ export function useTodayHandlers(refetch: () => void) {
       setManualText('');
       setManualPhotos([]);
       setManualUsdaFoods([]);
+      setResultsPayload({
+        ...result,
+        mealMetadata: {
+          mealName: result.mealName || 'Manual Entry',
+          mealType: manualMealType,
+          photoTimestamp: manualLoggedAt.toISOString(),
+          source: 'manual'
+        }
+      });
       router.push({
         pathname: '/results',
-        params: { data: JSON.stringify(result), mealType: manualMealType, imageId: result.imageId || undefined, photoTimestamp: manualLoggedAt.toISOString() },
+        params: { source: 'manual', type: 'meal' },
       });
     } catch (e: any) {
       const msg = e?.data?.message || e?.data?.error || e?.error || e?.message || 'Unknown error';
@@ -311,15 +287,17 @@ export function useTodayHandlers(refetch: () => void) {
     }
   };
 
+
+
   const handleSkipManual = () => {
     setManualModalVisible(false);
     setManualText('');
     setManualPhotos([]);
     setManualUsdaFoods([]);
+    setResultsPayload({ mealName: 'Manual Entry' });
     router.push({
       pathname: '/results',
       params: { 
-        data: JSON.stringify({ items: [] }), 
         mealType: manualMealType, 
         photoTimestamp: manualLoggedAt.toISOString() 
       },

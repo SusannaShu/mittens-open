@@ -38,6 +38,8 @@ export interface DetectedIntent {
     activityType?: string;
     /** For pantry: detected storage type */
     storageType?: 'fridge' | 'freezer' | 'pantry' | 'shelf';
+    /** Whether faces are legible in the image */
+    faceLegible?: boolean;
   };
 }
 

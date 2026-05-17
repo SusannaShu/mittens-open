@@ -419,11 +419,13 @@ export default function ChatBubble({ message, onPhotoPress, onRetry, onActionPre
 
         {/* Inline entry cards (permanent -- no confirm step) */}
         {hasPendingEntries && !hasPipeline && (
-          <EntryReviewCard
-            entries={message.pendingEntries!}
-            onEdit={onEditPendingEntry}
-            onDismiss={(index) => onDismissEntry?.(index, message.id)}
-          />
+          <View style={[{ paddingHorizontal: 6, paddingBottom: 8 }, { minWidth: 280 }]}>
+            <EntryReviewCard
+              entries={message.pendingEntries!}
+              onEdit={onEditPendingEntry}
+              onDismiss={(index) => onDismissEntry?.(index, message.id)}
+            />
+          </View>
         )}
 
         {/* Email: Gmail connect prompt */}

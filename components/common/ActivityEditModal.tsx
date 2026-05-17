@@ -18,6 +18,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../../lib/theme';
 import { ActivityEntry } from '../../lib/services/activityApi';
+import type { Person } from '../../lib/pipelines/types';
 import ImpactLedgerView from '../today/ImpactLedgerView';
 import ActivityTimeInputs from './ActivityTimeInputs';
 import ActivityContextToggles from './ActivityContextToggles';
@@ -25,6 +26,9 @@ import UsersEvidenceModal from './UsersEvidenceModal';
 import { TimelineRow, LocationField, LocationTimeline } from './LocationEditSection';
 import LocationLogModal from '../places/LocationLogModal';
 import { activityEditStyles as s } from './activityEditStyles';
+import { ScaleSelector } from './ScaleSelector';
+import { LifeDesignSelector } from './LifeDesignSelector';
+import { AeiouEditor } from './AeiouEditor';
 import { ActivityTypeService } from '../../lib/services/activityTypeService';
 import { getChildActivitiesForSession } from '../../lib/services/location/locationBlockTitle';
 import { calculateLocationLifeDesign, generateActivityNarrative, aggregateAEIOU } from '../../lib/services/location/locationLifeDesign';
@@ -45,23 +49,8 @@ const ACT_ICONS: Record<string, string> = {
   stress: 'alert-circle', soul: 'heart', commute: 'truck', cooking: 'coffee', other: 'circle',
 };
 
-const LIFE_CATS = ['work', 'health', 'play', 'love'] as const;
-const LIFE_ICONS: Record<string, string> = {
-  work: 'monitor', health: 'activity', play: 'music', love: 'heart',
-};
 
-const AEIOU_LABELS: Record<string, string> = {
-  activity: 'Activity', environment: 'Environment',
-  interactions: 'Interactions', objects: 'Objects', users: 'Users',
-};
-const AEIOU_HINTS: Record<string, string> = {
-  activity: 'What were you doing? Structured or free-form? What role did you play?',
-  environment: 'Where were you? How did the setting make you feel?',
-  interactions: 'Who or what did you interact with? Formal or casual?',
-  objects: 'What devices, tools, or items were you using?',
-  users: 'Who else was there? Did they add to or take from the experience?',
-};
-const AEIOU_KEYS = Object.keys(AEIOU_LABELS);
+
 
 const COVERAGE_PRESETS = [
   { value: 10, label: 'Face' },
@@ -107,6 +96,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   // Sun exposure
   const [coveragePct, setCoveragePct] = useState(50);
   const [hasSunscreen, setHasSunscreen] = useState(false);
+  const [linkedUsers, setLinkedUsers] = useState<Person[]>([]);
 
   // Life categories weights (0-10 scale, normalized to 0-1 on save)
   const [lifeCats, setLifeCats] = useState<Record<string, number>>({});
@@ -159,6 +149,19 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
       // Sun exposure
       setCoveragePct(activity.meta?.coverage_pct ?? 50);
       setHasSunscreen(activity.meta?.sunscreen ?? false);
+
+      // Extract initial linked users from meta if present, or just initialize empty
+      // so the user can add new ones via the AeiouEditor autocomplete
+      const initialLinkedUsers: Person[] = [];
+      if (activity.meta?.detectedPeopleDetails) {
+        activity.meta.detectedPeopleDetails.forEach((p: any, index: number) => {
+          if (!initialLinkedUsers.find(u => u.name === p.name)) {
+            // we use a negative ID for meta-detected users without a formal person ID
+            initialLinkedUsers.push({ id: -(index + 1), name: p.name } as Person);
+          }
+        });
+      }
+      setLinkedUsers(initialLinkedUsers);
 
       // Movement + Brain Hygiene from activity type metadata
       setMetValue(activity.mets ?? null);
@@ -234,6 +237,8 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={s.sheet}>
           <ScrollView
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ paddingBottom: spacing.lg }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
@@ -371,76 +376,32 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
             )}
 
             {/* Engagement */}
-            <Text style={s.label}>Engagement (1-10)</Text>
-            <View style={s.scaleRow}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => (
-                <TouchableOpacity
-                  key={v}
-                  style={[s.scaleDot, engagement === v && s.scaleDotActive]}
-                  onPress={() => setEngagement(v)}
-                  activeOpacity={0.6}
-                >
-                  <Text style={[s.scaleDotText, engagement === v && s.scaleDotTextActive]}>{v}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={s.scaleLabels}>
-              <Text style={s.scaleLabel}>Lo</Text>
-              <Text style={s.scaleLabel}>Flow</Text>
-              <Text style={s.scaleLabel}>Hi</Text>
-            </View>
+            <ScaleSelector
+              label="Engagement (1-10)"
+              value={engagement}
+              onChange={setEngagement}
+              min={1}
+              max={10}
+              labels={{ start: 'Lo', center: 'Flow', end: 'Hi' }}
+            />
 
             {/* Energy */}
-            <Text style={s.label}>Energy (-5 to +5)</Text>
-            <View style={s.scaleRow}>
-              {[-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5].map((v) => (
-                <TouchableOpacity
-                  key={v}
-                  style={[s.scaleDot, energy === v && s.scaleDotActive]}
-                  onPress={() => setEnergy(v)}
-                  activeOpacity={0.6}
-                >
-                  <Text style={[s.scaleDotText, energy === v && s.scaleDotTextActive]}>
-                    {v > 0 ? `+${v}` : v}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={s.scaleLabels}>
-              <Text style={s.scaleLabel}>Drained</Text>
-              <Text style={s.scaleLabel}>0</Text>
-              <Text style={s.scaleLabel}>Energized</Text>
-            </View>
+            <ScaleSelector
+              label="Energy (-5 to +5)"
+              value={energy}
+              onChange={setEnergy}
+              min={-5}
+              max={5}
+              labels={{ start: 'Drained', center: '0', end: 'Energized' }}
+              formatValue={(v) => v > 0 ? `+${v}` : `${v}`}
+            />
 
             {/* Life Categories */}
             <Text style={s.label}>Life Design</Text>
-            <View style={s.lifeCatContainer}>
-              {LIFE_CATS.map((cat) => {
-                const val = lifeCats[cat] || 0;
-                return (
-                  <View key={cat} style={s.lifeCatRow}>
-                    <Feather name={LIFE_ICONS[cat] as any} size={14} color={colors.textSecondary} />
-                    <Text style={s.lifeCatLabel}>{cat}</Text>
-                    <View style={s.lifeCatBar}>
-                      {[0, 2, 4, 6, 8, 10].map((v) => (
-                        <TouchableOpacity
-                          key={v}
-                          style={[s.lifeCatDot, val >= v && v > 0 && s.lifeCatDotActive]}
-                          onPress={() => {
-                            setLifeCats(prev => ({ ...prev, [cat]: v === prev[cat] ? 0 : v }));
-                          }}
-                          activeOpacity={0.6}
-                        >
-                          <Text style={[s.lifeCatDotText, val >= v && v > 0 && s.lifeCatDotTextActive]}>
-                            {v === 0 ? '-' : v / 2}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
+            <LifeDesignSelector
+              lifeCats={lifeCats}
+              onChange={(cat, val) => setLifeCats(prev => ({ ...prev, [cat]: val }))}
+            />
 
             {/* Location -- trail map for movement sessions, text input for stationary */}
             <Text style={s.label}>Location</Text>
@@ -453,7 +414,7 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               />
             ) : (
               <TextInput
-                style={s.input}
+                style={[s.input, { marginBottom: spacing.lg }]}
                 value={location}
                 onChangeText={setLocation}
                 placeholder="Where did this happen?"
@@ -463,30 +424,15 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
             {/* AEIOU -- editable with descriptive hints */}
             <Text style={s.label}>AEIOU Reflection</Text>
-            {AEIOU_KEYS.map((key) => (
-              <View key={key} style={s.aeiouRow}>
-                <Text style={s.aeiouKey}>{key.charAt(0).toUpperCase()}</Text>
-                <View style={s.aeiouInputWrap}>
-                  <Text style={s.aeiouLabel}>{AEIOU_LABELS[key]}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                    <TextInput
-                      style={[s.aeiouInput, { flex: 1, minHeight: 56, textAlignVertical: 'top' }]}
-                      value={aeiou[key] || ''}
-                      onChangeText={(text) => setAeiou(prev => ({ ...prev, [key]: text }))}
-                      placeholder={AEIOU_HINTS[key]}
-                      placeholderTextColor={colors.textMuted}
-                      multiline
-                      numberOfLines={3}
-                    />
-                    {key === 'users' && activity?.meta?.detectedPeopleDetails && (
-                      <TouchableOpacity onPress={() => setShowUsersEvidence(true)} style={{ padding: 8, paddingRight: 0 }}>
-                        <Feather name="chevron-right" size={20} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              </View>
-            ))}
+            <AeiouEditor
+              aeiou={aeiou}
+              onChange={(key, text) => setAeiou(prev => ({ ...prev, [key]: text }))}
+              linkedUsers={linkedUsers}
+              onAddLinkedUser={(p) => setLinkedUsers(prev => [...prev, p])}
+              onRemoveLinkedUser={(id) => setLinkedUsers(prev => prev.filter(u => u.id !== id))}
+              showUsersEvidence={!!activity?.meta?.detectedPeopleDetails}
+              onPressUsersEvidence={() => setShowUsersEvidence(true)}
+            />
 
             {/* Reflect with Mittens */}
             <TouchableOpacity

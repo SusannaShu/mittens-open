@@ -224,9 +224,11 @@ export default function TodayScreen() {
               )}
             </View>
           </View>
+          {/* 
           <TouchableOpacity style={styles.headAddBtn} onPress={() => h.setManualModalVisible(true)}>
             <Text style={styles.headAddBtnText}>+</Text>
           </TouchableOpacity>
+          */}
         </View>
 
         <ActivityTimerSection

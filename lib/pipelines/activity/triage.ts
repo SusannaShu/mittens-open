@@ -1,6 +1,6 @@
 import { PipelineInput } from '../runner';
 
-export type ActivityPhase = 'detect' | 'environment' | 'social' | 'objects' | 'lifeDesign' | 'pantryDelta';
+export type ActivityPhase = 'detect' | 'environment' | 'social' | 'objects' | 'lifeDesign' | 'pantryDelta' | 'faces';
 
 /**
  * Micro-triage for the Activity pipeline.
@@ -74,6 +74,13 @@ export function getActivityPhases(input: PipelineInput, inferrablePhases?: strin
   // Phase 6: Pantry Delta (for grocery shopping)
   if (shouldRun('pantryDelta', false) && hasContext) {
     phases.push('pantryDelta');
+  }
+
+  // Phase 7: Faces
+  // Skip if user manually specified faceIdentities
+  const hasManualFaces = manual.faceIdentities !== undefined;
+  if (shouldRun('faces', hasManualFaces) && hasContext && manual.faceLegible !== false) {
+    phases.push('faces');
   }
 
   return phases;

@@ -135,6 +135,12 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
     setEditingPortion(false);
   }, [editPortion, food.portion_g, index, onPortionEdit]);
 
+  const handleToggleInclude = () => {
+    // If you want to allow toggle exclude/include, can implement here
+  };
+
+  const isComplete = food.status === 'complete' || !!food.nutrients;
+
   return (
     <View style={s.foodRow}>
       {/* Status indicator */}
@@ -200,7 +206,7 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
             />
             <Text style={s.foodPortion}>g</Text>
           </View>
-        ) : food.status === 'complete' ? (
+        ) : isComplete ? (
           <TouchableOpacity onPress={() => { setEditPortion(food.portion_g != null ? String(food.portion_g) : ''); setEditingPortion(true); }}>
             <Text style={s.foodPortionEditable}>
               {food.household_portion ? `${food.portion_g ?? '?'}g -- ${food.household_portion}` : `${food.portion_g ?? '?'}g`}
@@ -217,7 +223,7 @@ function FoodRow({ food, index, onView, onEdit, onPortionEdit, onRemove }: {
 
       {/* Right side: View button or spinner */}
       <View style={s.foodActions}>
-        {food.status === 'complete' && onView && (
+        {isComplete && onView && (
           <TouchableOpacity
             style={s.viewBtn}
             onPress={() => onView(food, index)}

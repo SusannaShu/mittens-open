@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter as useExpoRouter } from 'expo-router';
 import { useLogConfirmedMutation, useAnalyzeTextMutation, useUpdateEntryDirectMutation } from '../lib/services/nutritionApi';
+import { getResultsPayload } from '../lib/resultsPayload';
 import { colors, radius, spacing } from '../lib/theme';
 
 export default function ConfirmScreen() {
@@ -25,18 +26,38 @@ export default function ConfirmScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
+  const [mealTypeState, setMealTypeState] = useState<string>(mealType || 'snack');
+  const [time, setTime] = useState<Date | undefined>(photoTimestamp ? new Date(photoTimestamp) : undefined);
+
   useEffect(() => {
     try {
-      const result = dataStr ? JSON.parse(dataStr) : null;
-      if (result) {
-        setFoods(result.items || result.foods || []);
-        if (result.mealName) setMealName(result.mealName);
-        if (result.imageUrl) setImageUrl(result.imageUrl);
+      if (existingLogId) {
+        const { getDb } = require('../lib/database');
+        const db = getDb();
+        const logIdNum = parseInt(existingLogId, 10);
+        const row = db.getFirstSync('SELECT items, log_name FROM nutrition_logs WHERE id = ?', [logIdNum]) as any;
+        if (row && row.items) {
+          setFoods(JSON.parse(row.items));
+          if (row.log_name) setMealName(row.log_name);
+        }
+      } else {
+        const payload = getResultsPayload();
+        const result = payload || (dataStr ? JSON.parse(dataStr) : null);
+        if (result) {
+          setFoods(result.items || result.foods || []);
+          if (result.mealName) setMealName(result.mealName);
+          if (result.imageUrl) setImageUrl(result.imageUrl);
+          
+          if (result.mealMetadata) {
+            if (result.mealMetadata.mealType) setMealTypeState(result.mealMetadata.mealType);
+            if (result.mealMetadata.photoTimestamp) setTime(new Date(result.mealMetadata.photoTimestamp));
+          }
+        }
       }
     } catch {
       // invalid
     }
-  }, [dataStr]);
+  }, [dataStr, existingLogId]);
 
   useEffect(() => {
     if (searchQuery.trim().length > 1) {
@@ -183,7 +204,7 @@ export default function ConfirmScreen() {
             id: parseInt(existingLogId!, 10),
             items: sanitizedFoods,
             logName: mealName,
-            mealType: mealType || 'snack',
+            mealType: mealTypeState || 'snack',
           }).unwrap();
           logId = parseInt(existingLogId!, 10);
           
@@ -194,7 +215,6 @@ export default function ConfirmScreen() {
             pathname: '/(tabs)/chat',
             params: {
               editedLogId: String(logId),
-              editedItems: JSON.stringify(finalItems),
               editedMealName: mealName,
             },
           });
@@ -205,10 +225,10 @@ export default function ConfirmScreen() {
           const res = await logConfirmed({
             mealName,
             foods: sanitizedFoods, 
-            mealType: mealType || 'snack', 
+            mealType: mealTypeState || 'snack', 
             imageId: imageId ? parseInt(imageId, 10) : undefined,
             imageIds: parsedImageIds,
-            loggedAt: photoTimestamp || undefined,
+            loggedAt: time ? time.toISOString() : undefined,
           }).unwrap();
           if (res && res.ids && res.ids.length > 0) logId = res.ids[0];
         }
@@ -220,6 +240,9 @@ export default function ConfirmScreen() {
           loggedItemCount: String(sanitizedFoods.length),
           loggedImageUrl: imageUrl || '',
           loggedId: logId ? String(logId) : '',
+          mealType: mealTypeState || 'snack',
+          loggedAt: photoTimestamp || '',
+          items: JSON.stringify(sanitizedFoods),
         },
       });
     } catch (e: any) {

@@ -257,6 +257,6 @@ export const activityEditStyles = StyleSheet.create({
 
   // Outdoor/Nature/Movement toggle rows
   contextToggleRow: {
-    flexDirection: 'row', gap: 8, marginTop: spacing.md,
+    flexDirection: 'row', gap: 8, marginTop: spacing.md, marginBottom: spacing.sm,
   },
 });

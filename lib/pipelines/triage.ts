@@ -156,13 +156,14 @@ Return ALL that apply. A single submission can trigger multiple logs.
 
 JSON: {"intents":[
   {"pipeline":"meal","confidence":0.9,"phases":["identify", "pantryDelta"]},
-  {"pipeline":"activity","confidence":0.8,"activityType":"walk","phases":["detect","environment", "faces"]},
+  {"pipeline":"activity","confidence":0.8,"activityType":"walk","phases":["detect","environment", "faces"], "faceLegible": true},
   {"pipeline":"chat","confidence":0.9,"phases":[]},
   {"pipeline":"timer","confidence":0.9,"activityType":"work","phases":[]}
 ]}
 
 pipeline must be: meal, activity, pantry, sleep, timer, chat
 activityType (if activity or timer): walk, run, bike, workout, sun, work, social, rest, stress, soul, cooking, commute, other
+faceLegible (boolean): true ONLY if a person's face is clearly visible and legible in the frame. False if person is detected but face is not visible or legible.
 
 Guidance:
 - pantry = stored, raw, or unprepped food (fridge, shelf, groceries). meal = prepared, plated, or being eaten.
@@ -212,6 +213,7 @@ const TRIAGE_SCHEMA = {
           mealType: { type: 'string' },
           storageType: { type: 'string' },
           extractedName: { type: 'string' },
+          faceLegible: { type: 'boolean' },
           phases: { type: 'array', items: { type: 'string' } },
         },
         required: ['pipeline', 'confidence'],
@@ -285,6 +287,7 @@ function normalizeTriageResult(parsed: any): TriageResult {
           activityType: i.activityType,
           storageType: i.storageType,
           extractedName: i.extractedName,
+          faceLegible: i.faceLegible,
         },
       }))
       .filter((i: any) => i.confidence >= 0.3); // Do not log if below confidence level

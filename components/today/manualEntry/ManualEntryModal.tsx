@@ -37,7 +37,7 @@ interface ManualEntryModalProps {
     logName: string; activityType: string; duration_min?: number; loggedAt?: string;
     location?: string; intensity?: string; outdoors?: boolean;
     photos?: string[]; engagement?: number; energy?: number;
-    aeiou?: Record<string, string>;
+    aeiou?: Record<string, string>; lifeCategories?: Record<string, number>;
   }) => void;
   // Sleep fields
   onSleepSubmit: (data: { sleepStart?: string; sleepEnd?: string; totalMinutes?: number; quality?: string; notes?: string; energy?: number; environment?: string }) => void;

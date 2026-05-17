@@ -264,6 +264,7 @@ async function runIntent(
           manualData: {
             ...(input.manualData || {}),
             activityType: intent.context?.activityType,
+            faceLegible: intent.context?.faceLegible,
           },
         }, intent.inferrablePhases),
       };

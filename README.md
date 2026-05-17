@@ -1,6 +1,6 @@
 # Mittens
 
-Susanna's bot — brain, eyes, ears, and voice, in one project.
+Designed to keep your life on track, especialy for people with ADHD or other neurodivergences, but for anyone who wants to be more intentional. Wearing a pendant for ambient observation to automatically start timer and speak to you through TTS to remind you to take a break from work, leave for your appointments, eat, log nutrition and activities, and get ready for bed.
 
 Mittens runs on your phone. It tracks your nutrition from your meals, smart inventory of your pantry, recommends groceries from USDA FoodData and your personal nutrition gap calculation, track your location to log your walking/biking/running/transit activities to recommend what to eat more or less, logs your sleep and activity, reflects on each of them with scientific research and data visualizations, remembers your friends' and family's faces, socialize and help you reflect on your life and relationships through stanford's life design philosophy. It sees what you eat, hears what you say, and remembers what matters to you.
 
@@ -12,7 +12,7 @@ Mittens runs on your phone. It tracks your nutrition from your meals, smart inve
   <img src="screenshots/places-map.png" width="180" alt="Places map" />
 </p>
 
-Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays on-device.
+Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays private.
 
 I am bothered by manually picture sending so I made a pendant to automate logging my meals and activities. And the data is extensive so I'm sending everything in cloud server in my private repo and the cloud version (including connecting models like Claude Opus) will be released later.
 

@@ -30,9 +30,6 @@ const PROVIDER_LIMITS: Record<string, RateLimitConfig> = {
   // Local brains — no limit
   'e2b':              { maxRequests: 999, windowMs: 1_000 },
   'llama-rn':         { maxRequests: 999, windowMs: 1_000 },
-  'fastvlm':          { maxRequests: 999, windowMs: 1_000 },
-  'smolvlm2':         { maxRequests: 999, windowMs: 1_000 },
-  'moondream2':       { maxRequests: 999, windowMs: 1_000 },
   'gemma26b':         { maxRequests: 999, windowMs: 1_000 },
 };
 

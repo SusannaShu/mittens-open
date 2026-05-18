@@ -28,13 +28,6 @@ interface BrainFallbackModalProps {
 
 const BRAIN_GROUPS: BrainGroup[] = [
   {
-    label: 'Cloud',
-    options: [
-      { id: 'groq-free', name: 'Groq', icon: 'flash', sub: 'Llama 4 Scout' },
-      { id: 'openrouter-free', name: 'OpenRouter', icon: 'planet', sub: 'Gemma 4 free' },
-    ],
-  },
-  {
     label: 'Private',
     options: [
       { id: 'ollama-selfhost', name: 'Self-Hosted', icon: 'server', sub: 'Ollama' },
@@ -44,9 +37,6 @@ const BRAIN_GROUPS: BrainGroup[] = [
   {
     label: 'On-Device',
     options: [
-      { id: 'smolvlm2-256m', name: 'SmolVLM2', icon: 'hardware-chip', sub: '256M', localModelId: 'smolvlm2-256m' },
-      { id: 'fastvlm-0.5b', name: 'FastVLM', icon: 'hardware-chip', sub: '0.5B', localModelId: 'fastvlm-0.5b' },
-      { id: 'moondream2', name: 'Moondream', icon: 'hardware-chip', sub: '1.9B', localModelId: 'moondream2' },
       { id: 'gemma-e2b', name: 'Gemma E2B', icon: 'hardware-chip', sub: '4B', localModelId: 'gemma-e2b' },
     ],
   },

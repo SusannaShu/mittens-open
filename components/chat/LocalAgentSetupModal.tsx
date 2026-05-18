@@ -132,13 +132,7 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
     }
   };
 
-  // -- Cloud mode --
-  const handleUseCloud = async () => {
-    await setAgentEnabled(false);
-    await setBrainId('groq-free' as any);
-    await updateProfile({ aiModel: 'groq-free' }).catch(() => {});
-    onComplete();
-  };
+
 
   const progressWidth = progressAnim.interpolate({
     inputRange: [0, 1],
@@ -252,32 +246,13 @@ export default function LocalAgentSetupModal({ visible, onComplete, onSkip }: Pr
               <Text style={s.secondaryBtnText}>Try self-hosted instead</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={s.cloudBtn} onPress={handleUseCloud}>
-              <Feather name="cloud" size={14} color={colors.textMuted} />
-              <Text style={s.cloudText}>Use cloud mode</Text>
-            </TouchableOpacity>
+
 
             <Text style={s.powered}>Powered by Gemma 4 E2B</Text>
           </View>
         )}
 
-        {/* -- Cloud confirm -- */}
-        {phase === 'cloud-confirm' && (
-          <View style={s.center}>
-            <Text style={s.title}>Cloud mode</Text>
-            <Text style={s.subtitle}>
-              Mittens will use cloud servers for AI processing. Your conversations are processed remotely but not stored by the provider.
-            </Text>
 
-            <TouchableOpacity style={s.primaryBtn} onPress={handleUseCloud}>
-              <Text style={s.primaryBtnText}>Use cloud mode</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={s.skipBtn} onPress={() => setPhase('choose')}>
-              <Text style={s.skipText}>Go back</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
     </Modal>
   );
@@ -302,7 +277,7 @@ function FullRAMChooseView({
   onUrlChange: (v: string) => void; onKeyChange: (v: string) => void;
   onModelChange: (v: string) => void;
   onConnect: (mode: 'selfhost' | 'byok') => void;
-  onStartLocal: () => void; onCloud: () => void;
+  onStartLocal: () => void;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -341,7 +316,6 @@ function FullRAMChooseView({
           onKeyChange={onKeyChange}
           onModelChange={onModelChange}
           onConnect={onConnect}
-          onCloud={onCloud}
         />
       )}
 
@@ -400,7 +374,6 @@ function LowRAMChooseView({
         onKeyChange={onKeyChange}
         onModelChange={onModelChange}
         onConnect={onConnect}
-        onCloud={onCloud}
         isPrimary
       />
 
@@ -417,14 +390,13 @@ function SelfHostedSection({
   ollamaUrl, ollamaKey, ollamaModel,
   testingConnection, connectionResult,
   onUrlChange, onKeyChange, onModelChange, onConnect,
-  onCloud, isPrimary = false,
+  isPrimary = false,
 }: {
   ollamaUrl: string; ollamaKey: string; ollamaModel: string;
   testingConnection: boolean; connectionResult: boolean | null;
   onUrlChange: (v: string) => void; onKeyChange: (v: string) => void;
   onModelChange: (v: string) => void;
   onConnect: (mode: 'selfhost' | 'byok') => void;
-  onCloud: () => void;
   isPrimary?: boolean;
 }) {
   return (
@@ -487,12 +459,6 @@ function SelfHostedSection({
         }
       </TouchableOpacity>
 
-      <View style={s.advancedDivider} />
-
-      <TouchableOpacity style={s.cloudBtn} onPress={onCloud}>
-        <Feather name="cloud" size={14} color={colors.textMuted} />
-        <Text style={s.cloudText}>Use cloud instead</Text>
-      </TouchableOpacity>
     </View>
   );
 }

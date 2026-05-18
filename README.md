@@ -13,8 +13,9 @@ Designed to keep your life on track. Wearing a pendant for ambient observation a
 
 
 <p align="center">
-  <img src="screenshots/pendant-titanium-concept.jpg" width="280" alt="Future titanium pendant concept" />
-  <img src="screenshots/pendant-diy-wearing.jpg" width="280" alt="Current working DIY leather pendant" />
+  <img src="screenshots/pendant-titanium-concept.jpg" width="240" alt="Future titanium pendant concept" />
+  <img src="screenshots/pendant-diy-wearing.jpg" width="240" alt="Current working DIY leather pendant" />
+  <img src="screenshots/pendant-diy-desk.jpg" width="240" alt="Current working DIY leather pendant on desk" />
 </p>
 
 I test every detail of the wearbale, app, and pipelines throughout my daily life and make sure even small models can do things right instead of dumping large models with lots of parameters. And as models keep getting better, I believe the future everyone will have their own mittens living on the edge right in their pocket or on their body.
@@ -26,9 +27,10 @@ I test every detail of the wearbale, app, and pipelines throughout my daily life
 **Nutrition.** Photograph your meal and Mittens identifies every item, estimates 19 nutrients, tracks your gaps against RDA, and plans your next meal to close them. Two-phase AI: vision identifies the food, a separate knowledge call estimates nutrients. No cognitive overload, dramatically better accuracy. Bioavailability-aware (vitamin C enhances iron, calcium blocks it), source-aware (plant vs animal vitamin A), hydration from food water content. Meal planning uses a MILP solver to optimize nutrients across the day.
 
 <p align="center">
-  <img src="screenshots/nutrition-meal-analysis.png" width="240" alt="Meal analysis with per-item confidence" />
-  <img src="screenshots/nutrition-usda-detail.png" width="240" alt="Per-item nutrient detail with USDA match and cooking adjustments" />
-  <img src="screenshots/nutrition-bioavailability.png" width="240" alt="Nutrient interactions: synergies and inhibitors with effect size" />
+  <img src="screenshots/nutrition-analyzing-in-progress.PNG" width="200" alt="Meal analysis with per-item confidence" />
+  <img src="screenshots/breakdownable-nutrition-status.PNG" width="200" alt="Nutrient status breakdown" />
+  <img src="screenshots/usda-adjusted-nutrition.PNG" width="200" alt="Per-item nutrient detail with USDA match and cooking adjustments" />
+  <img src="screenshots/bioavailability-breakdown.PNG" width="200" alt="Nutrient interactions: synergies and inhibitors with effect size" />
 </p>
 
 ### How nutrition analysis actually works (for nutrition education)

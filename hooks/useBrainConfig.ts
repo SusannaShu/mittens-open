@@ -25,9 +25,6 @@ import { invalidateBrainCache, setBrainId } from '../lib/brain/selector';
 export const PRIVATE_MODELS = [
   { key: 'ollama-selfhost', label: 'Self-Hosted', sub: 'Ollama', inference: 'ollama' as InferenceMode },
   { key: 'ollama-byok', label: 'BYOK', sub: 'own key', inference: 'ollama' as InferenceMode },
-  { key: 'smolvlm2-256m', label: 'SmolVLM2', sub: '256M', inference: 'ollama' as InferenceMode, localModelId: 'smolvlm2-256m' },
-  { key: 'fastvlm-0.5b', label: 'FastVLM', sub: '0.5B', inference: 'ollama' as InferenceMode, localModelId: 'fastvlm-0.5b' },
-  { key: 'moondream2', label: 'Moondream', sub: '1.9B', inference: 'ollama' as InferenceMode, localModelId: 'moondream2' },
   { key: 'gemma-e2b', label: 'Gemma E2B', sub: '4B', inference: 'ollama' as InferenceMode, localModelId: 'gemma-e2b' },
 ] as const;
 
@@ -238,10 +235,9 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
       const { canRun } = canRunModel(localModelId);
       if (!canRun) return;
       const brainIdMap: Record<string, string> = {
-        'smolvlm2-256m': 'smolvlm2', 'fastvlm-0.5b': 'fastvlm',
-        'moondream2': 'moondream2', 'gemma-e2b': 'e2b',
+        'gemma-e2b': 'e2b',
       };
-      const brainId = brainIdMap[modelKey] || 'smolvlm2';
+      const brainId = brainIdMap[modelKey] || 'e2b';
       await setBrainId(brainId as any);
       if (modelKey === 'gemma-e2b') {
         const tier = detectTier();
@@ -312,19 +308,11 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
   const currentModel = selectedModel;
   const isOllamaMode = currentModel === 'ollama-byok' || currentModel === 'ollama-selfhost';
   const isCloudReady = false;
-  const isLocalVLM = ['smolvlm2-256m', 'fastvlm-0.5b', 'moondream2', 'gemma-e2b'].includes(currentModel);
+  const isLocalVLM = ['gemma-e2b'].includes(currentModel);
   const currentLocalModel = isLocalVLM ? getModel(currentModel) : null;
 
   const brainDesc =
-    currentModel === 'smolvlm2-256m' ? 'SmolVLM2 256M -- tiny, vision, on-device' :
-    currentModel === 'fastvlm-0.5b' ? 'FastVLM 0.5B -- Apple, fastest vision' :
-    currentModel === 'moondream2' ? 'Moondream 2 -- compact VQA, on-device' :
     currentModel === 'gemma-e2b' ? 'Gemma 4 E2B -- best quality, on-device' :
-    currentModel === 'gemini-flash' ? 'Gemini Flash -- fast, free' :
-    currentModel === 'claude-sonnet' ? 'Claude Sonnet -- balanced' :
-    currentModel === 'claude-opus' ? 'Claude Opus -- smartest' :
-    currentModel === 'groq-free' ? 'Groq Llama 4 Scout -- fast, free' :
-    currentModel === 'openrouter-free' ? 'OpenRouter Gemma 4 -- free' :
     currentModel === 'ollama-byok' ? 'BYOK -- your API key' :
     currentModel === 'ollama-selfhost' ? `Self-Hosted -- ${ollamaUrl || 'not configured'}` :
     'Gemma 4 E2B -- best quality, on-device';

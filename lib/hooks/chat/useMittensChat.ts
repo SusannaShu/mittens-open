@@ -30,20 +30,6 @@ const MAX_PHOTOS = 4;
 
 function brainLabel(modelKey: string): string {
   switch (modelKey) {
-    case 'groq-free':
-      return 'Groq';
-    case 'openrouter-free':
-      return 'OpenRouter';
-    case 'claude-sonnet':
-      return 'Claude Sonnet';
-    case 'gemini-flash':
-      return 'Gemini Flash';
-    case 'smolvlm2-256m':
-      return 'SmolVLM2 (on-device)';
-    case 'fastvlm-0.5b':
-      return 'FastVLM (on-device)';
-    case 'moondream2':
-      return 'Moondream (on-device)';
     case 'gemma-e2b':
       return 'Gemma E2B (on-device)';
     default:
@@ -79,9 +65,6 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
   const switchBrainAfterError = async (modelKey: string) => {
     // Map modal model keys to brain IDs
     const brainIdMap: Record<string, string> = {
-      'smolvlm2-256m': 'smolvlm2',
-      'fastvlm-0.5b': 'fastvlm',
-      'moondream2': 'moondream2',
       'gemma-e2b': 'e2b',
       'ollama-selfhost': 'gemma26b',
       'ollama-byok': 'gemma26b',

@@ -2,7 +2,7 @@
 
 **The Gemma 4 Good Hackathon — Health & Sciences (with Digital Equity & Inclusivity)**
 
-Code: [github.com/SusannaShu/mittens-open](https://github.com/SusannaShu/mittens-open) · Video: *(link)* · Demo: see `mittens-open/README.md` for setup
+Code: [github.com/SusannaShu/mittens-open](https://github.com/SusannaShu/mittens-open)
 
 ---
 

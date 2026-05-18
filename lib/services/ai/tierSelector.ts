@@ -149,14 +149,7 @@ export function canRunModel(modelId: string): CanRunResult {
   const model = getModel(modelId);
   if (!model) return { canRun: false, reason: 'Unknown model' };
 
-  if (modelId === 'fastvlm-0.5b' && Platform.OS !== 'ios') {
-    return { canRun: false, reason: 'needs iOS' };
-  }
 
-  // Temporarily disable models whose native modules are not yet integrated or currently crashing
-  if (['moondream2', 'smolvlm2-256m', 'fastvlm-0.5b'].includes(modelId)) {
-    return { canRun: false, reason: 'soon' };
-  }
 
   const ramGB = getDeviceRAM_GB();
   const minRAM = model.minRAM_GB ?? 0;

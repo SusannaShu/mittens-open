@@ -307,12 +307,9 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
 
       // Map model key to brain ID
       const brainIdMap: Record<string, string> = {
-        'smolvlm2-256m': 'smolvlm2',
-        'fastvlm-0.5b': 'fastvlm',
-        'moondream2': 'moondream2',
         'gemma-e2b': 'e2b',
       };
-      const brainId = brainIdMap[modelKey] || 'smolvlm2';
+      const brainId = brainIdMap[modelKey] || 'e2b';
       await setBrainId(brainId as any);
 
       // Gemma E2B uses the existing LiteRT setup flow
@@ -602,31 +599,7 @@ export function ProfileIntegrationsSection({ profileContext, collapsed, onToggle
                   </>
                 )}
 
-                {/* SmolVLM2 / FastVLM / Moondream: download + status */}
-                {currentModel !== 'gemma-e2b' && localDownloadProgress === null && (
-                  <View style={{ gap: 4 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Feather name={modelDownloaded ? 'check-circle' : 'download'} size={12} color={modelDownloaded ? '#4CAF50' : colors.textMuted} />
-                      <Text style={{ fontSize: 12, color: modelDownloaded ? '#4CAF50' : colors.textMuted, fontWeight: modelDownloaded ? '600' : '400' }}>
-                        {currentLocalModel.name} -- {currentLocalModel.role === 'multimodal' ? 'vision + text' : 'text only'}
-                      </Text>
-                    </View>
-                    {!modelDownloaded && (
-                      <TouchableOpacity
-                        onPress={() => downloadLocalModels()}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.accent, borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 5, alignSelf: 'flex-start', marginTop: 4 }}
-                      >
-                        <Feather name="download" size={11} color="#fff" />
-                        <Text style={{ fontSize: 11, color: '#fff', fontWeight: '600' }}>Download ({formatBytes(getDownloadSize(currentLocalModel))})</Text>
-                      </TouchableOpacity>
-                    )}
-                    {modelDownloaded && (
-                      <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 2 }}>
-                        On-device inference. No network needed. Private by default.
-                      </Text>
-                    )}
-                  </View>
-                )}
+
               </View>
             )}
           </View>

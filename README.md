@@ -1,8 +1,6 @@
 # Mittens
 
-Designed to keep your life on track. Wearing a pendant for ambient observation to automatically start timer and speak to you through TTS to remind you to take a break from work, leave for your appointments, eat, log nutrition and activities, and get ready for bed.
-
-Mittens runs on your phone. It tracks your nutrition from your meals, smart inventory of your pantry, recommends groceries from USDA FoodData and your personal nutrition gap calculation, track your location to log your walking/biking/running/transit activities to recommend what to eat more or less, logs your sleep and activity, reflects on each of them with scientific research and data visualizations, remembers your friends' and family's faces, socialize and help you reflect on your life through stanford's life design philosophy. It sees what you eat, hears what you say, and remembers what matters to you.
+Designed to keep your life on track. Wearing a pendant for ambient observation and speak to you through TTS to remind you to take a break from work, leave for your appointments. Mittens runs on your phone. It tracks your nutrition from your meals, smart inventory of your pantry, recommends groceries from USDA FoodData and your personal nutrition gap calculation, track your location to log your walking/biking/running/transit activities to recommend what to eat more or less, logs your sleep and activity, reflects on each of them with scientific research and data visualizations, remembers your friends' and family's faces, socialize and help you reflect on your life through stanford's life design philosophy. It sees what you eat, hears what you say, and remembers what matters to you.
 
 <p align="center">
   <img src="screenshots/today-dashboard.png" width="180" alt="Today dashboard" />

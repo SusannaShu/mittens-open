@@ -245,30 +245,6 @@ The stock camera on the XIAO ESP32S3 Sense has a ~66° lens. Mounted on the ches
 - **Meal prep happening directly below the camera** — chopping, plating, what's actually on the cutting board.
 - **Pantry and grocery movement that's off-axis** — reaching for items on a side shelf, items pulled from a low drawer, things handed over a counter.
 
-A few realistic paths to fix this without abandoning the XIAO form factor:
-
-### Option A — Drop-in wide-angle OV2640 (~$5–15, weekend project)
-
-The same OV2640 sensor with a 120° or 160° lens. Same 24-pin 0.5mm pitch ribbon, same driver code in `camera.h`, same pin map. You pop the FPC connector, slide the stock ribbon out, slide the wide-angle module's ribbon in. **120° is the sweet spot** for a chest-worn pendant: it sees both your hands at the counter *and* what's to the sides. **160° catches almost everything in frame** but introduces heavy barrel distortion that you'd want to dewarp in firmware before sending to a vision model. Search for "OV2640 24-pin 0.5mm pitch wide-angle" — avoid listings that just say "ESP32-CAM fisheye" without confirming the connector, because the older AI-Thinker ESP32-CAM uses the same sensor with a different cable assembly.
-
-Sources: [Taidacent 160° OV2640](https://www.amazon.com/Taidacent-Million-Wide-Angle-Interface-Fisheye/dp/B08XKH6WFM), [M5Stack 160° OV2640 module](https://www.makerfocus.com/products/m5stack-esp32-fisheye-camera-module-cameraf-ov2640-160-degree-with-4mb), [CANADUINO 160° fisheye for ESP32-CAM](https://www.amazon.com/CANADUINO%C2%AE-Fish-Eye-Camera-Module-ESP32-CAM/dp/B0B2BL6CMM).
-
-### Option B — OV5640 5MP upgrade, with or without wide-angle lens (~$15–25)
-
-Seeed Studio sells an official [OV5640 drop-in kit for the XIAO ESP32S3 Sense](https://www.seeedstudio.com/OV5640-Camera-for-XIAO-ESP32S3-Sense-With-Heat-Sink-p-5739.html) (heat sink included; you'll want it). 2592×1944 native, auto-focus, 8/10-bit RGB RAW. Higher resolution matters for a pendant in a specific way: **you can use a wider lens and software-crop into the region containing the food/object, and still have enough pixels to recognize ingredients.** That breaks the trade-off where "wider lens = blurrier per-object." Wide-angle OV5640 variants exist too — [Adafruit sells a 160° OV5640 breakout](https://www.adafruit.com/product/5841), and Amazon has [130°/200° OV5640 mini modules](https://www.amazon.com/MOMOJIA-Ov5640-Million-Monitor-Identification/dp/B0CXM5N84M). Most need a custom adapter board to mate with the XIAO Sense's existing 24-pin connector, so verify pitch and pinout before ordering.
-
-### Option C — Angle the camera, don't widen the lens
-
-Underrated. If the specific problem is "I can't see what's happening on the prep surface below me," the cheaper solution is to mechanically angle a 90°–100° lens module downward by ~25–30° in the case rather than going ultra-wide. Less distortion to correct, more usable pixels per object, no firmware changes. The leather case is the natural place to set the angle — bend the FPC, dial in the tilt, sew. The trade is that you lose some upper field of view (you no longer see faces as well at conversational distance), which suggests a two-mode design: button-press capture from a level lens, ambient capture from a downward-tilted lens, or two cameras.
-
-### Option D — Multi-camera or catadioptric
-
-Two narrower modules pointing 30° apart give a ~180° composite without the distortion correction overhead of a single fisheye. Cost is double the data rate over BLE, double the inference, and a more complex pendant board. A small convex mirror in front of a single camera gives near-360° in a single frame, but the dewarp is harder and only the center of the image has usable pixels for vision — fine for "is there activity?" but bad for "what is on the cutting board?"
-
-### Option E — Different SoC entirely: Himax WiseEye2 (the right answer for v3)
-
-The most interesting alternative is to stop trying to make the ESP32 stream frames and instead use a camera module that does inference on-board. [Seeed's Grove Vision AI Module V2 (~$16)](https://www.seeedstudio.com/Grove-Vision-AI-Module-V2-p-5851.html) uses the [Himax WiseEye2 HX6538](https://www.himax.com.tw/products/wiseeye-ai-sensing/wiseeye2-ai-processor/), an Arm Cortex-M55 paired with an Ethos-U55 NPU. It runs TFLite vision models at **single-digit milliwatts**, designed for always-on battery-powered wearables. In this architecture, the XIAO would only receive structured results ("hands at counter, food: cutting board, knife") rather than raw JPEG frames — dramatically extending battery life and reducing BLE bandwidth. The HX6538 can pair with an ESP32 over I²C for the BLE radio side of the pendant. The OV5647 camera module that ships with it isn't wide-angle by default, but the connector is standard.
-
 ### Dewarp considerations
 
 Past ~120° you need to either correct distortion in firmware before uploading frames, or accept that anything sent to a vision model will look bent at the edges. Most modern vision models handle moderate fisheye fine; a plate of food at the far edge of a 160° frame will be visibly warped and that hurts classification accuracy. For **pantry and grocery tracking** — where the question is mostly *what's there* rather than *what does it look like* — this matters less. For **meal nutrition analysis**, it matters more, which is one reason food logging currently does better with a phone photo.

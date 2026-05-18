@@ -61,7 +61,7 @@ export async function generateMealPlanPipeline(
   });
 
   const raw = await brain.text(PLAN_PROMPT, { temperature: 0.3 });
-  const match = raw.match(/\{[\\s\\S]*\}/);
+  const match = raw.match(/\{[\s\S]*\}/);
   let planData: any = {};
   if (match) {
     planData = JSON.parse(match[0]);
@@ -84,7 +84,7 @@ For each food, return the nutrient amounts for the EXACT portion specified.
 If the food is a recipe, estimate the ingredients.
 
 Foods to estimate:
-\${JSON.stringify(itemsToEstimate, null, 2)}
+${JSON.stringify(itemsToEstimate, null, 2)}
 
 Return a JSON array of objects, one per food, in the exact same order.
 Each object should have:
@@ -116,7 +116,7 @@ Each object should have:
 ONLY RETURN THE JSON ARRAY.`;
 
     const estimateRaw = await brain.text(ESTIMATE_PROMPT, { temperature: 0.1 });
-    const estMatch = estimateRaw.match(/\[[\\s\\S]*\]/);
+    const estMatch = estimateRaw.match(/\[[\s\S]*\]/);
     if (estMatch) {
       try {
         nutrientResults = JSON.parse(estMatch[0]);
@@ -259,8 +259,8 @@ function buildPantryString(pantryItems: any[]) {
   if (pantryItems.length === 0) return 'Empty pantry';
   return pantryItems.map(p => {
     let s = p.item_name;
-    if (p.quantity) s += ` (\${p.quantity} \${p.unit})`;
-    if (p.freshness === 'use_soon' || p.freshness === 'questionable') s += ` [\${p.freshness}]`;
+    if (p.quantity) s += ` (${p.quantity} ${p.unit})`;
+    if (p.freshness === 'use_soon' || p.freshness === 'questionable') s += ` [${p.freshness}]`;
     return s;
   }).join(', ');
 }
@@ -378,7 +378,7 @@ function parseCandidates(planData: any, remainingMeals: string[], pantryItems: a
         fromPantry = true;
         pantryItem = pantryMatch;
       } else if (!fromPantry) {
-        const foodWords = foodStr.toLowerCase().split(/[\\s,]+/);
+        const foodWords = foodStr.toLowerCase().split(/[\s,]+/);
         pantryItem = pantryLower.find(p =>
           foodWords.some((w: string) => w.length > 2 && (p.nameLower.includes(w) || w.includes(p.nameLower)))
         );
@@ -391,7 +391,7 @@ function parseCandidates(planData: any, remainingMeals: string[], pantryItems: a
       }
 
       candidates.push({
-        id: `candidate_\${slot}_\${candidates.length}`,
+        id: `candidate_${slot}_${candidates.length}`,
         name: foodStr,
         mealSlot: slot,
         nutrients: {},
@@ -411,7 +411,7 @@ function parseCandidates(planData: any, remainingMeals: string[], pantryItems: a
 function estimateQuantityGrams(quantity: string) {
   if (!quantity) return null;
   const q = quantity.toLowerCase();
-  const gramMatch = q.match(/(\\d+)\\s*g\\b/);
+  const gramMatch = q.match(/(\d+)\s*g\b/);
   if (gramMatch) return parseInt(gramMatch[1]);
   if (q.includes('bag')) return 300;
   if (q.includes('bottle')) return 500;
@@ -420,7 +420,7 @@ function estimateQuantityGrams(quantity: string) {
   if (q.includes('head')) return 500;
   if (q.includes('dozen')) return 720;
   if (q.includes('carton')) return 1000;
-  const numMatch = q.match(/(\\d+)/);
+  const numMatch = q.match(/(\d+)/);
   if (numMatch) return parseInt(numMatch[1]) * 100;
   return 500;
 }
@@ -500,7 +500,7 @@ function assemblePlan(mealAssignment: Record<string, MealPlanCandidate[]>, pantr
 
         if (!groceryList.some(g => g.food.toLowerCase() === food.name.toLowerCase())) {
           const portionNote = (food.portionMultiplier && food.portionMultiplier !== 1)
-            ? `\${Math.round(food.portionMultiplier * 100)}% portion`
+            ? `${Math.round(food.portionMultiplier * 100)}% portion`
             : '';
           groceryList.push({
             food: food.name,
@@ -530,9 +530,9 @@ function assemblePlan(mealAssignment: Record<string, MealPlanCandidate[]>, pantr
 
 function formatScaledPortion(foodString: string, multiplier: number) {
   if (!multiplier || Math.round(multiplier * 100) === 100) return foodString;
-  const match = foodString.trim().match(/^(\\d+(?:\\.\\d+)?(?:[/]\\d+)?|\\d+\\s+\\d+[/]\\d+)\\s+(.*)/);
+  const match = foodString.trim().match(/^(\d+(?:\.\d+)?(?:[/]\d+)?|\d+\s+\d+[/]\d+)\s+(.*)/);
   if (!match) {
-    return `\${foodString} (x\${Math.round(multiplier * 10) / 10})`;
+    return `${foodString} (x${Math.round(multiplier * 10) / 10})`;
   }
   const numStr = match[1];
   const restStr = match[2];
@@ -548,5 +548,5 @@ function formatScaledPortion(foodString: string, multiplier: number) {
     num = parseFloat(numStr);
   }
   const scaled = Math.round(num * multiplier * 10) / 10;
-  return `\${scaled} \${restStr}`;
+  return `${scaled} ${restStr}`;
 }

@@ -456,44 +456,9 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
         sourceData: s,
       });
 
-      // 2. Add stationary session -> activity block with smart title
-      if (!claimedLocationSessionIds.has(s.id)) {
-        const childActs = getChildActivitiesForSession(s);
-        const smartTitle = generateLocationBlockTitle(s, childActs);
-        
-        let activityDurationMin = durationMin;
-        if (activityDurationMin < 30) activityDurationMin = 30; // Minimum 30 min block for stationary sessions
-
-        // Determine icon from dominant child activity
-        const dominantType = childActs.length > 0
-          ? childActs.sort((a, b) => (b.duration_min || 0) - (a.duration_min || 0))[0].activity_type
-          : 'other';
-        const ACTIVITY_ICONS: Record<string, string> = {
-          work: 'monitor', social: 'users', rest: 'moon', exercise: 'zap',
-          cooking: 'coffee', eating: 'coffee', reading: 'book-open',
-          commute: 'truck', walk: 'map-pin', workout: 'zap',
-        };
-
-        locationActivityEvents.push({
-          id: 600000 + locationActivityEvents.length,
-          loggedAt: visibleStart.toISOString(),
-          title: smartTitle,
-          duration_min: activityDurationMin,
-          icon: ACTIVITY_ICONS[dominantType] || 'map-pin',
-          location: s.placeName || null,
-          type: 'activity' as const,
-          sourceData: {
-            id: -(600000 + locationActivityEvents.length),
-            loggedAt: visibleStart.toISOString(),
-            activityType: dominantType,
-            logName: smartTitle,
-            duration_min: activityDurationMin,
-            location: s.placeName || undefined,
-            source: 'location',
-            meta: { locationSession: s },
-          },
-        });
-      }
+      // NOTE: No virtual activity block for stationary sessions.
+      // They appear on the location rail only. User converts to activity via rail tap.
+      // This eliminates the "ghost block" double-save bug.
     }
     // Flush remaining trail group
     flushTrailGroup();

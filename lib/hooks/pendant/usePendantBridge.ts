@@ -224,7 +224,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
           frameCaptures.set(framePath, captureId);
 
           // Callback for queued frames: updates pendantStore when they finish
-          const onQueueResult = (queuedFramePath: string, queuedResult: { summary: string, log?: any, title?: string, description?: string }) => {
+          const onQueueResult = (queuedFramePath: string, queuedResult: { summary: string, log?: any, title?: string, description?: string, triageSignals?: any }) => {
             const queuedCaptureId = frameCaptures.get(queuedFramePath);
             if (!queuedCaptureId) return;
             frameCaptures.delete(queuedFramePath);
@@ -247,6 +247,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                 pipelineLog: queuedResult.log,
                 title: queuedResult.title,
                 description: queuedResult.description,
+                triageSignals: queuedResult.triageSignals,
               });
             }
           };
@@ -282,6 +283,7 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
                   pipelineLog: result.log,
                   title: result.title,
                   description: result.description,
+                  triageSignals: result.triageSignals,
                 });
               }
             }

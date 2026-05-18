@@ -23,7 +23,9 @@ import { getDb } from '../../lib/database';
 
 interface Props {
   visible: boolean;
-  session: LocationSession | null;
+  session?: LocationSession | null;
+  /** Alternative to session: raw time range for any activity block */
+  timeRange?: { startedAt: string; endedAt: string | null };
   title: string;
   onClose: () => void;
 }
@@ -72,26 +74,33 @@ function formatTime(timestamp: number): string {
   });
 }
 
-export default function LocationTimelineModal({ visible, session, title, onClose }: Props) {
+export default function LocationTimelineModal({ visible, session, timeRange, title, onClose }: Props) {
   const [rows, setRows] = useState<TimelineRow[]>([]);
   const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
   const [typePicker, setTypePicker] = useState<number | null>(null);
 
-  // Build rows when session changes
+  // Resolve the effective time range from either session or explicit timeRange
+  const effectiveRange = useMemo(() => {
+    if (session) return { startedAt: session.startedAt, endedAt: session.endedAt };
+    if (timeRange) return timeRange;
+    return null;
+  }, [session, timeRange]);
+
+  // Build rows when range changes
   useMemo(() => {
-    if (!session) { setRows([]); return; }
-    setRows(buildTimelineRows(session));
+    if (!effectiveRange) { setRows([]); return; }
+    setRows(buildTimelineRows(effectiveRange));
     setEditingRowIdx(null);
     setTypePicker(null);
-  }, [session]);
+  }, [effectiveRange]);
 
-  if (!session) return null;
+  if (!effectiveRange) return null;
 
-  const startTime = new Date(session.startedAt).toLocaleTimeString('en-US', {
+  const startTime = new Date(effectiveRange.startedAt).toLocaleTimeString('en-US', {
     hour: 'numeric', minute: '2-digit',
   });
-  const endTime = session.endedAt
-    ? new Date(session.endedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const endTime = effectiveRange.endedAt
+    ? new Date(effectiveRange.endedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     : 'now';
 
   /** Update a row's classification and persist */
@@ -310,33 +319,38 @@ export default function LocationTimelineModal({ visible, session, title, onClose
                   {/* AEIOU (editable when row is in edit mode) */}
                   {editingRowIdx === idx && row.aeiou && Object.keys(row.aeiou).length > 0 && (
                     <View style={styles.aeiouEditSection}>
-                      {Object.entries(row.aeiou).map(([key, val]) => (
-                        <View key={key} style={styles.aeiouEditRow}>
-                          <Text style={styles.aeiouEditLabel}>
-                            {key.charAt(0).toUpperCase()}:
-                          </Text>
-                          <TextInput
-                            style={styles.aeiouEditInput}
-                            value={val || ''}
-                            onChangeText={(text) => handleAeiouChange(idx, key, text)}
-                            placeholder={key}
-                            placeholderTextColor={colors.textMuted}
-                          />
-                        </View>
-                      ))}
+                      {Object.entries(row.aeiou).map(([key, val]) => {
+                        const displayVal = typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val || '');
+                        return (
+                          <View key={key} style={styles.aeiouEditRow}>
+                            <Text style={styles.aeiouEditLabel}>
+                              {key.charAt(0).toUpperCase()}:
+                            </Text>
+                            <TextInput
+                              style={styles.aeiouEditInput}
+                              value={displayVal}
+                              onChangeText={(text) => handleAeiouChange(idx, key, text)}
+                              placeholder={key}
+                              placeholderTextColor={colors.textMuted}
+                            />
+                          </View>
+                        );
+                      })}
                     </View>
                   )}
 
                   {/* AEIOU (read-only when not editing) */}
                   {editingRowIdx !== idx && row.aeiou && Object.keys(row.aeiou).length > 0 && (
                     <View style={styles.aeiouRow}>
-                      {Object.entries(row.aeiou).map(([key, val]) => (
-                        val ? (
+                      {Object.entries(row.aeiou).map(([key, val]) => {
+                        if (val == null || val === '') return null;
+                        const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                        return (
                           <Text key={key} style={styles.aeiouText}>
-                            {key.charAt(0).toUpperCase()}: {val}
+                            {key.charAt(0).toUpperCase()}: {displayVal}
                           </Text>
-                        ) : null
-                      ))}
+                        );
+                      })}
                     </View>
                   )}
 
@@ -363,9 +377,9 @@ export default function LocationTimelineModal({ visible, session, title, onClose
 /**
  * Build timeline rows from all available data sources.
  */
-function buildTimelineRows(session: LocationSession): TimelineRow[] {
-  const startMs = new Date(session.startedAt).getTime();
-  const endMs = session.endedAt ? new Date(session.endedAt).getTime() : Date.now();
+function buildTimelineRows(range: { startedAt: string; endedAt: string | null }): TimelineRow[] {
+  const startMs = new Date(range.startedAt).getTime();
+  const endMs = range.endedAt ? new Date(range.endedAt).getTime() : Date.now();
   const rows: TimelineRow[] = [];
 
   // Source 1: PendantCapture store (in-memory, has photos + voice + brain response)

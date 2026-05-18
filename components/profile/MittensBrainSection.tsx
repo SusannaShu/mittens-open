@@ -6,7 +6,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, TextInput, ScrollView 
 import { Feather } from '@expo/vector-icons';
 import { ModelBenchmarkModal } from './ModelBenchmarkModal';
 import {
-  useBrainConfig, CLOUD_MODELS, PRIVATE_MODELS,
+  useBrainConfig, PRIVATE_MODELS,
   canRunModel, getDownloadSize, formatBytes,
 } from '../../hooks/useBrainConfig';
 import { colors, radius, spacing } from '../../lib/theme';
@@ -74,13 +74,7 @@ export function MittensBrainSection({ profileContext, collapsed, onToggle, onRef
           {/* Brain selector */}
           <View style={{ paddingBottom: 8 }}>
             <View style={{ marginBottom: 6 }}>
-              <Text style={styles.rowLabel}>CLOUD</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                {CLOUD_MODELS.map(renderBrainPill)}
-              </ScrollView>
-            </View>
-            <View style={{ marginBottom: 6 }}>
-              <Text style={styles.rowLabel}>PRIVATE</Text>
+              <Text style={styles.rowLabel}>MODELS</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                 {PRIVATE_MODELS.map(renderBrainPill)}
               </ScrollView>
@@ -242,42 +236,6 @@ export function MittensBrainSection({ profileContext, collapsed, onToggle, onRef
             </View>
           )}
 
-          {/* Data Storage */}
-          <View style={styles.integrationRow}>
-            <View style={styles.integrationIcon}>
-              <Feather name={brain.currentDataMode === 'local' ? 'smartphone' : 'cloud'} size={18} color={colors.textPrimary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>Data Storage</Text>
-              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
-                {brain.currentDataMode === 'local' ? 'Private, all data on device' : 'Backed up to your account'}
-              </Text>
-            </View>
-          </View>
-          <View style={{ paddingBottom: 8 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity
-                style={[styles.actBtn, { flex: 1, alignItems: 'center', paddingVertical: 6 }, brain.currentDataMode === 'cloud' && styles.actBtnActive]}
-                onPress={() => brain.handleToggleDataMode('cloud')}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Feather name="cloud" size={12} color={brain.currentDataMode === 'cloud' ? '#fff' : colors.textPrimary} />
-                  <Text style={[styles.actText, { fontSize: 12 }, brain.currentDataMode === 'cloud' && styles.actTextActive]}>Cloud</Text>
-                </View>
-                <Text style={[{ fontSize: 9, color: colors.textMuted, marginTop: 1 }, brain.currentDataMode === 'cloud' && { color: 'rgba(255,255,255,0.7)' }]}>synced + backed up</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actBtn, { flex: 1, alignItems: 'center', paddingVertical: 6 }, brain.currentDataMode === 'local' && styles.actBtnActive]}
-                onPress={() => brain.handleToggleDataMode('local')}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Feather name="smartphone" size={12} color={brain.currentDataMode === 'local' ? '#fff' : colors.textPrimary} />
-                  <Text style={[styles.actText, { fontSize: 12 }, brain.currentDataMode === 'local' && styles.actTextActive]}>Local Only</Text>
-                </View>
-                <Text style={[{ fontSize: 9, color: colors.textMuted, marginTop: 1 }, brain.currentDataMode === 'local' && { color: 'rgba(255,255,255,0.7)' }]}>on device, private</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm }}>
             <Feather name="lock" size={12} color={colors.textMuted} />

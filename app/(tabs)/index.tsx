@@ -75,7 +75,30 @@ export default function TodayScreen() {
   const [weatherData, setWeatherData] = useState<{ temp: number; description: string; uv: number } | null>(null);
 
   // All handlers + modal state from custom hook
-  const h = useTodayHandlers(refetch);
+  // Generate meal plan via local brain (no polling needed -- runs synchronously)
+  const triggerMealPlanRegeneration = () => {
+    if (isGeneratingPlan) return;
+    setIsGeneratingPlan(true);
+
+    generateMealPlanAsync().unwrap().then(() => {
+      setIsGeneratingPlan(false);
+      // Invalidate MealPlan tag to refetch from SQLite
+      dispatch(nutritionApi.util.invalidateTags(['MealPlan']));
+    }).catch(() => {
+      setIsGeneratingPlan(false);
+    });
+  };
+
+  const regenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedRegeneratePlan = () => {
+    if (regenTimeoutRef.current) clearTimeout(regenTimeoutRef.current);
+    regenTimeoutRef.current = setTimeout(() => {
+      triggerMealPlanRegeneration();
+    }, 1500);
+  };
+
+  const h = useTodayHandlers(refetch, triggerMealPlanRegeneration);
+
   
   // Handle openManual URL parameter
   const [initialManualTab, setInitialManualTab] = useState<any>('meal');
@@ -131,27 +154,6 @@ export default function TodayScreen() {
     },
   });
 
-  // Generate meal plan via local brain (no polling needed -- runs synchronously)
-  const triggerMealPlanRegeneration = () => {
-    if (isGeneratingPlan) return;
-    setIsGeneratingPlan(true);
-
-    generateMealPlanAsync().unwrap().then(() => {
-      setIsGeneratingPlan(false);
-      // Invalidate MealPlan tag to refetch from SQLite
-      dispatch(nutritionApi.util.invalidateTags(['MealPlan']));
-    }).catch(() => {
-      setIsGeneratingPlan(false);
-    });
-  };
-
-  const regenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedRegeneratePlan = () => {
-    if (regenTimeoutRef.current) clearTimeout(regenTimeoutRef.current);
-    regenTimeoutRef.current = setTimeout(() => {
-      triggerMealPlanRegeneration();
-    }, 1500);
-  };
 
   useEffect(() => {
     if (mealPlanData?.plan) {

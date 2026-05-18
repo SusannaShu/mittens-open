@@ -25,6 +25,14 @@ export interface PendantCapture {
   title?: string;
   /** Free-form scene description from VLM */
   description?: string;
+  /** Structured triage signals (set after VLM processing) */
+  triageSignals?: {
+    screenUse: boolean;
+    outdoors: boolean;
+    movement: boolean;
+    movementType?: string;
+    nature: boolean;
+  };
 }
 
 // ─── Constants ───
@@ -158,7 +166,7 @@ export function addCapture(
 /** Update an existing capture by ID. */
 export function updateCapture(
   id: string,
-  updates: Partial<Pick<PendantCapture, 'brainResponse' | 'transcript' | 'pipelineLog' | 'processed' | 'title' | 'description'>>
+  updates: Partial<Pick<PendantCapture, 'brainResponse' | 'transcript' | 'pipelineLog' | 'processed' | 'title' | 'description' | 'triageSignals'>>
 ): void {
   const idx = captures.findIndex((c) => c.id === id);
   if (idx === -1) return;

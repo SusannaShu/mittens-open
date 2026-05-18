@@ -27,6 +27,13 @@ export interface FrameResult {
   log?: PipelineLog;
   title?: string;
   description?: string;
+  triageSignals?: {
+    screenUse: boolean;
+    outdoors: boolean;
+    movement: boolean;
+    movementType?: string;
+    nature: boolean;
+  };
 }
 
 // ─── Singleton ───
@@ -123,7 +130,7 @@ class SceneStreamManager {
     } else {
       const gateIdx = logger.startPhase('gate', 'quality');
       try {
-        const { checkQualityGate, setLastFrame } = require('./frameDedup');
+        const { checkQualityGate } = require('./frameDedup');
         const bedtimeNear = isNearBedtime();
         const gateResult = await checkQualityGate(framePath, { nearBedtime: bedtimeNear });
         if (gateResult.skip) {
@@ -132,7 +139,7 @@ class SceneStreamManager {
           return { summary: `Skipped: ${gateResult.reason}`, log: logger.finalize() };
         }
         logger.completePhase(gateIdx, `Frame passed quality gate${bedtimeNear ? ' (bedtime mode)' : ''}`);
-        setLastFrame(framePath);
+        // NOTE: setLastFrame is called AFTER triage (below) so we have the description
       } catch (err: any) {
         logger.completePhase(gateIdx, `Gate failed: ${err?.message}`);
       }
@@ -154,7 +161,7 @@ class SceneStreamManager {
       `${signalLabels}, ${triage.people} people`,
     );
 
-    // Brain offline -- surface error
+    // Brain offline -- surface error (do NOT update reference frame)
     if (triage.error) {
       console.warn('[SceneStream] Brain error:', triage.error);
       return {
@@ -165,6 +172,14 @@ class SceneStreamManager {
       };
     }
 
+    // Update reference frame NOW -- triage succeeded and frame is legible
+    if (!skipGate) {
+      try {
+        const { setLastFrame } = require('./frameDedup');
+        setLastFrame(framePath, triage.description || triage.title);
+      } catch {}
+    }
+
     // Phase 2.5: Sleep check
     this.checkBedtime(triage);
 
@@ -173,9 +188,11 @@ class SceneStreamManager {
       triage, framePath, logger,
     );
 
-    // Phase 2.5c: Sedentary auto-timer (screenUse at home, no separate VLM)
+    // Phase 2.5c: Sedentary detection + away-from-screen timer stop
     if (triage.signals.screenUse) {
       this.checkSedentaryFromSignal(framePath);
+    } else {
+      this.checkAwayFromScreen();
     }
 
     // Determine which downstream pipelines to run
@@ -202,6 +219,13 @@ class SceneStreamManager {
       log: logger.finalize(),
       title: triage.title,
       description: triage.description,
+      triageSignals: {
+        screenUse: !!triage.signals.screenUse,
+        outdoors: !!triage.signals.outdoors,
+        movement: !!triage.signals.movement,
+        movementType: triage.signals.movementType,
+        nature: !!triage.signals.nature,
+      },
     };
   }
 
@@ -317,6 +341,7 @@ class SceneStreamManager {
     logger: PipelineLogger,
   ): Promise<string[]> {
     if (triage.people <= 0) return [];
+    if (triage.faceLegible !== true) return []; // Strictly gate: skip face recognition unless a face is explicitly and clearly visible
     try {
       const { checkFaceRecognition } = require('./sceneFaceRecognition');
       const faceResult = await checkFaceRecognition(framePath, null, logger);
@@ -336,6 +361,13 @@ class SceneStreamManager {
         triggerFromSignal(true).catch(() => { /* non-blocking */ });
       }
     } catch { /* location or sedentary service not loaded */ }
+  }
+
+  private checkAwayFromScreen(): void {
+    try {
+      const { checkAwayFromScreen } = require('./timerAutoStop');
+      checkAwayFromScreen();
+    } catch { /* timerAutoStop not loaded */ }
   }
 
   private async runLogPhase(

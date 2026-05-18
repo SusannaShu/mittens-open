@@ -163,7 +163,7 @@ JSON: {"intents":[
 
 pipeline must be: meal, activity, pantry, sleep, timer, chat
 activityType (if activity or timer): walk, run, bike, workout, sun, work, social, rest, stress, soul, cooking, commute, other
-faceLegible (boolean): true ONLY if a person's face is clearly visible and legible in the frame. False if person is detected but face is not visible or legible.
+faceLegible (boolean): true ONLY if a person's face is clearly visible, in focus, and facing the camera. False if person is detected from behind, blurred, or face is not legible.
 
 Guidance:
 - pantry = stored, raw, or unprepped food (fridge, shelf, groceries). meal = prepared, plated, or being eaten.
@@ -231,9 +231,9 @@ Classify this message to determine what should be logged.
 
 For each detected intent, also specify which analysis phases have evidence in the text.
 
-pipeline: meal (mentions eating/food), activity (movement, events, work, social situations),
+pipeline: meal (ONLY if explicitly logging a meal they ate/are eating. DO NOT trigger for questions like "what should I eat" or "recommend a meal"), activity (movement, events, work, social situations),
 sleep (sleep mention), email (emails, orders, inbox), watch (websites, news, feeds),
-timer (start or stop a focus timer), chat (conversational, question, or unclear)
+timer (start or stop a focus timer), chat (conversational, question, or unclear. Questions about food belong here)
 
 For meal: include "identify" ONLY if specific foods or drinks are named. "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate. Include "pantryDelta" ONLY if they are cooking or eating at home (skip if eating out).
 

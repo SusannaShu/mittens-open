@@ -44,6 +44,16 @@ export function doDeleteMessage(
                 const db = getDb();
                 db.runSync('DELETE FROM mittens_messages WHERE id >= ?', [numericId]);
               }
+              
+              if (msg.mealMetadata?.logId) {
+                const { getDb } = require('../../database');
+                const db = getDb();
+                db.runSync('DELETE FROM nutrition_logs WHERE id = ?', [msg.mealMetadata.logId]);
+                
+                // Trigger refresh
+                const { nutritionApi } = require('../../services/nutritionApi');
+                ctx.dispatch(nutritionApi.util.invalidateTags(['DailySummary', 'MealPlan']));
+              }
             } catch (err: any) {
               console.log('[doDeleteMessage] Local delete error:', err);
             }

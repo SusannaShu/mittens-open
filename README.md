@@ -1,8 +1,8 @@
 # Mittens
 
-Designed to keep your life on track, especialy for people with ADHD or other neurodivergences, but for anyone who wants to be more intentional. Wearing a pendant for ambient observation to automatically start timer and speak to you through TTS to remind you to take a break from work, leave for your appointments, eat, log nutrition and activities, and get ready for bed.
+Designed to keep your life on track. Wearing a pendant for ambient observation to automatically start timer and speak to you through TTS to remind you to take a break from work, leave for your appointments, eat, log nutrition and activities, and get ready for bed.
 
-Mittens runs on your phone. It tracks your nutrition from your meals, smart inventory of your pantry, recommends groceries from USDA FoodData and your personal nutrition gap calculation, track your location to log your walking/biking/running/transit activities to recommend what to eat more or less, logs your sleep and activity, reflects on each of them with scientific research and data visualizations, remembers your friends' and family's faces, socialize and help you reflect on your life and relationships through stanford's life design philosophy. It sees what you eat, hears what you say, and remembers what matters to you.
+Mittens runs on your phone. It tracks your nutrition from your meals, smart inventory of your pantry, recommends groceries from USDA FoodData and your personal nutrition gap calculation, track your location to log your walking/biking/running/transit activities to recommend what to eat more or less, logs your sleep and activity, reflects on each of them with scientific research and data visualizations, remembers your friends' and family's faces, socialize and help you reflect on your life through stanford's life design philosophy. It sees what you eat, hears what you say, and remembers what matters to you.
 
 <p align="center">
   <img src="screenshots/today-dashboard.png" width="180" alt="Today dashboard" />
@@ -12,9 +12,7 @@ Mittens runs on your phone. It tracks your nutrition from your meals, smart inve
   <img src="screenshots/places-map.png" width="180" alt="Places map" />
 </p>
 
-Local model on your phone. Host your own model and port it in, or bring your own API keys. Your data stays private.
 
-I am bothered by manually picture sending so I made a pendant to automate logging my meals and activities. And the data is extensive so I'm sending everything in cloud server in my private repo and the cloud version (including connecting models like Claude Opus) will be released later.
 
 <p align="center">
   <img src="screenshots/pendant-titanium-concept.jpg" width="280" alt="Future titanium pendant concept" />
@@ -29,6 +27,36 @@ I test every detail of the wearbale, app, and pipelines throughout my daily life
 
 **Nutrition.** Photograph your meal and Mittens identifies every item, estimates 19 nutrients, tracks your gaps against RDA, and plans your next meal to close them. Two-phase AI: vision identifies the food, a separate knowledge call estimates nutrients. No cognitive overload, dramatically better accuracy. Bioavailability-aware (vitamin C enhances iron, calcium blocks it), source-aware (plant vs animal vitamin A), hydration from food water content. Meal planning uses a MILP solver to optimize nutrients across the day.
 
+<p align="center">
+  <img src="screenshots/nutrition-meal-analysis.png" width="240" alt="Meal analysis with per-item confidence" />
+  <img src="screenshots/nutrition-usda-detail.png" width="240" alt="Per-item nutrient detail with USDA match and cooking adjustments" />
+  <img src="screenshots/nutrition-bioavailability.png" width="240" alt="Nutrient interactions: synergies and inhibitors with effect size" />
+</p>
+
+### How nutrition analysis actually works (for nutrition education)
+
+Most calorie-tracking apps treat a food as a fixed bag of numbers. Mittens treats a meal as a *system* — what's on the plate interacts with itself, and what the body absorbs is not what the label says. Tapping any food or any nutrient in Mittens opens an explanation panel so the app teaches as it logs.
+
+**Phase 1 — Vision identifies the foods.** A single Gemma 4 vision call returns each item, an estimated cooked-or-raw weight, and a confidence score. The confidence is shown to the user (95%, 90%, 85% in the screenshot above), and any item can be tapped to edit name, weight, or cooking state. Low-confidence items prompt rather than silently guess.
+
+**Phase 2 — USDA candidate selection.** For each identified food, the brain selects the best USDA FoodData entry from a shortlist of candidates ("AI selected USDA 'Corn, sweet, yellow, raw' from 5 candidates"). This is shown on the detail page so the user can see what the AI matched against and override it. Side-by-side **USDA** and **FINAL** columns make every adjustment visible.
+
+**Phase 3 — Cooking adjustments.** Cooking destroys some nutrients (vitamin C, folate, B-vitamins) and concentrates others. Each affected nutrient gets a `COOKING` tag and a numeric correction applied to the USDA baseline. This is why the FINAL column differs from the USDA column for cooked foods — and why a "calories from raw spinach" lookup misleads you about a cooked dish.
+
+**Phase 4 — Bioavailability across the whole meal.** This is the part nobody else does well. Mittens looks at every pair of nutrients across every food on the plate and applies peer-reviewed interaction rules:
+
+- **Iron + Vitamin C → +50%** absorption (Fe³⁺ reduced to absorbable Fe²⁺) — sourced from broccoli + black beans + red cabbage together.
+- **Iron − Calcium → −30%** absorption (transport competition in the same meal).
+- **Zinc / Iron − Phytate → −35% / −50%** (chelation from grains and beans).
+- **Calcium + Vitamin D → +30%** (active transport in the intestine).
+- **Folate + Vitamin C → +20%** (oxidative protection in the gut).
+
+Each interaction shows its source foods, the rule, the effect size at this dose, and the mechanism in one sentence. Users learn *why* their food works the way it does instead of just seeing a number change.
+
+**Phase 5 — RDA gap tracking + MILP meal planning.** Final adjusted nutrients are tracked against your RDA for the day. The next meal is recommended by a mixed-integer linear-programming solver that minimizes your remaining gap subject to what's in your pantry and your dietary preferences. The solver is deterministic; the brain only proposes candidate foods, the math picks the combination.
+
+All five phases are explainable end-to-end: tap any number, see which food contributed, which rule fired, and the citation behind the rule.
+
 **Activity logging.** Photo, text, or manual — all inputs flow through the same pipeline. Every activity gets AEIOU tags (Activities, Environments, Interactions, Objects, Users), weighted life categories (work/health/play/love), engagement and energy ratings. Health impact computed deterministically with peer-reviewed citations. Movement trails from location tracking. Geofenced known places.
 
 **Life Design.** Stanford Life Design philosophy, practiced daily. Lifeview and workview reflections. Nightly check-in that starts with your most important unreflected activity. Life balance gauges that break health into 7 research-backed pillars: nutrition, movement, sleep, gut health, nature exposure, circadian hygiene, and brain hygiene. Every metric is explainable — tap any gauge to see which logs affected it, by how much, and why, with tappable DOI-linked research citations.
@@ -39,7 +67,7 @@ I test every detail of the wearbale, app, and pipelines throughout my daily life
 
 **Talk to Mittens.** The chat is the primary interface. Mittens classifies what you say or photograph and routes to the right pipeline — food, activity, sleep, pantry, or web lookup. It reads your calendar, searches past conversations, remembers your habits and preferences, and updates its memory as your life changes. Voice input and TTS output.
 
-**Web + social lookup.** "Any free food from nycforfree today?" "Anything on HackerNews?" "New soft robotics papers — humanoid only, not marine." Mittens fetches the content (RSS, API, HTML scrape, or Instagram stories via server-side Instaloader), runs vision or text filtering through the brain, extracts structured details, and shows you cards. No polling — on-demand when you ask. Uses your lifeview/workview as implicit interest filters.
+**Web + social lookup.** (coming soon) "Any free food from nycforfree today?" "Anything on HackerNews?" "New soft robotics papers — humanoid only, not marine." Mittens fetches the content (RSS, API, HTML scrape, or Instagram stories via server-side Instaloader), runs vision or text filtering through the brain, extracts structured details, and shows you cards. No polling — on-demand when you ask. Uses your lifeview/workview as implicit interest filters.
 
 **People.** Mittens learns and recognizes the people in your life. Introduce someone by holding the pendant button and saying "Mittens, this is Caden" -- the on-device face recognition module (Apple Vision + CoreML) extracts a mathematical face embedding and saves it locally. Next time the pendant sees Caden during ambient capture, it matches the face via cosine similarity, retrieves interaction history and memories, and greets him with a unique, context-aware response generated by the brain. Recognition improves over time through reinforcement -- each new sighting from a different angle or lighting saves another embedding to the person's profile.
 
@@ -210,7 +238,51 @@ See [mittens_pendant/firmware/pendant_main/SETUP.md](mittens_pendant/firmware/pe
 
 **Trading map.** Items marked "want to trade" flow from SUSU Closet to SUSU Map for local peer-to-peer trading.
 
-**Production level Pendant.** Customized PCB with alumninum case with upgraded components and design, smaller, lighter. If permits would like to log continuous video and audio instead of current trigger based log.
+**Production level Pendant.** Customized PCB with waterproof aluminum case with upgraded components and design, smaller, lighter. Higher quality camera for better food and cooking recognition.
+
+## Hardware Roadmap: Wider Field of View
+
+The stock camera on the XIAO ESP32S3 Sense has a ~66° lens. Mounted on the chest, this misses two things that matter for ambient logging:
+
+- **Meal prep happening directly below the camera** — chopping, plating, what's actually on the cutting board.
+- **Pantry and grocery movement that's off-axis** — reaching for items on a side shelf, items pulled from a low drawer, things handed over a counter.
+
+A few realistic paths to fix this without abandoning the XIAO form factor:
+
+### Option A — Drop-in wide-angle OV2640 (~$5–15, weekend project)
+
+The same OV2640 sensor with a 120° or 160° lens. Same 24-pin 0.5mm pitch ribbon, same driver code in `camera.h`, same pin map. You pop the FPC connector, slide the stock ribbon out, slide the wide-angle module's ribbon in. **120° is the sweet spot** for a chest-worn pendant: it sees both your hands at the counter *and* what's to the sides. **160° catches almost everything in frame** but introduces heavy barrel distortion that you'd want to dewarp in firmware before sending to a vision model. Search for "OV2640 24-pin 0.5mm pitch wide-angle" — avoid listings that just say "ESP32-CAM fisheye" without confirming the connector, because the older AI-Thinker ESP32-CAM uses the same sensor with a different cable assembly.
+
+Sources: [Taidacent 160° OV2640](https://www.amazon.com/Taidacent-Million-Wide-Angle-Interface-Fisheye/dp/B08XKH6WFM), [M5Stack 160° OV2640 module](https://www.makerfocus.com/products/m5stack-esp32-fisheye-camera-module-cameraf-ov2640-160-degree-with-4mb), [CANADUINO 160° fisheye for ESP32-CAM](https://www.amazon.com/CANADUINO%C2%AE-Fish-Eye-Camera-Module-ESP32-CAM/dp/B0B2BL6CMM).
+
+### Option B — OV5640 5MP upgrade, with or without wide-angle lens (~$15–25)
+
+Seeed Studio sells an official [OV5640 drop-in kit for the XIAO ESP32S3 Sense](https://www.seeedstudio.com/OV5640-Camera-for-XIAO-ESP32S3-Sense-With-Heat-Sink-p-5739.html) (heat sink included; you'll want it). 2592×1944 native, auto-focus, 8/10-bit RGB RAW. Higher resolution matters for a pendant in a specific way: **you can use a wider lens and software-crop into the region containing the food/object, and still have enough pixels to recognize ingredients.** That breaks the trade-off where "wider lens = blurrier per-object." Wide-angle OV5640 variants exist too — [Adafruit sells a 160° OV5640 breakout](https://www.adafruit.com/product/5841), and Amazon has [130°/200° OV5640 mini modules](https://www.amazon.com/MOMOJIA-Ov5640-Million-Monitor-Identification/dp/B0CXM5N84M). Most need a custom adapter board to mate with the XIAO Sense's existing 24-pin connector, so verify pitch and pinout before ordering.
+
+### Option C — Angle the camera, don't widen the lens
+
+Underrated. If the specific problem is "I can't see what's happening on the prep surface below me," the cheaper solution is to mechanically angle a 90°–100° lens module downward by ~25–30° in the case rather than going ultra-wide. Less distortion to correct, more usable pixels per object, no firmware changes. The leather case is the natural place to set the angle — bend the FPC, dial in the tilt, sew. The trade is that you lose some upper field of view (you no longer see faces as well at conversational distance), which suggests a two-mode design: button-press capture from a level lens, ambient capture from a downward-tilted lens, or two cameras.
+
+### Option D — Multi-camera or catadioptric
+
+Two narrower modules pointing 30° apart give a ~180° composite without the distortion correction overhead of a single fisheye. Cost is double the data rate over BLE, double the inference, and a more complex pendant board. A small convex mirror in front of a single camera gives near-360° in a single frame, but the dewarp is harder and only the center of the image has usable pixels for vision — fine for "is there activity?" but bad for "what is on the cutting board?"
+
+### Option E — Different SoC entirely: Himax WiseEye2 (the right answer for v3)
+
+The most interesting alternative is to stop trying to make the ESP32 stream frames and instead use a camera module that does inference on-board. [Seeed's Grove Vision AI Module V2 (~$16)](https://www.seeedstudio.com/Grove-Vision-AI-Module-V2-p-5851.html) uses the [Himax WiseEye2 HX6538](https://www.himax.com.tw/products/wiseeye-ai-sensing/wiseeye2-ai-processor/), an Arm Cortex-M55 paired with an Ethos-U55 NPU. It runs TFLite vision models at **single-digit milliwatts**, designed for always-on battery-powered wearables. In this architecture, the XIAO would only receive structured results ("hands at counter, food: cutting board, knife") rather than raw JPEG frames — dramatically extending battery life and reducing BLE bandwidth. The HX6538 can pair with an ESP32 over I²C for the BLE radio side of the pendant. The OV5647 camera module that ships with it isn't wide-angle by default, but the connector is standard.
+
+### Dewarp considerations
+
+Past ~120° you need to either correct distortion in firmware before uploading frames, or accept that anything sent to a vision model will look bent at the edges. Most modern vision models handle moderate fisheye fine; a plate of food at the far edge of a 160° frame will be visibly warped and that hurts classification accuracy. For **pantry and grocery tracking** — where the question is mostly *what's there* rather than *what does it look like* — this matters less. For **meal nutrition analysis**, it matters more, which is one reason food logging currently does better with a phone photo.
+
+### Recommended pendant v2/v3 roadmap
+
+| Version | Lens | Sensor | Strategy | Reason |
+|---------|------|--------|----------|--------|
+| v1 (today) | ~66° stock | OV2640 2MP | Single fixed lens | What's flashed and working |
+| v2 (next iteration) | 120° wide-angle | OV2640 2MP | Drop-in, +30° downward tilt | Cheapest path to seeing prep surfaces |
+| v2.5 | 120° wide-angle | OV5640 5MP, auto-focus | Crop-to-region in firmware | Restores per-object resolution despite wider lens |
+| v3 (architecture shift) | 120° | OV5647 + WiseEye2 HX6538 | On-module always-on inference, ESP32 = BLE + audio + IMU only | Always-on observation at <10mW; sends events, not frames |
 
 ## Cost
 

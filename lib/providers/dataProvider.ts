@@ -14,6 +14,7 @@ export interface MealInput {
   items: any[];
   source: 'vision' | 'manual';
   imageId?: number;
+  loggedAt?: string;
 }
 
 export interface DailySummaryResult {

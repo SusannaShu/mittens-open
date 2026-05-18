@@ -205,6 +205,7 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
           items,
           source: msg.mealMetadata.source || 'vision',
           imageId: msg.mealMetadata.imageId,
+          loggedAt: new Date(msg.timestamp).toISOString(),
         });
         if (res?.id) {
           // Save logId back to message so future edits update it
@@ -224,8 +225,17 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
     // Update the chat message in DB with finalized pipelineFoods + mealMetadata
     // so the meal card survives app reload
     try {
-      const finalMsg = messagesRef.current.find(m => m.id === messageId || m.clientId === messageId);
-      const dbId = finalMsg?.id?.startsWith('db-') ? parseInt(finalMsg.id.slice(3), 10) : null;
+      let dbId: number | null = null;
+      let finalMsg: ChatMessage | undefined;
+      
+      // Retry up to 5 times (2.5s) to wait for handleMessage to assign a db- id
+      for (let i = 0; i < 5; i++) {
+        finalMsg = messagesRef.current.find(m => m.id === messageId || m.clientId === messageId);
+        dbId = finalMsg?.id?.startsWith('db-') ? parseInt(finalMsg.id.slice(3), 10) : null;
+        if (dbId && !isNaN(dbId)) break;
+        await new Promise(r => setTimeout(r, 500));
+      }
+
       if (dbId && !isNaN(dbId) && dataProvider.updateMessage) {
         await dataProvider.updateMessage(dbId, {
           metadata: {
@@ -253,6 +263,7 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
   // ── Build context ──
   const ctx: ChatContext = {
     messages, setMessages, addMessage, scrollToEnd,
+    getMessages: () => messagesRef.current,
     setSending, setSendingStatus,
     setInput, setPendingPhotos,
     setEditingActivity, setActivityEditVisible,
@@ -263,7 +274,7 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
     persistSleep: (data) => logSleep(data).unwrap(),
     persistPantryItem: (data) => addPantryItem(data).unwrap(),
     updatePantryItem: (data) => updatePantryItemMut(data).unwrap(),
-    voiceSentRef, photoTimestampsRef,
+    voiceSentRef, photoTimestampsRef, dispatch,
   };
 
   // ── Photo capture ──

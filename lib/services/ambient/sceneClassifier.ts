@@ -88,6 +88,7 @@ function buildPrompt(ctx: ClassifierContext): string {
     '  },',
     '  "foodItems": [{"name":"...", "qty":1, "unit":"whole", "conf":0.9}] or [] (only if food visible),',
     '  "people": 0 (number of visible faces/people),',
+    '  "faceLegible": true/false (true ONLY if a person\'s face is clearly visible, in focus, and facing the camera. False if person is detected from behind, blurred, or face is not legible),',
     '  "sleepContext": {"isDark": true/false, "screensVisible": true/false} or null',
     '}',
     '',
@@ -167,6 +168,7 @@ function parseTriage(
       signals,
       foodItems,
       people: Number(parsed.people || parsed.ppl || 0),
+      faceLegible: parsed.faceLegible !== undefined ? Boolean(parsed.faceLegible) : undefined,
       sleepContext,
     };
   } catch (err) {

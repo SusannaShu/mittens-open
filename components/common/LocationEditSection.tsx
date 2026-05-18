@@ -87,17 +87,20 @@ export function LocationField({ locationSession, location, setLocation, onPressM
 
 interface LocationTimelineProps {
   visible: boolean;
-  session: LocationSession | null;
+  session?: LocationSession | null;
+  /** Alternative to session: raw time range for any activity block */
+  timeRange?: { startedAt: string; endedAt: string | null };
   title: string;
   onClose: () => void;
 }
 
 /** Wrapper for LocationTimelineModal integration */
-export function LocationTimeline({ visible, session, title, onClose }: LocationTimelineProps) {
+export function LocationTimeline({ visible, session, timeRange, title, onClose }: LocationTimelineProps) {
   return (
     <LocationTimelineModal
       visible={visible}
       session={session}
+      timeRange={timeRange}
       title={title}
       onClose={onClose}
     />

@@ -170,6 +170,8 @@ export async function initializeDatabase(): Promise<void> {
       snacks TEXT,
       gap_coverage TEXT,
       grocery_list TEXT,
+      bioavailability_notes TEXT,
+      solver_metadata TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       synced_at TEXT
     );
@@ -456,6 +458,8 @@ export async function initializeDatabase(): Promise<void> {
     `ALTER TABLE activity_types ADD COLUMN skin_type TEXT`,
     `ALTER TABLE activity_types ADD COLUMN exposure_extent REAL`,
     `ALTER TABLE activity_types ADD COLUMN brain_hygiene_scale INTEGER`,
+    `ALTER TABLE daily_meal_plans ADD COLUMN bioavailability_notes TEXT`,
+    `ALTER TABLE daily_meal_plans ADD COLUMN solver_metadata TEXT`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

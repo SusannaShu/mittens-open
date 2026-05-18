@@ -19,8 +19,6 @@ import { PeopleSection } from '../../components/profile/PeopleSection';
 import { TeamSection } from '../../components/profile/TeamSection';
 import { profileStyles as styles } from '../../components/profile/profileStyles';
 import { VoicePickerSection } from '../../components/profile/VoicePickerSection';
-import SyncProgressOverlay from '../../components/reflect/SyncProgressOverlay';
-import { syncLocalToCloud, SyncProgress } from '../../lib/services/syncEngine';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -42,31 +40,7 @@ export default function ProfileScreen() {
     bio: true, pendant: true, brain: true, voice: true, memory: true, odyssey: true, team: true, people: true, activities: true, integrations: true, notifications: true,
   });
 
-  // Sync state
-  const [syncing, setSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-
-  const handleSyncRequired = async () => {
-    setSyncing(true);
-    setSyncError(null);
-    setSyncProgress(null);
-    try {
-      const result = await syncLocalToCloud((progress) => {
-        setSyncProgress(progress);
-      });
-      if (!result.success && result.errors.length > 0) {
-        setSyncError(result.errors[0]);
-      }
-      // Wait a moment so user sees "100% Done" before closing
-      await new Promise(r => setTimeout(r, 1500));
-      fetchData();
-    } catch (e: any) {
-      setSyncError(e.message || 'Sync failed');
-    } finally {
-      setSyncing(false);
-    }
-  };
+  // Sync state removed
 
   // Notification toggle state
   const [bedtimeNotif, setBedtimeNotif] = useState(true);
@@ -188,6 +162,7 @@ export default function ProfileScreen() {
                 profileContext={profileContext}
                 collapsed={collapsed.brain}
                 onToggle={() => toggleSection('brain')}
+                onRefresh={fetchData}
               />
 
               <VoicePickerSection
@@ -473,13 +448,6 @@ export default function ProfileScreen() {
         </View>
         <View style={{ height: 40 }} />
       </ScrollView>
-
-      {/* Sync progress overlay */}
-      <SyncProgressOverlay
-        visible={syncing}
-        progress={syncProgress}
-        error={syncError}
-      />
     </View>
   );
 }

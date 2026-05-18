@@ -279,7 +279,10 @@ async function runIntent(
       return { type: 'timer', data: await runner.runTimerPipeline(input) };
 
     case 'face_recognition':
-      return { type: 'face_recognition', data: await runner.runFaceRecognitionPipeline(input) };
+      return { type: 'face_recognition', data: await runner.runFaceRecognitionPipeline({
+        ...input,
+        manualData: { ...(input.manualData || {}), extractedName: intent.context?.extractedName }
+      }) };
 
     case 'chat':
       return { type: 'chat', data: await runner.runChatPipeline(input) };
@@ -318,7 +321,10 @@ export async function handleMessage(
   console.log('[Pipeline] photos:', photos.length);
   const dataProvider = await getDataProvider();
 
-  // 1. Save user message to local DB
+  // 1. Dedup check (MUST run before saving user message to DB to avoid self-matching)
+  const isDupe = await checkDedup(text, photos);
+
+  // 2. Save user message to local DB
   // Find the most recent user message with a temp ID to update
   const tempUserMsgId = userMsgId || ctx.messages
     .slice()
@@ -343,8 +349,6 @@ export async function handleMessage(
     // Save failure is non-blocking -- message still appears in UI
   }
 
-  // 2. Dedup check
-  const isDupe = await checkDedup(text, photos);
   if (isDupe) {
     const dupeReply: ChatMessage = {
       id: `m-${Date.now()}`,
@@ -460,12 +464,16 @@ export async function handleMessage(
   // 7. Build intent cards and show immediately
   const validIntents = triageResult.intents.filter(i => i.confidence >= 0.5);
 
-  // Dynamically inject face_recognition phase if there are photos
-  if (photos.length > 0) {
+  // Dynamically inject face_recognition phase if there is a legible face detected
+  const hasFaceLegible = validIntents.some(intent => intent.context?.faceLegible === true);
+  const extractedName = validIntents.find(i => i.context?.extractedName)?.context?.extractedName;
+
+  if (photos.length > 0 && hasFaceLegible) {
     validIntents.unshift({
       pipeline: 'face_recognition',
       confidence: 1.0,
-      inferrablePhases: ['detect', 'match']
+      inferrablePhases: ['detect', 'match'],
+      context: { extractedName }
     });
   }
 
@@ -839,11 +847,17 @@ export async function handleMessage(
       metadata.pantryPipelineItems = reply.pantryPipelineItems;
       metadata.pantryPipelineStatus = reply.pantryPipelineStatus;
     }
-    // Capture pipelineFoods + mealMetadata for meal messages
-    if (mealPipelineData.pipelineFoods) {
+    // Capture pipelineFoods + mealMetadata for meal messages (fetch latest from state to avoid race condition)
+    const latestMsg = ctx.getMessages().find(m => m.id === finalReplyMsgId || m.clientId === finalReplyMsgId);
+    if (latestMsg?.pipelineFoods) {
+      metadata.pipelineFoods = latestMsg.pipelineFoods;
+    } else if (mealPipelineData.pipelineFoods) {
       metadata.pipelineFoods = mealPipelineData.pipelineFoods;
     }
-    if (mealPipelineData.mealMetadata) {
+    
+    if (latestMsg?.mealMetadata) {
+      metadata.mealMetadata = latestMsg.mealMetadata;
+    } else if (mealPipelineData.mealMetadata) {
       metadata.mealMetadata = mealPipelineData.mealMetadata;
     }
     const savedReply = await dataProvider.saveMessage({

@@ -111,6 +111,8 @@ export interface SceneTriage {
   foodItems: DetectedFoodItem[];
   /** Number of people/faces visible */
   people: number;
+  /** True ONLY if a person's face is clearly visible and legible in the frame */
+  faceLegible?: boolean;
   /** Sleep context for bedtime nudges */
   sleepContext?: { isDark: boolean; screensVisible: boolean };
   /** Set when classification failed */

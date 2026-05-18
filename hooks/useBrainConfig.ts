@@ -22,28 +22,16 @@ import {
 import { OllamaProvider } from '../lib/providers/ollamaProvider';
 import { invalidateBrainCache, setBrainId } from '../lib/brain/selector';
 
-export const CLOUD_MODELS = [
-  { key: 'gemini-flash', label: 'Flash', sub: 'Gemini', inference: 'gemini' as InferenceMode },
-  { key: 'claude-sonnet', label: 'Sonnet', sub: 'Claude', inference: 'claude' as InferenceMode },
-  { key: 'claude-opus', label: 'Opus', sub: 'Claude', inference: 'claude' as InferenceMode },
-  { key: 'groq-free', label: 'Groq', sub: 'Llama 4 Scout', inference: 'gemini' as InferenceMode },
-  { key: 'openrouter-free', label: 'OpenRouter', sub: 'Gemma 4', inference: 'gemini' as InferenceMode },
-] as const;
-
-export const BACKEND_CLOUD_KEYS = new Set([
-  'gemini-flash', 'claude-sonnet', 'claude-opus', 'groq-free', 'openrouter-free',
-]);
-
 export const PRIVATE_MODELS = [
   { key: 'ollama-selfhost', label: 'Self-Hosted', sub: 'Ollama', inference: 'ollama' as InferenceMode },
   { key: 'ollama-byok', label: 'BYOK', sub: 'own key', inference: 'ollama' as InferenceMode },
-  { key: 'smolvlm2-256m', label: 'SmolVLM2', sub: '256M', inference: 'gemini' as InferenceMode, localModelId: 'smolvlm2-256m' },
-  { key: 'fastvlm-0.5b', label: 'FastVLM', sub: '0.5B', inference: 'gemini' as InferenceMode, localModelId: 'fastvlm-0.5b' },
-  { key: 'moondream2', label: 'Moondream', sub: '1.9B', inference: 'gemini' as InferenceMode, localModelId: 'moondream2' },
-  { key: 'gemma-e2b', label: 'Gemma E2B', sub: '4B', inference: 'gemini' as InferenceMode, localModelId: 'gemma-e2b' },
+  { key: 'smolvlm2-256m', label: 'SmolVLM2', sub: '256M', inference: 'ollama' as InferenceMode, localModelId: 'smolvlm2-256m' },
+  { key: 'fastvlm-0.5b', label: 'FastVLM', sub: '0.5B', inference: 'ollama' as InferenceMode, localModelId: 'fastvlm-0.5b' },
+  { key: 'moondream2', label: 'Moondream', sub: '1.9B', inference: 'ollama' as InferenceMode, localModelId: 'moondream2' },
+  { key: 'gemma-e2b', label: 'Gemma E2B', sub: '4B', inference: 'ollama' as InferenceMode, localModelId: 'gemma-e2b' },
 ] as const;
 
-const BRAIN_MODELS = [...CLOUD_MODELS, ...PRIVATE_MODELS] as const;
+const BRAIN_MODELS = [...PRIVATE_MODELS] as const;
 
 export { getModel, getDownloadSize, formatBytes, canRunModel };
 
@@ -51,7 +39,7 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [gemmaLoaded, setGemmaLoaded] = useState(LocalInferenceService.isModelLoaded());
   const [gemmaStatus, setGemmaStatus] = useState<string | null>(null);
-  const [currentDataMode, setCurrentDataMode] = useState<DataMode>('cloud');
+  const currentDataMode: DataMode = 'local';
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     return profileContext?.aiModel || 'gemma-e2b';
   });
@@ -90,7 +78,6 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
   };
 
   useEffect(() => {
-    getDataMode().then(setCurrentDataMode);
     getAgentEnabled().then(en => {
       setAgentOn(en);
       if (en) setupGemma();
@@ -288,12 +275,11 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
     if (modelKey === 'ollama-byok' || modelKey === 'ollama-selfhost') {
       await setOllamaConfig(ollamaUrl, ollamaKey || undefined, ollamaModel || 'gemma4:26b');
       await setBrainId('gemma26b' as any);
+    } else {
+      await setBrainId(modelKey as any);
     }
 
     await setInferenceMode(selected.inference);
-    if (BACKEND_CLOUD_KEYS.has(modelKey)) {
-      await setBrainId(modelKey as any);
-    }
     invalidateBrainCache();
     setSelectedModel(modelKey);
     updateProfile({ aiModel: modelKey }).then(onRefresh).catch(() => {});
@@ -323,30 +309,9 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
     await setOllamaConfig(ollamaUrl, ollamaKey || undefined, ollamaModel || 'gemma4:26b');
   };
 
-  const handleToggleDataMode = async (newMode: DataMode) => {
-    if (newMode === currentDataMode) return;
-    if (newMode === 'local') {
-      Alert.alert(
-        'Switch to Local Only?',
-        'This will store all data on your device only. In the future, switching to local will delete your cloud data.\n\nAre you sure?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Switch to Local', style: 'destructive', onPress: async () => {
-            await setDataMode('local');
-            setCurrentDataMode('local');
-          }},
-        ]
-      );
-    } else {
-      await setDataMode('cloud');
-      setCurrentDataMode('cloud');
-      onSyncRequired?.();
-    }
-  };
-
   const currentModel = selectedModel;
   const isOllamaMode = currentModel === 'ollama-byok' || currentModel === 'ollama-selfhost';
-  const isCloudReady = BACKEND_CLOUD_KEYS.has(currentModel);
+  const isCloudReady = false;
   const isLocalVLM = ['smolvlm2-256m', 'fastvlm-0.5b', 'moondream2', 'gemma-e2b'].includes(currentModel);
   const currentLocalModel = isLocalVLM ? getModel(currentModel) : null;
 
@@ -373,6 +338,6 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
     localDownloadProgress, localDownloadPhase, modelDownloaded,
     benchmarkVisible, setBenchmarkVisible,
     handleSelectBrain, handleTestOllamaConnection, handleSaveOllamaConfig,
-    handleToggleDataMode, downloadLocalModels,
+    downloadLocalModels,
   };
 }

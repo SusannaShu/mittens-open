@@ -78,16 +78,35 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   const locationSession = activity?.meta?.locationSession || null;
   const isLocationAnchored = !!locationSession;
 
-  // Count observations for the timeline row
+  // Count observations for the timeline row -- works for ALL activities
+  const activityTimeRange = useMemo(() => {
+    if (locationSession) {
+      return {
+        startedAt: locationSession.startedAt,
+        endedAt: locationSession.endedAt,
+      };
+    }
+    // For non-location activities, use loggedAt + duration_min
+    if (activity?.loggedAt) {
+      const startMs = new Date(activity.loggedAt).getTime();
+      const dur = activity.duration_min || 30;
+      return {
+        startedAt: new Date(startMs).toISOString(),
+        endedAt: new Date(startMs + dur * 60000).toISOString(),
+      };
+    }
+    return null;
+  }, [locationSession, activity]);
+
   const observationCount = useMemo(() => {
-    if (!locationSession) return 0;
+    if (!activityTimeRange) return 0;
     try {
-      const startMs = new Date(locationSession.startedAt).getTime();
-      const endMs = locationSession.endedAt ? new Date(locationSession.endedAt).getTime() : Date.now();
+      const startMs = new Date(activityTimeRange.startedAt).getTime();
+      const endMs = activityTimeRange.endedAt ? new Date(activityTimeRange.endedAt).getTime() : Date.now();
       const captures = getTodayCaptures().filter(c => c.timestamp >= startMs && c.timestamp <= endMs);
       return captures.length;
     } catch { return 0; }
-  }, [locationSession]);
+  }, [activityTimeRange]);
 
   // Movement context
   const [isMovement, setIsMovement] = useState(false);
@@ -286,8 +305,8 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               </View>
             )}
 
-            {/* Timeline row -- pendant/location-anchored logs only */}
-            {isLocationAnchored && (
+            {/* Timeline row -- shows captures during this activity's time window */}
+            {observationCount > 0 && (
               <TimelineRow
                 observationCount={observationCount}
                 onPress={() => setShowTimeline(true)}
@@ -511,7 +530,8 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
       <LocationTimeline
         visible={showTimeline}
         session={locationSession}
-        title={logName || 'Location Timeline'}
+        timeRange={!locationSession && activityTimeRange ? activityTimeRange : undefined}
+        title={logName || 'Activity Timeline'}
         onClose={() => setShowTimeline(false)}
       />
 

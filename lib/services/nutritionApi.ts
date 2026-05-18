@@ -52,8 +52,8 @@ export const nutritionApi = baseApi.injectEndpoints({
           }
 
           const result = db.runSync(
-            `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source) VALUES (?, ?, ?, ?, ?, 'vision')`,
-            [now, mealType, mealName, JSON.stringify(foods), JSON.stringify(summary)]
+            `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source, entry_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'vision', 'food', ?, ?)`,
+            [now, mealType, mealName, JSON.stringify(foods), JSON.stringify(summary), now, now]
           );
           return { data: { status: 'ok', ids: [result.lastInsertRowId] } };
         } catch (e: any) {
@@ -229,7 +229,20 @@ export const nutritionApi = baseApi.injectEndpoints({
           const db = getDb();
           const sets: string[] = ["updated_at = datetime('now')"];
           const vals: any[] = [];
-          if (items !== undefined) { sets.push('items = ?'); vals.push(JSON.stringify(items)); }
+          if (items !== undefined) { 
+            sets.push('items = ?'); 
+            vals.push(JSON.stringify(items)); 
+            const acc: Record<string, number> = {};
+            items.forEach(food => {
+               if (food.nutrients) {
+                  Object.keys(food.nutrients).forEach(key => {
+                    acc[key] = (acc[key] || 0) + (food.nutrients[key] || 0);
+                  });
+               }
+            });
+            sets.push('summary_nutrients = ?');
+            vals.push(JSON.stringify(acc));
+          }
           if (logName !== undefined) { sets.push('log_name = ?'); vals.push(logName); }
           if (mealType !== undefined) { sets.push('meal_type = ?'); vals.push(mealType); }
           if (loggedAt !== undefined) { sets.push('logged_at = ?'); vals.push(loggedAt); }
@@ -305,7 +318,7 @@ export const nutritionApi = baseApi.injectEndpoints({
           const db = getDb();
           const today = new Date().toLocaleDateString('en-CA');
           const row = db.getFirstSync(
-            `SELECT * FROM daily_meal_plans WHERE plan_date = ? ORDER BY created_at DESC LIMIT 1`,
+            `SELECT * FROM daily_meal_plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1`,
             [today]
           ) as any;
           if (!row) return { data: { plan: null } };
@@ -316,6 +329,8 @@ export const nutritionApi = baseApi.injectEndpoints({
           if (row.snacks) plan.snacks = JSON.parse(row.snacks);
           if (row.gap_coverage) plan.gapCoverage = JSON.parse(row.gap_coverage);
           if (row.grocery_list) plan.groceryList = JSON.parse(row.grocery_list);
+          if (row.bioavailability_notes) plan.bioavailabilityNotes = JSON.parse(row.bioavailability_notes);
+          if (row.solver_metadata) plan.solverMetadata = JSON.parse(row.solver_metadata);
           return { data: { plan } };
         } catch (e: any) {
           return { error: { status: 'CUSTOM_ERROR', error: e.message } };
@@ -332,72 +347,15 @@ export const nutritionApi = baseApi.injectEndpoints({
     generateMealPlanAsync: build.mutation<{ success: boolean; jobId: string; status: string; message: string }, { customConstraint?: string } | void>({
       queryFn: async (args) => {
         try {
-          const { getBrain } = require('../brain/selector');
-          const brain = await getBrain();
-          const db = getDb();
+          const { LocalDataProvider } = require('../providers/localDataProvider');
+          const provider = new LocalDataProvider();
           const today = new Date().toLocaleDateString('en-CA');
+          const summary = await provider.getDailySummary(today);
 
-          // Gather context: today's logged meals
-          const loggedRows = db.getAllSync(
-            `SELECT log_name, items FROM nutrition_logs WHERE date(logged_at) = ? ORDER BY logged_at ASC`,
-            [today]
-          ) as any[];
-          const loggedMeals = loggedRows.map((r: any) => r.log_name || 'unnamed meal').join(', ');
-
-          // Gather pantry items
-          const pantryRows = db.getAllSync(
-            `SELECT item_name, quantity, unit FROM smart_pantry WHERE quantity > 0 ORDER BY item_name`
-          ) as any[];
-          const pantryList = pantryRows.map((r: any) => `${r.item_name} (${r.quantity} ${r.unit})`).join(', ');
-
-          // Gather profile
-          const profile = db.getFirstSync(`SELECT * FROM nutrition_profile WHERE id = 1`) as any;
-          const dietInfo = profile?.dietary_preferences || 'none specified';
-          const disliked = profile?.disliked_foods || 'none';
-
+          const { generateMealPlanPipeline } = require('../pipelines/food/mealPlanPipeline');
           const customConstraint = (args as any)?.customConstraint || '';
-
-          const prompt = `Generate a daily meal plan for the remaining meals today.
-
-Already eaten today: ${loggedMeals || 'nothing yet'}
-Pantry available: ${pantryList || 'unknown'}
-Dietary preferences: ${dietInfo}
-Disliked foods: ${disliked}
-${customConstraint ? `Special request: ${customConstraint}` : ''}
-
-Create practical, nutrient-dense meals using pantry items when possible.
-Focus on covering common micronutrient gaps (vitamin D, magnesium, potassium, omega-3, iron, zinc).
-
-JSON: {
-  "breakfast": {"items": ["food1", "food2"], "prepTip": "quick tip"},
-  "lunch": {"items": ["food1", "food2"], "prepTip": "quick tip"},
-  "dinner": {"items": ["food1", "food2"], "prepTip": "quick tip"},
-  "groceryList": [{"food": "item name", "reason": "covers vitamin D gap"}]
-}`;
-
-          const raw = await brain.text(prompt, { temperature: 0.4 });
-
-          // Parse response
-          const match = raw.match(/\{[\s\S]*\}/);
-          let plan: any = {};
-          if (match) {
-            plan = JSON.parse(match[0]);
-          }
-
-          // Persist to SQLite
-          db.runSync(
-            `INSERT OR REPLACE INTO daily_meal_plans (plan_date, breakfast, lunch, dinner, snacks, gap_coverage, grocery_list, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-            [
-              today,
-              plan.breakfast ? JSON.stringify(plan.breakfast) : null,
-              plan.lunch ? JSON.stringify(plan.lunch) : null,
-              plan.dinner ? JSON.stringify(plan.dinner) : null,
-              plan.snacks ? JSON.stringify(plan.snacks) : null,
-              plan.gapCoverage ? JSON.stringify(plan.gapCoverage) : null,
-              plan.groceryList ? JSON.stringify(plan.groceryList) : null,
-            ]
-          );
+          
+          await generateMealPlanPipeline('local-user', summary.gaps, customConstraint);
 
           return {
             data: { success: true, jobId: 'local-meal-plan', status: 'completed', message: 'Meal plan generated' },

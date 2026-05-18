@@ -17,9 +17,11 @@ export async function classifyChat(input: PipelineInput): Promise<ChatClassifyRe
   
   const prompt = `Classify this user chat message. Does the AI need data (like logs, profile, DB search) to respond properly?
 
-dataNeeded: array of needed data sources like "profile", "activity_logs", "meal_logs", "pantry", "people", "web_search", or empty array
+dataNeeded: array of needed data sources like "profile", "activity_logs", "meal_logs", "meal_plan", "pantry", "people", "web_search", or empty array
 searchQuery: string if DB search needed, otherwise null
 directReply: string if no data needed and you can answer immediately (respond naturally, do not just echo the user's text), otherwise null
+
+CRITICAL RULE: If the user asks for meal or food recommendations (e.g., "what should I eat?"), do NOT provide a directReply. Instead, set dataNeeded to ["meal_plan", "pantry"].
 
 User Message: ${input.text || 'None'}`;
 

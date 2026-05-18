@@ -6,6 +6,7 @@ import { todayStyles as styles } from '../../../styles/todayStyles';
 
 interface Props {
   mealPlan: any;
+  meals?: any[];
   gapCoverage: any;
   isGeneratingPlan: boolean;
   collapsed: boolean;
@@ -23,7 +24,7 @@ const MEAL_SLOTS: [string, string, string][] = [
 ];
 
 export default function MealPlanSection({
-  mealPlan, gapCoverage, isGeneratingPlan, collapsed, onToggle,
+  mealPlan, meals, gapCoverage, isGeneratingPlan, collapsed, onToggle,
   onOpenMealDetail, onOpenGrocery, onOpenProjection, onGenerate,
 }: Props) {
   const router = useRouter();
@@ -89,6 +90,30 @@ export default function MealPlanSection({
               </TouchableOpacity>
             );
           })}
+
+          {/* Actionable Insights */}
+          {gapCoverage && (() => {
+            const significantGaps = Object.entries(gapCoverage)
+              .filter(([k, v]: [string, any]) => (v.afterPlanPct - v.currentPct) >= 10 && v.currentPct < 90)
+              .map(([k, v]: [string, any]) => ({ key: k, name: v.name, added: v.afterPlanPct - v.currentPct }))
+              .sort((a, b) => b.added - a.added)
+              .slice(0, 3);
+            
+            if (significantGaps.length > 0) {
+              return (
+                <View style={{ backgroundColor: '#F0F8FF', borderRadius: 10, padding: 12, marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <Feather name="zap" size={14} color="#0066CC" />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#0066CC', textTransform: 'uppercase' }}>Solver Insights</Text>
+                  </View>
+                  <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18 }}>
+                    This plan closes critical gaps in <Text style={{ fontWeight: '600', color: colors.textPrimary }}>{significantGaps.map(g => g.name).join(', ')}</Text>.
+                  </Text>
+                </View>
+              );
+            }
+            return null;
+          })()}
 
           {/* Action row */}
           <View style={{ gap: 6, marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>

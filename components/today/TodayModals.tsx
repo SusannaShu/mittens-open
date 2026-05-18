@@ -5,6 +5,7 @@ import {
   ActivityIndicator, TouchableOpacity, Modal, TextInput, Image, Pressable, Alert, KeyboardAvoidingView, Platform, Keyboard
 } from 'react-native';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
+import ItemNutritionModal from './ItemNutritionModal';
 import { NutrientGap, PantryItem } from '../../lib/types';
 import MealTypePicker from './MealTypePicker';
 
@@ -56,6 +57,7 @@ export function EditModal({
   const [editHour, setEditHour] = useState('');
   const [editMinute, setEditMinute] = useState('');
   const [editAmPm, setEditAmPm] = useState<'AM' | 'PM'>('AM');
+  const [selectedItem, setSelectedItem] = useState<any>(null);
 
   // Init time picker from loggedAt when modal opens
   useEffect(() => {
@@ -200,27 +202,43 @@ export function EditModal({
           {items.length > 0 && (
             <View style={s.editItemsList}>
               {items.map((item: any, idx: number) => (
-                <View key={idx} style={s.editItemRow}>
-                  <TouchableOpacity onPress={() => onRemoveItem(idx)} style={s.editItemRemove}>
-                    <Text style={{ color: '#D32F2F', fontSize: 14, fontWeight: '700' }}>x</Text>
-                  </TouchableOpacity>
-                  <TextInput
-                    style={s.editItemNameInput}
-                    value={item.name || item.foodName || ''}
-                    onChangeText={(val) => onItemChange(idx, 'name', val)}
-                    placeholder="Food name"
-                    placeholderTextColor="#BBB"
-                  />
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View key={idx} style={{ marginBottom: 12 }}>
+                  <View style={s.editItemRow}>
+                    <TouchableOpacity onPress={() => onRemoveItem(idx)} style={s.editItemRemove}>
+                      <Text style={{ color: '#D32F2F', fontSize: 14, fontWeight: '700' }}>x</Text>
+                    </TouchableOpacity>
                     <TextInput
-                      style={s.editItemPortionInput}
-                      value={String(item.portion_g || item.portionG || '')}
-                      onChangeText={(val) => onItemChange(idx, 'portion_g', val)}
-                      keyboardType="numeric"
-                      placeholder="0"
+                      style={s.editItemNameInput}
+                      value={item.name || item.foodName || ''}
+                      onChangeText={(val) => onItemChange(idx, 'name', val)}
+                      placeholder="Food name"
+                      placeholderTextColor="#BBB"
                     />
-                    <Text style={{ fontSize: 13, color: colors.textMuted }}>g</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <TextInput
+                        style={s.editItemPortionInput}
+                        value={String(item.portion_g || item.portionG || '')}
+                        onChangeText={(val) => onItemChange(idx, 'portion_g', val)}
+                        keyboardType="numeric"
+                        placeholder="0"
+                      />
+                      <Text style={{ fontSize: 13, color: colors.textMuted }}>g</Text>
+                    </View>
                   </View>
+                  {(item.usdaMatch || item.nutrient_source === 'usda' || item.usdaRef || item.meta?.usedRef || item.meta?.source === 'usda_ref' || item.meta?.primarySource === 'usda') && (
+                    <TouchableOpacity onPress={() => setSelectedItem(item)} style={{ marginLeft: 28, marginTop: 4 }}>
+                      <Text style={{ fontSize: 12, color: colors.primary, textDecorationLine: 'underline' }}>
+                        USDA Match: {item.usdaMatch || item.usdaRef?.name || item.meta?.usedRef?.name || item.name}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {(!item.usdaMatch && item.nutrient_source !== 'usda' && !item.usdaRef && !item.meta?.usedRef && item.meta?.source !== 'usda_ref' && item.meta?.primarySource !== 'usda' && item.nutrients) && (
+                    <TouchableOpacity onPress={() => setSelectedItem(item)} style={{ marginLeft: 28, marginTop: 4 }}>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary, textDecorationLine: 'underline' }}>
+                        AI Estimate
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))}
             </View>
@@ -262,6 +280,11 @@ export function EditModal({
         </View>
       </ScrollView>
       </Pressable>
+      <ItemNutritionModal
+        visible={!!selectedItem}
+        onClose={() => setSelectedItem(null)}
+        item={selectedItem}
+      />
     </KeyboardAvoidingView>
   </Modal>
   );

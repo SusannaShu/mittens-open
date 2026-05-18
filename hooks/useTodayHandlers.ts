@@ -5,13 +5,13 @@ import { setResultsPayload } from '../lib/resultsPayload';
 import {
   useUpdateEntryMutation, useUpdateEntryDirectMutation, useDeleteEntryMutation,
   useAnalyzeTextMutation, useSmartSnapAsyncMutation, useChatWithMittensMutation,
-  useDislikeFoodMutation,
+  useDislikeFoodMutation, useGenerateMealPlanAsyncMutation
 } from '../lib/services/nutritionApi';
 import { useAddPantryItemMutation, useDeletePantryItemMutation, useUpdatePantryItemMutation } from '../lib/services/profileApi';
 import { useLogActivityMutation, useReflectActivityMutation, useDeleteActivityMutation, ActivityEntry } from '../lib/services/activityApi';
 import { useLogSleepMutation } from '../lib/services/schedule/sleepApi';
 
-export function useTodayHandlers(refetch: () => void) {
+export function useTodayHandlers(refetch: () => void, triggerMealPlanRegeneration?: () => void) {
   const router = useRouter();
 
   // RTK mutations
@@ -20,6 +20,7 @@ export function useTodayHandlers(refetch: () => void) {
   const [deleteEntry] = useDeleteEntryMutation();
   const [analyzeText] = useAnalyzeTextMutation();
   const [smartSnapAsync] = useSmartSnapAsyncMutation();
+  const [generateMealPlanAsync] = useGenerateMealPlanAsyncMutation();
 
   const [chatWithMittens] = useChatWithMittensMutation();
   const [dislikeFoodMutation] = useDislikeFoodMutation();
@@ -146,7 +147,24 @@ export function useTodayHandlers(refetch: () => void) {
   };
 
   const handleDirectSave = async () => {
-    if (!editItemId || editItems.length === 0) return;
+    if (!editItemId) return;
+    
+    // If all items were removed from the log, delete the entire entry
+    if (editItems.length === 0) {
+      setSavingEdit(true);
+      try {
+        await deleteEntry(editItemId).unwrap();
+        if (triggerMealPlanRegeneration) triggerMealPlanRegeneration(); else generateMealPlanAsync();
+        setEditModalVisible(false);
+        refetch();
+      } catch (e: any) {
+        Alert.alert('Error', e.message || 'Failed to delete empty entry');
+      } finally {
+        setSavingEdit(false);
+      }
+      return;
+    }
+
     setSavingEdit(true);
     try {
       let finalItems = [...editItems];
@@ -193,7 +211,9 @@ export function useTodayHandlers(refetch: () => void) {
         mealType: editMealType,
         loggedAt: editLoggedAt.toISOString(),
       }).unwrap();
+      if (triggerMealPlanRegeneration) triggerMealPlanRegeneration(); else generateMealPlanAsync();
       setEditModalVisible(false);
+      refetch();
     } catch (e: any) {
       Alert.alert('Error', e.data?.message || 'Failed to save changes.');
     } finally {
@@ -218,7 +238,9 @@ export function useTodayHandlers(refetch: () => void) {
       } else {
         await updateEntry({ id: editItemId, text: editItemText.trim() }).unwrap();
       }
+      if (triggerMealPlanRegeneration) triggerMealPlanRegeneration(); else generateMealPlanAsync();
       setEditModalVisible(false);
+      refetch();
     } catch (e: any) {
       Alert.alert('Error', e.data?.message || 'Failed to update entry.');
     } finally {
@@ -233,7 +255,13 @@ export function useTodayHandlers(refetch: () => void) {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          try { await deleteEntry(id).unwrap(); } catch { Alert.alert('Error', 'Failed to delete entry'); }
+          try { 
+            await deleteEntry(id).unwrap(); 
+            if (triggerMealPlanRegeneration) triggerMealPlanRegeneration(); else generateMealPlanAsync();
+            refetch();
+          } catch { 
+            Alert.alert('Error', 'Failed to delete entry'); 
+          }
         },
       },
     ]);

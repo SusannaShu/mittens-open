@@ -376,6 +376,21 @@ function startNewSession(
   motionType: string,
   startedAt: string
 ): void {
+  // Sensor fusion gate: prevent false trails when pendant shows user at desk
+  if (motionType !== 'stationary') {
+    try {
+      const { shouldStartTrail } = require('../ambient/sensorFusion');
+      const decision = shouldStartTrail(motionType, lat, lon);
+      if (!decision.allowed) {
+        console.log(`[sessionBuilder] Trail DENIED by sensor fusion: ${decision.reason}`);
+        return; // Skip session creation entirely
+      }
+      console.log(`[sessionBuilder] Trail approved by sensor fusion: ${decision.reason}`);
+    } catch {
+      // sensorFusion not loaded -- fall through to legacy behavior
+    }
+  }
+
   const trail = JSON.stringify([[lat, lon]]);
 
   const placeName = motionType === 'stationary'
@@ -391,7 +406,7 @@ function startNewSession(
   const sessionId = result?.lastInsertRowId;
   console.log(`[sessionBuilder] NEW SESSION #${sessionId}: motion=${motionType} place=${placeName || '-'}`);
 
-  // Create linked activity log for movement sessions
+  // Create linked activity log for movement sessions only
   if (motionType !== 'stationary' && sessionId) {
     try {
       const { onTrailStart } = require('../ambient/trailActivityBridge');
@@ -399,30 +414,17 @@ function startNewSession(
     } catch { /* trailActivityBridge not loaded */ }
   }
 
-  // For stationary sessions: reverse geocode + create dwell activity (non-home only)
-  if (motionType === 'stationary' && sessionId) {
-    // Async reverse geocode to populate address/neighborhood
-    if (!placeName) {
-      try {
-        const { geocodeSession } = require('./reverseGeocode');
-        geocodeSession(sessionId, lat, lon).then((geo: any) => {
-          if (geo) {
-            console.log(`[sessionBuilder] Geocoded #${sessionId}: ${geo.neighborhood || geo.address}`);
-            // Create dwell activity for non-home geocoded location
-            try {
-              const { onDwellActivityCreate } = require('../ambient/trailActivityBridge');
-              onDwellActivityCreate(sessionId, lat, lon, startedAt, null, geo.neighborhood);
-            } catch { /* trailActivityBridge not loaded */ }
-          }
-        }).catch(() => { /* geocode failed, non-blocking */ });
-      } catch { /* reverseGeocode not loaded */ }
-    } else if (placeName !== 'Home') {
-      // Named non-home place -- create dwell activity directly
-      try {
-        const { onDwellActivityCreate } = require('../ambient/trailActivityBridge');
-        onDwellActivityCreate(sessionId, lat, lon, startedAt, placeName, null);
-      } catch { /* trailActivityBridge not loaded */ }
-    }
+  // For stationary sessions: reverse geocode for place name display only
+  // NOTE: No auto-activity creation -- user converts via location rail tap
+  if (motionType === 'stationary' && sessionId && !placeName) {
+    try {
+      const { geocodeSession } = require('./reverseGeocode');
+      geocodeSession(sessionId, lat, lon).then((geo: any) => {
+        if (geo) {
+          console.log(`[sessionBuilder] Geocoded #${sessionId}: ${geo.neighborhood || geo.address}`);
+        }
+      }).catch(() => { /* geocode failed, non-blocking */ });
+    } catch { /* reverseGeocode not loaded */ }
   }
 }
 
@@ -524,6 +526,26 @@ function closeSession(db: any, sessionId: number, endedAt: string): void {
       const { onTrailEnd } = require('../ambient/trailActivityBridge');
       onTrailEnd(sessionId, endedAt);
     } catch { /* trailActivityBridge not loaded */ }
+
+    // Sensor fusion: validate closed movement session against pendant captures
+    try {
+      const { shouldDeleteSession } = require('../ambient/sensorFusion');
+      const startMs = new Date(session.started_at).getTime();
+      const endMs = new Date(endedAt).getTime();
+      const result = shouldDeleteSession(session.motion_type, startMs, endMs);
+      if (result.shouldDelete) {
+        console.log(`[sessionBuilder] SENSOR FUSION: Deleting false session #${sessionId}: ${result.reason}`);
+        // Delete the linked activity log first
+        db.runSync(
+          `DELETE FROM activity_logs WHERE source = 'trail' AND meta LIKE ?`,
+          [`%"locationSessionId":${sessionId}%`],
+        );
+        // Delete the session
+        db.runSync('DELETE FROM location_sessions WHERE id = ?', [sessionId]);
+      }
+    } catch {
+      // sensorFusion not loaded -- skip validation
+    }
   }
 }
 

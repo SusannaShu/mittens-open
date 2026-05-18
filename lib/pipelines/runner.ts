@@ -256,8 +256,38 @@ export class PipelineRunner {
         respRes = { reply: classRes.directReply };
         this.logger.completePhase(respondIdx, `"${classRes.directReply.slice(0, 60)}"`);
       } else {
+        let contextData = '';
+        const lowerInput = input.text?.toLowerCase() || '';
+        const isFoodQuery = lowerInput.includes('what should i eat') || lowerInput.includes('recommend') || classRes?.dataNeeded?.includes('meal_logs') || classRes?.dataNeeded?.includes('meal_plan') || classRes?.dataNeeded?.includes('pantry');
+
+        if (isFoodQuery) {
+          try {
+            const { store } = await import('../store');
+            const { nutritionApi } = await import('../services/nutritionApi');
+            const { profileApi } = await import('../services/profileApi');
+
+            const mealPlanResult = await store.dispatch(nutritionApi.endpoints.getTodayMealPlan.initiate());
+            if (mealPlanResult.data?.plan) {
+              contextData += `\nToday's Meal Plan & Nutrition Gaps:\n${JSON.stringify({
+                uncoveredGaps: mealPlanResult.data.plan.uncoveredGaps,
+                gapCoverage: mealPlanResult.data.plan.gapCoverage,
+                breakfast: mealPlanResult.data.plan.breakfast,
+                lunch: mealPlanResult.data.plan.lunch,
+                dinner: mealPlanResult.data.plan.dinner,
+              })}`;
+            }
+
+            const pantryResult = await store.dispatch(profileApi.endpoints.getPantry.initiate());
+            if (pantryResult.data?.pantry) {
+              contextData += `\nPantry Items:\n${JSON.stringify(pantryResult.data.pantry)}`;
+            }
+          } catch (err) {
+            console.error('[Pipeline] Failed to fetch food context for chat:', err);
+          }
+        }
+
         const { generateChatResponse } = await import('./chat/respond');
-        respRes = await generateChatResponse(input.text || '', '');
+        respRes = await generateChatResponse(input.text || '', contextData);
         this.logger.completePhase(respondIdx, summarizeResult('chat', 'respond', respRes));
       }
     } catch (e: any) {
@@ -321,6 +351,30 @@ export class PipelineRunner {
     try {
       if (!input.photos || input.photos.length === 0) {
         throw new Error(`No photos provided for face recognition.`);
+      }
+
+      const extractedName = input.manualData?.extractedName;
+      if (extractedName) {
+        this.emit('face_recognition', { status: 'running', currentPhase: 'match' });
+        const matchIdx = this.logger.startPhase('face_recognition', 'match');
+        
+        const { introducePerson } = await import('../services/faceRecognition/faceRecognitionService');
+        const framePath = input.photos[0];
+        const result = await introducePerson(extractedName, framePath);
+        
+        let response = '';
+        if (result) {
+          response = result.isNew
+            ? `Nice to meet you ${result.name}! I have learned your face and will remember you.`
+            : `Got it, I have strengthened my memory of ${result.name}. I now have ${result.embeddingsSaved} sightings saved.`;
+          this.logger.completePhase(matchIdx, `Introduced: ${result.name}`);
+        } else {
+          response = `I heard you say this is ${extractedName}, but I could not detect a face clearly. Could you try again?`;
+          this.logger.completePhase(matchIdx, `Failed to detect face for ${extractedName}`);
+        }
+        
+        this.emit('face_recognition', { status: 'complete', result: { response } });
+        return { response };
       }
 
       const { recognizeFaces } = await import('../services/faceRecognition/faceRecognitionService');

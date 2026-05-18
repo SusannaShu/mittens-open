@@ -113,14 +113,34 @@ function matchScore(query: string, entry: FoodEntry): number {
 
     // Token overlap (handles multi-word and partial matches)
     const aTokens = a.split(/[\s,]+/).filter(t => t.length > 1);
-    const overlap = qTokens.filter(qt => aTokens.some(at => at === qt || (at.length > 3 && qt.length > 3 && (at.startsWith(qt) || qt.startsWith(at)))));
-    const score = overlap.length / Math.max(qTokens.length, aTokens.length);
+    
+    let overlapCount = 0;
+    qTokens.forEach(qt => {
+      if (aTokens.some(at => at === qt)) { 
+        overlapCount += 1; 
+      } else if (aTokens.some(at => at.length > 3 && qt.length > 3 && (at.startsWith(qt) || qt.startsWith(at)))) { 
+        overlapCount += 0.8; 
+      }
+    });
+
+    // Score based on overlap over the maximum token length, but penalize missing query tokens heavily
+    const queryCoverage = overlapCount / qTokens.length;
+    const aliasCoverage = overlapCount / aTokens.length;
+    
+    // Harmonic mean of precision (aliasCoverage) and recall (queryCoverage)
+    let score = (2 * queryCoverage * aliasCoverage) / (queryCoverage + aliasCoverage || 1);
+
+    // Minor boost if the alias starts with the first query token
+    if (aTokens[0] && qTokens[0] && (aTokens[0] === qTokens[0] || aTokens[0].startsWith(qTokens[0]))) {
+      score += 0.05;
+    }
+
     if (score > bestScore) bestScore = score;
   }
   return bestScore;
 }
 
-export function lookupUSDAAll(foodName: string, threshold = 0.5, maxResults = 8): USDAReference[] {
+export function lookupUSDAAll(foodName: string, threshold = 0.65, maxResults = 8): USDAReference[] {
   const matches: USDAReference[] = [];
   for (const entry of COMMON_FOODS) {
     const score = matchScore(foodName, entry);
@@ -175,12 +195,15 @@ JSON: {"nutrients":{"cal":0,"pro":0,"carb":0,"fat":0,"fib":0,"water":0,"vA":0,"v
 Values for THAT portion. cal=kcal pro/carb/fat/fib/water=g vitamins standard units minerals=mg o3=g`;
 }
 
-function parseCompactNutrients(compact: Record<string, number>): Partial<Record<keyof FoodNutrients, number>> {
+function parseCompactNutrients(compact: Record<string, any>): Partial<Record<keyof FoodNutrients, number>> {
   const result: any = {};
   for (const [key, value] of Object.entries(compact)) {
     const fullKey = COMPACT_TO_FULL[key];
-    if (fullKey && typeof value === 'number' && !isNaN(value)) {
-      result[fullKey] = value;
+    if (fullKey) {
+      const numValue = typeof value === 'string' ? parseFloat(value) : value;
+      if (typeof numValue === 'number' && !isNaN(numValue)) {
+        result[fullKey] = numValue;
+      }
     }
   }
   return result;

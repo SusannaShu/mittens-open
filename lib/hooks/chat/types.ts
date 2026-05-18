@@ -21,6 +21,9 @@ export interface ChatContext {
   // Input state
   setInput: (v: string) => void;
   setPendingPhotos: (v: string[]) => void;
+  
+  // Get latest state
+  getMessages: () => ChatMessage[];
 
   // Modal triggers
   setEditingActivity: (act: ActivityEntry | null) => void;
@@ -50,6 +53,9 @@ export interface ChatContext {
   // Voice
   voiceSentRef: React.MutableRefObject<boolean>;
   photoTimestampsRef: React.MutableRefObject<Date[] | null>;
+
+  // Redux
+  dispatch: any;
 }
 
 /** Per-domain pipeline status shown in message cards */

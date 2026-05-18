@@ -122,12 +122,13 @@ export class LocalDataProvider implements DataProvider {
   async logMeal(meal: MealInput): Promise<{ id: number }> {
     const db = getDb();
     const now = new Date().toISOString();
+    const loggedAt = meal.loggedAt || now;
     const summaryNutrients = this.computeMealNutrients(meal.items || []);
 
     const result = db.runSync(
       `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source, entry_type, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 'food', ?, ?)`,
-      [now, meal.mealType || null, meal.logName || null, JSON.stringify(meal.items), JSON.stringify(summaryNutrients), meal.source || 'manual', now, now]
+      [loggedAt, meal.mealType || null, meal.logName || null, JSON.stringify(meal.items), JSON.stringify(summaryNutrients), meal.source || 'manual', now, now]
     );
     const id = result.lastInsertRowId;
     enqueueSyncRecord('nutrition_logs', id, 'create');

@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // Safe Base64 <-> Uint8Array conversion
 function bytesToBase64(bytes: Uint8Array): string {

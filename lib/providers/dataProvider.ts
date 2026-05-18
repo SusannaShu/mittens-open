@@ -23,6 +23,7 @@ export interface DailySummaryResult {
   totals: NutrientValues;
   gaps: NutrientGap[];
   recommendations: FoodRecommendation[];
+  pantry?: any[];
 }
 
 export interface SyncManifest {

@@ -217,7 +217,7 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
       }
 
       // Invalidate RTK cache to refresh Today tab
-      dispatch(nutritionApi.util.invalidateTags(['DailySummary']));
+      dispatch(nutritionApi.util.invalidateTags(['DailySummary', 'MealPlan']));
     } catch (err) {
       console.error('[Pipeline] Failed to persist meal:', err);
     }

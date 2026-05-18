@@ -7,6 +7,16 @@ import { baseApi } from './baseApi';
 import { getDb } from '../database';
 import type { DailySummary, WeeklySummary, SnapResponse } from '../types';
 
+const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'activity']);
+function sanitizeMealType(raw: string | null | undefined): string {
+  if (raw && VALID_MEAL_TYPES.has(raw.toLowerCase())) return raw.toLowerCase();
+  const hour = new Date().getHours();
+  if (hour < 10) return 'breakfast';
+  if (hour < 14) return 'lunch';
+  if (hour < 20) return 'dinner';
+  return 'snack';
+}
+
 export const nutritionApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     getDailySummary: build.query<DailySummary, string | void>({
@@ -21,7 +31,7 @@ export const nutritionApi = baseApi.injectEndpoints({
           return { error: { status: 'CUSTOM_ERROR', error: e.message } };
         }
       },
-      providesTags: ['DailySummary'],
+      providesTags: ['DailySummary', 'Pantry'],
     }),
 
     getWeeklySummary: build.query<WeeklySummary, void>({
@@ -53,7 +63,7 @@ export const nutritionApi = baseApi.injectEndpoints({
 
           const result = db.runSync(
             `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source, entry_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'vision', 'food', ?, ?)`,
-            [now, mealType, mealName, JSON.stringify(foods), JSON.stringify(summary), now, now]
+            [now, sanitizeMealType(mealType), mealName, JSON.stringify(foods), JSON.stringify(summary), now, now]
           );
           return { data: { status: 'ok', ids: [result.lastInsertRowId] } };
         } catch (e: any) {
@@ -244,7 +254,7 @@ export const nutritionApi = baseApi.injectEndpoints({
             vals.push(JSON.stringify(acc));
           }
           if (logName !== undefined) { sets.push('log_name = ?'); vals.push(logName); }
-          if (mealType !== undefined) { sets.push('meal_type = ?'); vals.push(mealType); }
+          if (mealType !== undefined) { sets.push('meal_type = ?'); vals.push(sanitizeMealType(mealType)); }
           if (loggedAt !== undefined) { sets.push('logged_at = ?'); vals.push(loggedAt); }
           vals.push(id);
           db.runSync(`UPDATE nutrition_logs SET ${sets.join(', ')} WHERE id = ?`, vals);

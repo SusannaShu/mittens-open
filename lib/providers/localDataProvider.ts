@@ -37,6 +37,17 @@ function parseJson(val: string | null | undefined): any {
   try { return JSON.parse(val); } catch { return null; }
 }
 
+const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'activity']);
+
+function sanitizeMealType(raw: string | null | undefined): string {
+  if (raw && VALID_MEAL_TYPES.has(raw.toLowerCase())) return raw.toLowerCase();
+  const hour = new Date().getHours();
+  if (hour < 10) return 'breakfast';
+  if (hour < 14) return 'lunch';
+  if (hour < 20) return 'dinner';
+  return 'snack';
+}
+
 export class LocalDataProvider implements DataProvider {
   // ─── Messages ───
 
@@ -128,7 +139,7 @@ export class LocalDataProvider implements DataProvider {
     const result = db.runSync(
       `INSERT INTO nutrition_logs (logged_at, meal_type, log_name, items, summary_nutrients, source, entry_type, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 'food', ?, ?)`,
-      [loggedAt, meal.mealType || null, meal.logName || null, JSON.stringify(meal.items), JSON.stringify(summaryNutrients), meal.source || 'manual', now, now]
+      [loggedAt, sanitizeMealType(meal.mealType), meal.logName || null, JSON.stringify(meal.items), JSON.stringify(summaryNutrients), meal.source || 'manual', now, now]
     );
     const id = result.lastInsertRowId;
     enqueueSyncRecord('nutrition_logs', id, 'create');
@@ -180,8 +191,28 @@ export class LocalDataProvider implements DataProvider {
     const totals = this.sumNutrients(meals.map(m => m.summaryNutrients));
     const gaps = this.computeGaps(totals);
     const recommendations = this.computeRecommendations(gaps);
+    const pantry = this.getPantryItems();
 
-    return { date, meals, totals, gaps, recommendations };
+    return { date, meals, totals, gaps, recommendations, pantry };
+  }
+
+  private getPantryItems(): any[] {
+    try {
+      const db = getDb();
+      const rows = db.getAllSync(
+        'SELECT id, item_name, quantity, unit, freshness, last_seen_at, updated_at FROM smart_pantry WHERE quantity > 0 ORDER BY updated_at DESC'
+      ) as any[];
+      return rows.map(r => ({
+        id: r.id,
+        foodName: r.item_name,
+        quantity: r.quantity != null ? `${r.quantity} ${r.unit || ''}`.trim() : '',
+        freshness: r.freshness || 'fresh',
+        lastSeenAt: r.last_seen_at,
+        updatedAt: r.updated_at,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   // ─── Activities ───

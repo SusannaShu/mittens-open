@@ -139,7 +139,25 @@ export const profileApi = baseApi.injectEndpoints({
     }),
 
     getPantry: build.query<{ pantry: any[] }, void>({
-      queryFn: () => ({ data: { pantry: [] } }),
+      queryFn: () => {
+        try {
+          const db = getDb();
+          const rows = db.getAllSync(
+            'SELECT id, item_name, quantity, unit, freshness, last_seen_at, updated_at FROM smart_pantry WHERE quantity > 0 ORDER BY updated_at DESC'
+          ) as any[];
+          const pantry = rows.map(r => ({
+            id: r.id,
+            foodName: r.item_name,
+            quantity: r.quantity != null ? `${r.quantity} ${r.unit || ''}`.trim() : '',
+            freshness: r.freshness || 'fresh',
+            lastSeenAt: r.last_seen_at,
+            updatedAt: r.updated_at,
+          }));
+          return { data: { pantry } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
       providesTags: ['Pantry'],
     }),
 
@@ -148,18 +166,70 @@ export const profileApi = baseApi.injectEndpoints({
     }),
 
     addPantryItem: build.mutation<any, { foodName: string; quantity?: string; freshness?: string }>({
-      queryFn: () => ({ data: { status: 'ok' } }),
-      invalidatesTags: ['Pantry'],
+      queryFn: ({ foodName, quantity, freshness }) => {
+        try {
+          const db = getDb();
+          const now = new Date().toISOString();
+          const existing = db.getFirstSync(
+            'SELECT id, quantity FROM smart_pantry WHERE LOWER(item_name) = ?',
+            [foodName.toLowerCase()]
+          ) as any;
+
+          if (existing) {
+            db.runSync(
+              `UPDATE smart_pantry SET quantity = quantity + 1, freshness = ?, updated_at = ?, last_seen_at = ? WHERE id = ?`,
+              [freshness || 'fresh', now, now, existing.id]
+            );
+            return { data: { status: 'ok', id: existing.id } };
+          }
+
+          const result = db.runSync(
+            `INSERT INTO smart_pantry (item_name, quantity, unit, freshness, confidence, last_seen_at, updated_at) VALUES (?, ?, ?, ?, 'high', ?, ?)`,
+            [foodName, 1, quantity || 'whole', freshness || 'fresh', now, now]
+          );
+          return { data: { status: 'ok', id: result.lastInsertRowId } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['Pantry', 'DailySummary'],
     }),
 
     deletePantryItem: build.mutation<any, number>({
-      queryFn: () => ({ data: { status: 'ok' } }),
-      invalidatesTags: ['Pantry'],
+      queryFn: (id) => {
+        try {
+          const db = getDb();
+          db.runSync('DELETE FROM smart_pantry WHERE id = ?', [id]);
+          return { data: { status: 'ok' } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['Pantry', 'DailySummary'],
     }),
 
     updatePantryItem: build.mutation<any, { id: number; foodName?: string; quantity?: string; freshness?: string }>({
-      queryFn: () => ({ data: { status: 'ok' } }),
-      invalidatesTags: ['Pantry'],
+      queryFn: ({ id, foodName, quantity, freshness }) => {
+        try {
+          const db = getDb();
+          const sets: string[] = [];
+          const vals: any[] = [];
+
+          if (foodName !== undefined) { sets.push('item_name = ?'); vals.push(foodName); }
+          if (quantity !== undefined) { sets.push('quantity = ?'); vals.push(parseFloat(quantity) || 0); }
+          if (freshness !== undefined) { sets.push('freshness = ?'); vals.push(freshness); }
+          sets.push("updated_at = datetime('now')");
+          vals.push(id);
+
+          if (sets.length > 1) {
+            db.runSync(`UPDATE smart_pantry SET ${sets.join(', ')} WHERE id = ?`, vals);
+          }
+          return { data: { status: 'ok' } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['Pantry', 'DailySummary'],
     }),
   }),
 });

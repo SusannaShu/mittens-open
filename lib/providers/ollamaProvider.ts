@@ -55,7 +55,7 @@ export class OllamaProvider implements InferenceProvider {
   constructor(config: OllamaConfig) {
     this.config = {
       ...config,
-      model: config.model || 'gemma4:e2b',
+      model: OllamaProvider.sanitizeModelName(config.model || '') || 'gemma4:e2b',
     };
   }
 
@@ -151,6 +151,14 @@ export class OllamaProvider implements InferenceProvider {
     }
   }
 
+  /**
+   * Sanitize a model name: trim whitespace, collapse spaces around colon.
+   * "gemma4: e2b" → "gemma4:e2b", " llama3 : 8b " → "llama3:8b"
+   */
+  static sanitizeModelName(name: string): string {
+    return name.trim().replace(/\s*:\s*/g, ':');
+  }
+
   /** Quick health check: can we reach the endpoint? */
   async ping(): Promise<boolean> {
     const url = `${this.config.baseUrl}/v1/models`;
@@ -168,6 +176,26 @@ export class OllamaProvider implements InferenceProvider {
     } catch (e: any) {
       console.error(`[OllamaProvider] ping failed:`, e?.message || e);
       return false;
+    }
+  }
+
+  /** Fetch the list of available model names from the server */
+  async listModels(): Promise<string[]> {
+    const url = `${this.config.baseUrl}/v1/models`;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {},
+      });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+      const data = await res.json();
+      // OpenAI-compatible format: { data: [{ id: "model-name" }, ...] }
+      return (data?.data || []).map((m: any) => m.id).filter(Boolean);
+    } catch {
+      return [];
     }
   }
 

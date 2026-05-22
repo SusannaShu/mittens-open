@@ -53,17 +53,22 @@ export class HealthPillarService {
     const db = getDb();
 
     const activities = db.getAllSync(
-      `SELECT * FROM activity_logs WHERE date(logged_at) = ? AND deleted_at IS NULL`,
+      `SELECT al.*, 
+              at.sub_categories AS type_sub_categories, 
+              at.brain_hygiene_scale AS type_bh_scale 
+       FROM activity_logs al
+       LEFT JOIN activity_types at ON al.activity_type = at.key
+       WHERE date(al.logged_at, 'localtime') = ?`,
       [dateStr]
     ) as any[];
 
     const meals = db.getAllSync(
-      `SELECT * FROM nutrition_logs WHERE date(logged_at) = ? AND deleted_at IS NULL`,
+      `SELECT * FROM nutrition_logs WHERE date(logged_at, 'localtime') = ? AND deleted_at IS NULL`,
       [dateStr]
     ) as any[];
 
     const sleep = db.getAllSync(
-      `SELECT * FROM sleep_logs WHERE date(logged_at) = ? AND deleted_at IS NULL`,
+      `SELECT * FROM sleep_logs WHERE date(logged_at, 'localtime') = ?`,
       [dateStr]
     ) as any[];
 
@@ -75,7 +80,7 @@ export class HealthPillarService {
   private static computeMovement(logs: DayLogs): PillarScore {
     let totalMetMin = 0;
     for (const act of logs.activities) {
-      const mets = act.met_value || act.default_mets || 1.5;
+      const mets = act.mets || 1.5;
       const durMin = act.duration_min || 0;
       totalMetMin += mets * durMin;
     }
@@ -133,19 +138,55 @@ export class HealthPillarService {
   private static computeBrainHygiene(logs: DayLogs): PillarScore {
     let positiveMin = 0;
     let negativeMin = 0;
+    let positiveWeightedMin = 0;
+    let negativeWeightedMin = 0;
 
     for (const act of logs.activities) {
       const type = act.activity_type;
-      if (type === 'meditation' || type === 'journal') {
-        positiveMin += act.duration_min || 0;
-      } else if (type === 'scrolling') {
-        negativeMin += act.duration_min || 0;
+      
+      let metaObj: any = {};
+      if (act.meta) {
+        try {
+          metaObj = typeof act.meta === 'string' ? JSON.parse(act.meta) : act.meta;
+        } catch {}
+      }
+
+      const isBrainHygiene = 
+        type === 'meditation' || 
+        type === 'journal' || 
+        type === 'scrolling' ||
+        (act.type_sub_categories && act.type_sub_categories.includes('brain_hygiene'));
+
+      if (!isBrainHygiene) continue;
+
+      let scale = 0;
+      if (typeof metaObj?.brain_hygiene_scale === 'number') {
+        scale = metaObj.brain_hygiene_scale;
+      } else if (typeof act.type_bh_scale === 'number' && act.type_bh_scale !== null) {
+        scale = act.type_bh_scale;
+      } else {
+        if (type === 'meditation' || type === 'journal') {
+          scale = 2;
+        } else if (type === 'scrolling') {
+          scale = -2;
+        } else {
+          scale = 2; // Default for other brain hygiene subcategories
+        }
+      }
+
+      const dur = act.duration_min || 0;
+      if (scale > 0) {
+        positiveMin += dur;
+        positiveWeightedMin += dur * (scale / 2);
+      } else if (scale < 0) {
+        negativeMin += dur;
+        negativeWeightedMin += dur * (Math.abs(scale) / 2);
       }
     }
 
-    // 10 min meditation = good baseline, scrolling subtracts
+    // 10 min S=2 meditation = good baseline, S=-2 scrolling subtracts
     const netScore = Math.max(0, Math.min(100,
-      Math.round((positiveMin / 10) * 60 - (negativeMin / 30) * 40)
+      Math.round((positiveWeightedMin / 10) * 60 - (negativeWeightedMin / 30) * 40)
     ));
     const status = netScore >= 60 ? 'good' : netScore >= 30 ? 'moderate' : 'low';
 
@@ -157,8 +198,8 @@ export class HealthPillarService {
       metric: `${Math.round(positiveMin)} min positive`,
       status,
       details: [
-        { label: 'Mindfulness', val: `${Math.round(positiveMin)} min` },
-        { label: 'Screen scroll', val: `${Math.round(negativeMin)} min` },
+        { label: 'Restorative', val: `${Math.round(positiveMin)} min` },
+        { label: 'Harmful scroll', val: `${Math.round(negativeMin)} min` },
       ],
       whyText: 'Regular mindfulness practice reduces cortisol and improves focus. Excessive scrolling increases anxiety.',
     };
@@ -213,10 +254,16 @@ export class HealthPillarService {
 
     for (const meal of logs.meals) {
       // Eating context factors
-      if (meal.pace === 'slow') contextQuality += 1;
-      if (meal.chewing === 'thorough') contextQuality += 1;
-      if (meal.distraction === 'focused') contextQuality += 1;
-      if (meal.stress === 'calm') contextQuality += 1;
+      let context: any = {};
+      if (meal.eating_context) {
+        try {
+          context = JSON.parse(meal.eating_context);
+        } catch {}
+      }
+      if (context.pace === 'slow') contextQuality += 1;
+      if (context.chewing === 'thorough') contextQuality += 1;
+      if (context.distraction === 'focused') contextQuality += 1;
+      if (context.stress === 'calm') contextQuality += 1;
     }
 
     // 3 meals = base 60, eating context adds up to 40

@@ -24,6 +24,7 @@ export interface DailySummaryResult {
   gaps: NutrientGap[];
   recommendations: FoodRecommendation[];
   pantry?: any[];
+  storedSources?: Record<string, any[]>;
 }
 
 export interface SyncManifest {

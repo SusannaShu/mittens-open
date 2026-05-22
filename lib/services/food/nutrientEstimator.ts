@@ -84,74 +84,280 @@ function normalizeName(name: string): string {
   // Strip cooking/prep prefixes
   n = n.replace(/^(fresh|raw|organic|dried|frozen|canned|cooked|roasted|grilled|steamed|baked|fried)\s+/g, '');
   n = n.replace(/\s+(sliced|diced|chopped|minced|whole|pieces|chunks)$/g, '');
-  // Depluralize
-  if (n.endsWith('ies') && n.length > 4) n = n.slice(0, -3) + 'y';
-  else if (n.endsWith('es') && n.length > 4) n = n.slice(0, -2);
-  else if (n.endsWith('s') && n.length > 3) n = n.slice(0, -1);
   return n;
 }
 
-// Words that shouldn't drive matching
-const STOP_WORDS = new Set(['likely', 'dark', 'light', 'other', 'red', 'orange', 'green', 'yellow', 'white', 'brown', 'black', 'speck']);
+/**
+ * Stem a single token to a canonical form for comparison.
+ * Handles common English plural patterns so "strawberry" ↔ "strawberries" match.
+ */
+function stemToken(t: string): string {
+  if (t.length <= 3) return t;
+  // berries → berry, cherries → cherry, etc.
+  if (t.endsWith('ies') && t.length > 4) return t.slice(0, -3) + 'y';
+  // tomatoes → tomato, potatoes → potato
+  if (t.endsWith('oes') && t.length > 5) return t.slice(0, -2);
+  // peaches → peach, bunches → bunch
+  if (t.endsWith('ches') || t.endsWith('shes') || t.endsWith('sses') || t.endsWith('xes') || t.endsWith('zes'))
+    return t.slice(0, -2);
+  // leaves → leaf (irregular handled below), olives → olive
+  if (t.endsWith('ves') && t.length > 5) return t.slice(0, -1);
+  // general -es: oranges → orange, grapes → grape
+  if (t.endsWith('es') && t.length > 4) return t.slice(0, -1);
+  // general -s: carrots → carrot, apples → apple
+  if (t.endsWith('s') && !t.endsWith('ss') && t.length > 3) return t.slice(0, -1);
+  return t;
+}
+
+// Words that shouldn't drive matching (removed 'orange' — it's a valid food name)
+const STOP_WORDS = new Set(['likely', 'other', 'speck', 'the', 'and', 'with', 'for', 'from']);
+
+// Color words: don't filter from query, but give them reduced weight in scoring
+const COLOR_WORDS = new Set(['red', 'orange', 'green', 'yellow', 'white', 'brown', 'black', 'dark', 'light', 'golden', 'purple']);
+
+/**
+ * Map everyday food names to USDA-style search terms.
+ * Searched BEFORE the normal fuzzy lookup to handle naming mismatches.
+ */
+const FOOD_SYNONYMS: Record<string, string[]> = {
+  'sandwich bread': ['bread, white', 'bread, wheat', 'bread, whole-wheat'],
+  'white bread': ['bread, white'],
+  'wheat bread': ['bread, wheat'],
+  'whole wheat bread': ['bread, whole-wheat'],
+  'multigrain bread': ['bread, multi-grain'],
+  'sourdough': ['bread, french or vienna'],
+  'toast': ['bread, white', 'bread, wheat'],
+  'oj': ['orange juice'],
+  'orange juice': ['orange juice, raw'],
+  'apple juice': ['apple juice, canned or bottled'],
+  'chicken breast': ['chicken, broilers or fryers, breast'],
+  'chicken thigh': ['chicken, broilers or fryers, thigh'],
+  'ground beef': ['beef, ground'],
+  'steak': ['beef, top sirloin'],
+  'bacon': ['pork, cured, bacon'],
+  'ham': ['pork, cured, ham'],
+  'hot dog': ['frankfurter, beef'],
+  'french fries': ['potatoes, french fried'],
+  'fries': ['potatoes, french fried'],
+  'mashed potatoes': ['potatoes, mashed'],
+  'sweet potato': ['sweet potato, raw'],
+  'bell pepper': ['peppers, sweet'],
+  'green beans': ['beans, snap, green'],
+  'corn on the cob': ['corn, sweet, yellow'],
+  'peanut butter': ['peanut butter, smooth'],
+  'cream cheese': ['cream cheese'],
+  'sour cream': ['cream, sour'],
+  'cottage cheese': ['cheese, cottage'],
+  'mac and cheese': ['macaroni and cheese'],
+  'grilled cheese': ['cheese sandwich'],
+  'pb&j': ['peanut butter, smooth'],
+  'oatmeal': ['cereals, oats, instant'],
+  'granola': ['cereals, granola'],
+  'scrambled eggs': ['egg, whole, cooked, scrambled'],
+  'hard boiled egg': ['egg, whole, cooked, hard-boiled'],
+  'fried egg': ['egg, whole, cooked, fried'],
+  'sunny side up': ['egg, whole, cooked, fried'],
+  'walnut': ['nuts, walnuts, english'],
+  'walnuts': ['nuts, walnuts, english'],
+  'almond': ['nuts, almonds'],
+  'almonds': ['nuts, almonds'],
+  'cashew': ['nuts, cashew nuts, raw'],
+  'cashews': ['nuts, cashew nuts, raw'],
+  'pecan': ['nuts, pecans'],
+  'pecans': ['nuts, pecans'],
+};
+
+/**
+ * Check if two tokens match, accounting for plurals/stems.
+ * Returns: 1.0 for exact/stem match, 0.8 for prefix match, 0 for no match.
+ */
+function tokenMatch(qt: string, at: string): number {
+  // Exact match
+  if (qt === at) return 1.0;
+  // Stemmed match: strawberry ↔ strawberries
+  const qStem = stemToken(qt);
+  const aStem = stemToken(at);
+  if (qStem === aStem) return 1.0;
+  // Prefix match (one starts with the other, both long enough)
+  if (qt.length > 3 && at.length > 3) {
+    if (at.startsWith(qt) || qt.startsWith(at)) return 0.8;
+    if (aStem.startsWith(qStem) || qStem.startsWith(aStem)) return 0.8;
+  }
+  return 0;
+}
 
 function matchScore(query: string, entry: FoodEntry): number {
   const q = normalizeName(query);
+  const qStemmed = stemToken(q);
   const qTokens = q.split(/[\s/,]+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
   if (qTokens.length === 0) return 0;
+
+  // Separate color tokens from substantive tokens for weighted scoring
+  const qSubstantive = qTokens.filter(t => !COLOR_WORDS.has(t));
+  const qColors = qTokens.filter(t => COLOR_WORDS.has(t));
+
   let bestScore = 0;
 
   for (const alias of entry.aliases) {
     const a = alias.toLowerCase();
-    // Exact full match
-    if (a === q) return 1.0;
+    const aStemmed = stemToken(a.split(/[\s,]+/)[0] || a); // stem the primary word
+
+    // Exact full match (including stemmed)
+    if (a === q || a === qStemmed) return 1.0;
+
+    // Stemmed primary word matches: "strawberry" → alias "strawberries" (stemmed: "strawberry")
+    // Only for single-token aliases to avoid false matches on compound names
+    const aWords = a.split(/[\s,]+/).filter(t => t.length > 1);
+    if (aWords.length === 1 && qTokens.length === 1) {
+      if (stemToken(aWords[0]) === stemToken(qTokens[0])) {
+        bestScore = Math.max(bestScore, 0.98);
+        continue;
+      }
+    }
 
     // Query starts the alias: "tofu" matches "tofu, firm" but NOT "mayonnaise, made with tofu"
-    if (a.startsWith(q + ',') || a.startsWith(q + ' ')) return 0.95;
+    if (a.startsWith(q + ',') || a.startsWith(q + ' ')) {
+      bestScore = Math.max(bestScore, 0.95);
+      continue;
+    }
+    // Also check stemmed: "strawberry" matches "strawberries, raw"
+    if (a.startsWith(qStemmed + ',') || a.startsWith(qStemmed + ' ')) {
+      bestScore = Math.max(bestScore, 0.95);
+      continue;
+    }
+    {
+      // Check if the first alias token stems to the query: "strawberries, raw" → stem "strawberry"
+      const firstAToken = aWords[0];
+      if (firstAToken && qTokens.length === 1 && stemToken(firstAToken) === stemToken(qTokens[0])) {
+        // Single-word query matches the primary alias word by stem
+        // Score based on how specific the alias is (fewer extra words = better)
+        const specificity = Math.max(0.85, 0.95 - (aWords.length - 1) * 0.03);
+        if (specificity > bestScore) bestScore = specificity;
+        continue; // This alias's stem matched; check remaining aliases for potentially better scores
+      }
+    }
 
     // Alias starts with query (single word primary match)
-    if (a.startsWith(q)) return 0.9;
+    if (a.startsWith(q)) {
+      bestScore = Math.max(bestScore, 0.9);
+      continue;
+    }
 
     // Token overlap (handles multi-word and partial matches)
-    const aTokens = a.split(/[\s,]+/).filter(t => t.length > 1);
+    const aTokens = aWords;
     
     let overlapCount = 0;
-    qTokens.forEach(qt => {
-      if (aTokens.some(at => at === qt)) { 
-        overlapCount += 1; 
-      } else if (aTokens.some(at => at.length > 3 && qt.length > 3 && (at.startsWith(qt) || qt.startsWith(at)))) { 
-        overlapCount += 0.8; 
+    let unmatchedQueryTokens = 0;
+    const substantiveMatched: boolean[] = new Array(qSubstantive.length).fill(false);
+
+    // Match substantive tokens first (higher weight)
+    qSubstantive.forEach((qt, qi) => {
+      let matched = false;
+      for (const at of aTokens) {
+        const m = tokenMatch(qt, at);
+        if (m > 0) {
+          overlapCount += m;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) unmatchedQueryTokens++;
+      substantiveMatched[qi] = matched;
+    });
+
+    // Match color tokens (lower weight — they refine but shouldn't drive matching)
+    qColors.forEach(qt => {
+      for (const at of aTokens) {
+        const m = tokenMatch(qt, at);
+        if (m > 0) {
+          overlapCount += m * 0.3; // Colors contribute less
+          break;
+        }
       }
     });
 
-    // Score based on overlap over the maximum token length, but penalize missing query tokens heavily
-    const queryCoverage = overlapCount / qTokens.length;
+    const effectiveQueryLen = qSubstantive.length + qColors.length * 0.3;
+    const queryCoverage = effectiveQueryLen > 0 ? overlapCount / effectiveQueryLen : 0;
     const aliasCoverage = overlapCount / aTokens.length;
     
-    // Harmonic mean of precision (aliasCoverage) and recall (queryCoverage)
-    let score = (2 * queryCoverage * aliasCoverage) / (queryCoverage + aliasCoverage || 1);
+    // Weighted harmonic mean — favor recall (query coverage) more
+    // If substantive query tokens are unmatched, penalize heavily
+    let score = (queryCoverage + aliasCoverage) > 0
+      ? (2 * queryCoverage * aliasCoverage) / (queryCoverage + aliasCoverage)
+      : 0;
 
-    // Minor boost if the alias starts with the first query token
-    if (aTokens[0] && qTokens[0] && (aTokens[0] === qTokens[0] || aTokens[0].startsWith(qTokens[0]))) {
-      score += 0.05;
+    // Penalty for unmatched substantive query tokens
+    if (qSubstantive.length > 1 && unmatchedQueryTokens > 0) {
+      score *= (1 - unmatchedQueryTokens * 0.3 / qSubstantive.length);
+    }
+
+    // Boost if the alias's primary word matches the query's primary word (by stem)
+    if (aTokens[0] && qSubstantive[0]) {
+      if (tokenMatch(qSubstantive[0], aTokens[0]) >= 1.0) {
+        score += 0.08;
+      } else if (tokenMatch(qSubstantive[0], aTokens[0]) >= 0.8) {
+        score += 0.04;
+      }
     }
 
     if (score > bestScore) bestScore = score;
   }
-  return bestScore;
+  return Math.min(bestScore, 1.0);
+}
+
+/**
+ * Resolve food synonyms before fuzzy search.
+ * Maps common everyday names to USDA-style names for better matching.
+ */
+function resolveSearchTerms(foodName: string): string[] {
+  const normalized = normalizeName(foodName);
+  const terms = [foodName]; // always search the original
+
+  // Check synonym map (case-insensitive)
+  const synonyms = FOOD_SYNONYMS[normalized];
+  if (synonyms) {
+    terms.push(...synonyms);
+  }
+  // Also try partial synonym matches (e.g., "grilled sandwich bread" still matches "sandwich bread")
+  for (const [key, vals] of Object.entries(FOOD_SYNONYMS)) {
+    if (key !== normalized && normalized.includes(key)) {
+      terms.push(...vals);
+    }
+  }
+  return [...new Set(terms)];
 }
 
 export function lookupUSDAAll(foodName: string, threshold = 0.65, maxResults = 8): USDAReference[] {
-  const matches: USDAReference[] = [];
-  for (const entry of COMMON_FOODS) {
-    const score = matchScore(foodName, entry);
-    if (score >= threshold) {
-      matches.push({
-        fdcId: entry.fdcId, name: entry.name,
-        category: entry.category, score, per100g: entry.per100g,
-      });
+  const searchTerms = resolveSearchTerms(foodName);
+  const matchMap = new Map<number, USDAReference>(); // dedupe by fdcId
+
+  for (const term of searchTerms) {
+    for (const entry of COMMON_FOODS) {
+      const score = matchScore(term, entry);
+      if (score >= threshold) {
+        const existing = matchMap.get(entry.fdcId);
+        if (!existing || score > existing.score) {
+          matchMap.set(entry.fdcId, {
+            fdcId: entry.fdcId, name: entry.name,
+            category: entry.category, score, per100g: entry.per100g,
+          });
+        }
+      }
     }
   }
-  return matches.sort((a, b) => b.score - a.score).slice(0, maxResults);
+
+  return Array.from(matchMap.values())
+    .sort((a, b) => {
+      // Primary: sort by score descending
+      if (Math.abs(b.score - a.score) > 0.001) return b.score - a.score;
+      // Tiebreaker: prefer "raw" variants (user usually means the plain/raw food)
+      const aRaw = a.name.toLowerCase().includes(', raw') ? 1 : 0;
+      const bRaw = b.name.toLowerCase().includes(', raw') ? 1 : 0;
+      if (bRaw !== aRaw) return bRaw - aRaw;
+      // Secondary tiebreaker: prefer shorter names (less processed/more generic)
+      return a.name.length - b.name.length;
+    })
+    .slice(0, maxResults);
 }
 
 export function lookupUSDA(foodName: string, threshold = 0.6): USDAReference | null {
@@ -225,36 +431,174 @@ function extractJSON(raw: string): Record<string, any> | null {
  * Phase 1: AI decides whether to pick a USDA ref or reject them ("none")
  * Phase 2: If rejected, AI estimates nutrients from scratch
  */
+function parsePickResponse(response: string, maxVal: number): number {
+  const cleaned = response.trim();
+  // Try exact match of number first
+  const numMatch = cleaned.match(/^(\d+)/);
+  if (numMatch) {
+    const val = parseInt(numMatch[1], 10);
+    if (val >= 0 && val <= maxVal) return val;
+  }
+  // Try extracting any digits
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits) {
+    const val = parseInt(digits, 10);
+    if (val >= 0 && val <= maxVal) return val;
+  }
+  return 0; // none
+}
+
+function buildPickPrompt(foodName: string, portionG: number, cooking: string, refs: USDAReference[]): string {
+  const candidateNames = refs.slice(0, 8).map((r, i) =>
+    `${i + 1}. ${r.name} [${r.category}] (${Math.round(r.score * 100)}% match)`
+  ).join('\n');
+  return `Food: "${foodName}" (${portionG}g, ${cooking || 'unknown preparation'}).
+
+Which USDA database entry best matches this SPECIFIC food? Consider the actual food, not just keyword overlap.
+Reply with ONLY the number (e.g., 1, 2, 0). If NONE are a good match, reply "0".
+
+${candidateNames}`;
+}
+
+function buildSuggestPrompt(foodName: string, cooking: string): string {
+  return `The food "${foodName}" (${cooking || 'unknown prep'}) didn't match well in our USDA database.
+Suggest 3 official USDA food search terms/synonyms that best represent this food.
+Format each line as: search_term | confidence (0-100)
+Example: Spices, paprika | 85
+
+Only the 3 best guesses:`;
+}
+
+function parseSuggestions(suggestResponse: string): Array<{ name: string, confidence: number }> {
+  return suggestResponse.split('\n')
+    .map(l => {
+      const cleaned = l.replace(/^\d+[\.\)]\s*/, '').trim();
+      const parts = cleaned.split('|');
+      const name = parts[0]?.trim() || '';
+      const conf = parseInt(parts[1]?.trim() || '50', 10);
+      return { name, confidence: Math.min(100, Math.max(0, conf || 50)) };
+    })
+    .filter(s => s.name.length > 2)
+    .sort((a, b) => b.confidence - a.confidence);
+}
+
+async function generateText(providerOrBrain: any, prompt: string): Promise<string> {
+  if (!providerOrBrain) {
+    throw new Error('No inference provider or brain available');
+  }
+  if (typeof providerOrBrain.text === 'function') {
+    return await providerOrBrain.text(prompt);
+  }
+  if (typeof providerOrBrain.generateRaw === 'function') {
+    return await providerOrBrain.generateRaw(prompt);
+  }
+  if (typeof providerOrBrain.generate === 'function') {
+    return await providerOrBrain.generate(prompt);
+  }
+  throw new Error('Inference provider or brain does not support text generation');
+}
+
+/**
+ * Estimate nutrients for a single food item.
+ *
+ * 4-Tier Brain-driven USDA Matching Cascade:
+ * Tier 1: Search USDA database for candidates.
+ * Tier 2: Brain picks the best fit from candidates.
+ * Tier 3: Synonym suggestion on rejection.
+ * Tier 4: Re-search USDA with synonyms and ask brain again.
+ * Tier 5: Fallback to AI nutrient estimation (preserves allReferences).
+ */
 export async function estimateNutrients(
   foodName: string,
   portionG: number,
   cooking: string = '',
   useAI: boolean = true,
+  brainOrProvider?: any,
 ): Promise<NutrientResult> {
-
-  const allRefs = lookupUSDAAll(foodName);
+  let allRefs = lookupUSDAAll(foodName, 0.4); // low threshold to get candidates
   let usedRef: USDAReference | undefined;
+  let reasoning: string | undefined;
 
-  // ── Phase 1: AI Reference Decision ──
-  if (allRefs.length > 0 && useAI) {
+  let provider = brainOrProvider;
+  if (!provider && useAI) {
     try {
-      const prompt = buildRefDecisionPrompt(foodName, portionG, cooking, allRefs);
-      const raw = await LocalInferenceService.generateLocalResponse(prompt);
-      const parsed = extractJSON(raw);
-      const refName = String(parsed?.ref || '').toLowerCase().trim();
-
-      if (refName && refName !== 'none') {
-        usedRef = allRefs.find(r => r.name.toLowerCase().includes(refName)) || allRefs[0];
-      }
-    } catch { 
-      // If AI fails to decide, fall back to the top match if it's very strong
-      if (allRefs[0].score >= 0.75) usedRef = allRefs[0]; 
+      const { getAgentEnabled, getAgentProvider, getInferenceProvider } = require('../../providers/providerFactory');
+      const agentOn = await getAgentEnabled();
+      provider = (agentOn && getAgentProvider()) || await getInferenceProvider();
+    } catch (e: any) {
+      console.warn('[estimateNutrients] Failed to get active provider:', e.message);
     }
-  } else if (!useAI && allRefs.length > 0 && allRefs[0].score >= 0.75) {
-    usedRef = allRefs[0];
   }
 
-  // ── Phase 2A: Use the Chosen Reference ──
+  // ── 4-Tier Brain-Driven Cascade ──
+  if (useAI && provider) {
+    try {
+      // Tier 1: Search USDA for candidates.
+      // Tier 2: Brain picks the best fit from candidates.
+      if (allRefs.length > 0) {
+        console.log(`[estimateNutrients] Asking brain to pick for "${foodName}" from ${allRefs.length} refs`);
+        const pickPrompt = buildPickPrompt(foodName, portionG, cooking, allRefs);
+        const pickResponse = await generateText(provider, pickPrompt);
+        const pickedNum = parsePickResponse(pickResponse, allRefs.length);
+
+        if (pickedNum > 0) {
+          usedRef = allRefs[pickedNum - 1];
+          reasoning = `Brain selected USDA reference: "${usedRef.name}"`;
+          console.log(`[estimateNutrients] Brain selected: "${usedRef.name}"`);
+        }
+      }
+
+      // Tier 3: Rejection → Suggest 3 alternative keywords/synonyms
+      if (!usedRef) {
+        console.log(`[estimateNutrients] No USDA match accepted for "${foodName}". Asking brain for synonyms...`);
+        const suggestPrompt = buildSuggestPrompt(foodName, cooking);
+        const suggestResponse = await generateText(provider, suggestPrompt);
+        const suggestions = parseSuggestions(suggestResponse);
+
+        // Tier 4: Re-search USDA with synonyms and ask brain again
+        if (suggestions.length > 0) {
+          console.log(`[estimateNutrients] Synonym suggestions:`, suggestions.map(s => `${s.name} (${s.confidence}%)`).join(', '));
+          
+          let newRefs: USDAReference[] = [];
+          for (const sug of suggestions.slice(0, 3)) {
+            const hits = lookupUSDAAll(sug.name, 0.4);
+            for (const h of hits) {
+              if (!newRefs.some(r => r.fdcId === h.fdcId) && !allRefs.some(r => r.fdcId === h.fdcId)) {
+                newRefs.push(h);
+              }
+            }
+          }
+
+          if (newRefs.length > 0) {
+            // Combine them
+            const combinedRefs = [...allRefs, ...newRefs];
+            const pickPrompt2 = buildPickPrompt(foodName, portionG, cooking, combinedRefs);
+            const pickResponse2 = await generateText(provider, pickPrompt2);
+            const pickedNum2 = parsePickResponse(pickResponse2, combinedRefs.length);
+
+            if (pickedNum2 > 0) {
+              usedRef = combinedRefs[pickedNum2 - 1];
+              reasoning = `Brain selected USDA reference after synonym re-search: "${usedRef.name}"`;
+              console.log(`[estimateNutrients] Brain selected after re-search: "${usedRef.name}"`);
+            }
+            
+            // Keep all unique references for meta.allReferences
+            allRefs = combinedRefs;
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[estimateNutrients] Brain cascade error:', e.message);
+    }
+  }
+
+  // Non-AI fallback: if no AI or AI failed, fall back to top match if it is highly confident
+  if (!usedRef && allRefs.length > 0 && allRefs[0].score >= 0.70) {
+    usedRef = allRefs[0];
+    reasoning = `Fallback USDA match: "${usedRef.name}" (${Math.round(usedRef.score * 100)}% confidence)`;
+  }
+
+  // ── Tier 5: Fallback to AI nutrient estimation if still no match, but keep allRefs ──
   if (usedRef) {
     const scaled = scaleNutrients(usedRef.per100g, portionG);
     const nutrients: Partial<NutrientValues> = {};
@@ -278,17 +622,18 @@ export async function estimateNutrients(
         primarySource: 'usda',
         usedReference: usedRef,
         allReferences: allRefs,
-        adjustments: [], // Bioavailability pass runs later
+        adjustments: [],
+        reasoning,
         breakdown: { measured, estimated: 0, unknown },
       },
     };
   }
 
-  // ── Phase 2B: Full AI Estimation (No reference selected) ──
-  if (useAI) {
+  // Full AI Estimation
+  if (useAI && provider) {
     try {
       const prompt = buildEstimatePrompt(foodName, portionG, cooking);
-      const raw = await LocalInferenceService.generateLocalResponse(prompt);
+      const raw = await generateText(provider, prompt);
       const parsed = extractJSON(raw);
 
       if (parsed?.nutrients) {
@@ -313,24 +658,32 @@ export async function estimateNutrients(
           meta: {
             primarySource: 'ai',
             usedReference: undefined,
-            allReferences: allRefs,
+            allReferences: allRefs, // Preserve all refs for side-by-side!
             adjustments: [],
-            reasoning: parsed.reason || '',
+            reasoning: parsed.reason || reasoning || 'AI estimated — no USDA match chosen',
             breakdown: { measured: 0, estimated, unknown },
           },
         };
       }
-    } catch { /* AI failed */ }
+    } catch (e: any) {
+      console.warn('[estimateNutrients] AI estimation failed:', e.message);
+    }
   }
 
-  // ── Path C: Nothing ──
+  // Absolute fallback: empty nutrients
   const nutrients: Partial<NutrientValues> = {};
   for (const key of ALL_KEYS) {
     nutrients[key] = { value: null, source: null, confidence: 0 };
   }
   return {
     nutrients: nutrients as NutrientValues,
-    meta: { primarySource: null, allReferences: allRefs, adjustments: [], breakdown: { measured: 0, estimated: 0, unknown: 20 } },
+    meta: {
+      primarySource: null,
+      allReferences: allRefs,
+      adjustments: [],
+      reasoning: 'Nutrient lookup failed.',
+      breakdown: { measured: 0, estimated: 0, unknown: 20 },
+    },
   };
 }
 

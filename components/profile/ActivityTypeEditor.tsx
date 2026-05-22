@@ -1,9 +1,9 @@
 /**
  * ActivityTypeEditor -- View, edit, and create custom activity types.
- * Used in the Profile tab. Full CRUD via ActivityTypeService.
+ * Used in the Profile tab. Full CRUD via RTK Query activityTypeApi.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import {
   View, Text, TouchableOpacity,
   Alert, StyleSheet,
@@ -11,7 +11,12 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, radius } from '../../lib/theme';
 import { profileStyles as ps } from './profileStyles';
-import { ActivityTypeService } from '../../lib/services/activityTypeService';
+import {
+  useGetActivityTypesQuery,
+  useCreateActivityTypeMutation,
+  useUpdateActivityTypeMutation,
+  useDeleteActivityTypeMutation,
+} from '../../lib/services/activityTypeApi';
 import { ActivityTypeEditSheet } from './ActivityTypeEditSheet';
 import type { ActivityTypeModel } from '../../lib/pipelines/types';
 
@@ -25,27 +30,24 @@ interface Props {
 }
 
 export function ActivityTypeEditor({ collapsed, onToggle }: Props) {
-  const [types, setTypes] = useState<ActivityTypeModel[]>([]);
+  const { data } = useGetActivityTypesQuery();
+  const types = data?.types ?? [];
   const [editingType, setEditingType] = useState<ActivityTypeModel | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
-  const loadTypes = useCallback(async () => {
-    const all = await ActivityTypeService.getAll();
-    setTypes(all);
-  }, []);
-
-  useEffect(() => { loadTypes(); }, [loadTypes]);
+  const [createType] = useCreateActivityTypeMutation();
+  const [updateType] = useUpdateActivityTypeMutation();
+  const [deleteType] = useDeleteActivityTypeMutation();
 
   const handleSave = async (updated: ActivityTypeModel) => {
     try {
       if (types.find(t => t.key === updated.key)) {
-        await ActivityTypeService.update(updated.key, updated);
+        await updateType({ key: updated.key, updates: updated }).unwrap();
       } else {
-        await ActivityTypeService.create({ ...updated, key: updated.key, label: updated.label });
+        await createType({ ...updated, key: updated.key, label: updated.label }).unwrap();
       }
       setSheetVisible(false);
       setEditingType(null);
-      loadTypes();
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to save');
     }
@@ -57,8 +59,7 @@ export function ActivityTypeEditor({ collapsed, onToggle }: Props) {
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
           try {
-            await ActivityTypeService.delete(key);
-            loadTypes();
+            await deleteType(key).unwrap();
           } catch (e: any) {
             Alert.alert('Error', e.message || 'Cannot delete');
           }

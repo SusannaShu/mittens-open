@@ -33,6 +33,25 @@ export default function OnboardingScreen() {
   const [sex, setSex] = useState<'female' | 'male'>('female');
   const [unit, setUnit] = useState<'imperial' | 'metric'>('imperial');
   const [skinType, setSkinType] = useState('fitzpatrick-4');
+  const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
+
+  const DIET_OPTIONS = [
+    { key: 'vegetarian', label: 'Vegetarian', emoji: '🥬' },
+    { key: 'vegan', label: 'Vegan', emoji: '🌱' },
+    { key: 'pescatarian', label: 'Pescatarian', emoji: '🐟' },
+    { key: 'gluten_free', label: 'Gluten-Free', emoji: '🌾' },
+    { key: 'lactose_free', label: 'Lactose-Free', emoji: '🥛' },
+    { key: 'nut_free', label: 'Nut-Free', emoji: '🥜' },
+    { key: 'halal', label: 'Halal', emoji: '☪️' },
+    { key: 'kosher', label: 'Kosher', emoji: '✡️' },
+    { key: 'low_sodium', label: 'Low Sodium', emoji: '🧂' },
+  ];
+
+  const toggleDietPref = (key: string) => {
+    setDietaryPrefs(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
 
   // LMST State
   const [homeLongitude, setHomeLongitude] = useState<number | null>(null);
@@ -84,8 +103,8 @@ export default function OnboardingScreen() {
         return;
       }
     }
-    if (step < 6) {
-      if (step === 4) {
+    if (step < 7) {
+      if (step === 5) {
         if (homeLongitude === null && !homeLabel.trim()) {
            alert('Please select a location or enter one manually.');
            return;
@@ -105,6 +124,7 @@ export default function OnboardingScreen() {
         age: parseInt(age, 10) || 30,
         sex,
         skinType,
+        dietaryPreferences: JSON.stringify(dietaryPrefs),
         preferredUnit: unit,
         homeLongitude: homeLongitude,
         homeLatitude: homeLatitude,
@@ -244,6 +264,30 @@ export default function OnboardingScreen() {
         {step === 3 && (
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
             <View style={styles.stepContainer}>
+              <Text style={styles.title}>Dietary Preferences</Text>
+              <Text style={styles.subtitle}>Select any that apply. This ensures meal plans only suggest foods you can eat. You can change these later.</Text>
+
+              {DIET_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[styles.skinBtn, dietaryPrefs.includes(option.key) && styles.skinBtnActive]}
+                  onPress={() => toggleDietPref(option.key)}
+                >
+                  <Text style={{ fontSize: 20, marginRight: 12 }}>{option.emoji}</Text>
+                  <Text style={[styles.skinText, dietaryPrefs.includes(option.key) && styles.skinTextActive]}>{option.label}</Text>
+                </TouchableOpacity>
+              ))}
+
+              {dietaryPrefs.length === 0 && (
+                <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 12, fontStyle: 'italic' }}>No restrictions? Just tap Next.</Text>
+              )}
+            </View>
+          </ScrollView>
+        )}
+
+        {step === 4 && (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={styles.stepContainer}>
               <Text style={styles.title}>Skin Type</Text>
               <Text style={styles.subtitle}>Select your Fitzpatrick skin type. This is used for Vitamin D synthesis and sun exposure estimations.</Text>
               
@@ -265,7 +309,7 @@ export default function OnboardingScreen() {
           </ScrollView>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <View style={styles.stepContainer}>
             <Text style={styles.title}>Location Sandbox</Text>
             <Text style={styles.subtitle}>Mittens anchors your rhythm to the local solar time rather than a generic timezone. Where is home?</Text>
@@ -296,7 +340,7 @@ export default function OnboardingScreen() {
           </View>
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <View style={styles.stepContainer}>
             <Text style={styles.title}>Your Rhythm</Text>
             <Text style={styles.subtitle}>When do you naturally feel most alert?</Text>
@@ -333,7 +377,7 @@ export default function OnboardingScreen() {
           </View>
         )}
 
-        {step === 6 && (
+        {step === 7 && (
           <View style={styles.stepContainer}>
             <Text style={styles.title}>Morning Nudge</Text>
             <Text style={styles.subtitle}>Mittens will nudge you at wake to get 10 minutes of outdoor light — this is the single highest-leverage habit for sleep and mood.</Text>
@@ -355,7 +399,7 @@ export default function OnboardingScreen() {
             onPress={handleNext} 
             disabled={step === 1 && !name.trim()}
           >
-            {submitting ? <ActivityIndicator color={colors.bg} /> : <Text style={styles.nextBtnText}>{step === 6 ? 'Complete Setup' : 'Next'}</Text>}
+            {submitting ? <ActivityIndicator color={colors.bg} /> : <Text style={styles.nextBtnText}>{step === 7 ? 'Complete Setup' : 'Next'}</Text>}
           </TouchableOpacity>
         </View>
 

@@ -191,6 +191,11 @@ class SceneStreamManager {
     // Phase 2.5c: Sedentary detection + away-from-screen timer stop
     if (triage.signals.screenUse) {
       this.checkSedentaryFromSignal(framePath);
+      // Reset away-from-screen counter — user is still at their screen
+      try {
+        const { onScreenFrame } = require('./timerAutoStop');
+        onScreenFrame();
+      } catch { /* timerAutoStop not loaded */ }
     } else {
       this.checkAwayFromScreen();
     }

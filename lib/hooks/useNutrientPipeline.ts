@@ -13,7 +13,7 @@ import { FoodPipelineItem, FoodPipelineStatus } from '../../components/chat/Meal
 import { getInferenceProvider, getAgentEnabled, getAgentProvider } from '../providers/providerFactory';
 import { lookupRetention, applyRetention } from '../data/retentionFactors';
 import { applyInteractions } from '../data/nutrientInteractions';
-import { lookupUSDAAll, scaleNutrients } from '../services/food/nutrientEstimator';
+import { lookupUSDAAll, scaleNutrients, USDAReference, estimateNutrients, flattenNutrients } from '../services/food/nutrientEstimator';
 import type { FoodIdentification, NutrientEstimate } from '../providers/inferenceProvider';
 
 // Track abort controllers per food (messageId-foodIndex)
@@ -71,14 +71,40 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
     try {
       if (controller.signal.aborted) return;
 
-      // ── Phase 2: USDA lookup ──
+      // ── Centralized Brain-Driven USDA matching cascade and estimation ──
+      console.log('[NutrientPipeline] estimateOne executing estimateNutrients for:', food.name);
+      
+      const res = await estimateNutrients(
+        food.name,
+        food.portion_g,
+        food.cooking || '',
+        true, // useAI
+      );
 
-      const usdaRefs = lookupUSDAAll(food.name, 0.4); // low threshold to get candidates
-      console.log('[NutrientPipeline] USDA lookup:', food.name, '→', usdaRefs.length, 'matches',
-        usdaRefs[0] ? `best: "${usdaRefs[0].name}" (${usdaRefs[0].score})` : 'none');
+      if (controller.signal.aborted) return;
 
-      // Build allRefs with per100g data for UI switching
-      const allRefsWithData = usdaRefs.map(r => ({
+      const nutrients = flattenNutrients(res.nutrients);
+      
+      // Calculate usdaNutrients if matched. If not matched, fall back to closest reference for side-by-side
+      let usdaNutrients: Record<string, number> | undefined;
+      const usedRef = res.meta.usedReference;
+      
+      if (usedRef) {
+        const scaledUsda = scaleNutrients(usedRef.per100g, food.portion_g);
+        usdaNutrients = {};
+        for (const [k, v] of Object.entries(scaledUsda)) {
+          usdaNutrients[k] = v ?? 0;
+        }
+      } else if (res.meta.allReferences && res.meta.allReferences.length > 0) {
+        const closestRef = res.meta.allReferences[0];
+        const scaledUsda = scaleNutrients(closestRef.per100g, food.portion_g);
+        usdaNutrients = {};
+        for (const [k, v] of Object.entries(scaledUsda)) {
+          usdaNutrients[k] = v ?? 0;
+        }
+      }
+
+      const allRefsWithData = res.meta.allReferences.map(r => ({
         fdcId: r.fdcId,
         name: r.name,
         category: r.category,
@@ -86,199 +112,20 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
         per100g: r.per100g as unknown as Record<string, number | null>,
       }));
 
-      let nutrients: Record<string, number> = {};
-      let usdaNutrients: Record<string, number> | undefined;
-      let usedRef: typeof usdaRefs[0] | undefined;
-      let adjustments: any[] | undefined;
-      let reasoning: string | undefined;
-
-      if (usdaRefs.length > 0) {
-        // Always let AI pick the best USDA match from candidates
-        console.log('[NutrientPipeline] Asking AI to pick from', usdaRefs.length, 'candidates for:', food.name);
-        const agentOn = await getAgentEnabled();
-        const provider = (agentOn && getAgentProvider()) || await getInferenceProvider();
-
-        const candidateNames = usdaRefs.slice(0, 8).map((r, i) => `${i + 1}. ${r.name}`).join('\n');
-        const pickPrompt = `Food from photo: "${food.name}" (${food.portion_g}g, ${food.cooking || 'unknown preparation'}).
-
-Which USDA database entry best matches this SPECIFIC food? Consider the actual food, not just keyword overlap.
-For example, "vegetable rolls" are ROLLS with vegetable filling, NOT canned vegetables.
-
-Reply with ONLY the number. If NONE are a good match, reply "0".
-
-${candidateNames}`;
-
-        try {
-          const pickResponse = await provider.generateRaw(pickPrompt);
-          const pickNum = parseInt(pickResponse.replace(/\D/g, ''), 10);
-
-          if (pickNum > 0 && pickNum <= usdaRefs.length) {
-            usedRef = usdaRefs[pickNum - 1];
-            const scaled = scaleNutrients(usedRef.per100g, food.portion_g);
-            nutrients = {};
-            usdaNutrients = {};
-            for (const [k, v] of Object.entries(scaled)) {
-              nutrients[k] = v ?? 0;
-              usdaNutrients[k] = v ?? 0;
-            }
-            reasoning = `AI selected USDA "${usedRef.name}" from ${usdaRefs.length} candidates`;
-            console.log('[NutrientPipeline] AI picked:', usedRef.name);
-          } else {
-            // AI rejected all candidates -- try AI-suggested USDA names
-            console.log('[NutrientPipeline] AI rejected all candidates for:', food.name, '-- trying AI name search');
-            const suggestPrompt = `The food "${food.name}" (${food.cooking || 'unknown prep'}) didn't match well in our USDA database.
-Suggest 3 official USDA food names that best match this food.
-Format each line as: name | confidence
-Example: Rolls, dinner, wheat | 80
-
-Only the 3 best guesses:`;
-            const suggestResponse = await provider.generateRaw(suggestPrompt);
-            const suggestions = suggestResponse.split('\n')
-              .map(l => {
-                const cleaned = l.replace(/^\d+[\.)\s]*/, '').trim();
-                const parts = cleaned.split('|');
-                return { name: parts[0]?.trim() || '', confidence: parseInt(parts[1]?.trim() || '50', 10) };
-              })
-              .filter(s => s.name.length > 2)
-              .sort((a, b) => b.confidence - a.confidence);
-
-            // Re-search USDA with AI-suggested names
-            let found = false;
-            for (const suggestion of suggestions.slice(0, 3)) {
-              const reRefs = lookupUSDAAll(suggestion.name, 0.4);
-              if (reRefs.length > 0) {
-                const mappedRefs = reRefs.map(r => ({
-                  fdcId: r.fdcId,
-                  name: r.name,
-                  category: r.category,
-                  score: r.score,
-                  per100g: r.per100g as unknown as Record<string, number | null>,
-                }));
-                usedRef = mappedRefs[0];
-                allRefsWithData.push(...mappedRefs.filter(r => !allRefsWithData.some(a => a.fdcId === r.fdcId)));
-                const scaled = scaleNutrients(usedRef.per100g, food.portion_g);
-                nutrients = {};
-                usdaNutrients = {};
-                for (const [k, v] of Object.entries(scaled)) {
-                  nutrients[k] = v ?? 0;
-                  usdaNutrients[k] = v ?? 0;
-                }
-                reasoning = `AI searched USDA for "${suggestion.name}" -> "${usedRef.name}"`;
-                console.log('[NutrientPipeline] AI re-search found:', usedRef.name);
-                found = true;
-                break;
-              }
-            }
-
-            if (!found) {
-              // Final fallback: pure AI estimation
-              const estimate = await provider.estimateNutrients(
-                { name: food.name, portion_g: food.portion_g, cooking: food.cooking }, {}
-              );
-              nutrients = { ...estimate.nutrients };
-              adjustments = estimate.meta.adjustments;
-              reasoning = 'AI: No USDA match found. Estimated from knowledge.';
-            }
-          }
-        } catch {
-          // Pick call failed, fall back to AI estimation
-          const provider2 = (agentOn && getAgentProvider()) || await getInferenceProvider();
-          const estimate = await provider2.estimateNutrients(
-            { name: food.name, portion_g: food.portion_g, cooking: food.cooking }, {}
-          );
-          nutrients = { ...estimate.nutrients };
-          adjustments = estimate.meta.adjustments;
-          reasoning = estimate.meta.reasoning || 'AI-estimated (USDA pick failed).';
-        }
-
-      } else {
-        // No USDA candidates: ask AI to suggest proper USDA names, then re-search
-        console.log('[NutrientPipeline] No USDA candidates, asking AI to suggest names for:', food.name);
-        const agentOn = await getAgentEnabled();
-        const inferenceProvider = (agentOn && getAgentProvider()) || await getInferenceProvider();
-
-        try {
-          const suggestPrompt = `The food "${food.name}" (${food.cooking || 'unknown prep'}) isn't in our USDA FoodData Central database.
-Suggest 3 official USDA food names that best match this food, with your confidence (0-100).
-Format each line as: name | confidence
-Example: Spices, paprika | 85
-
-Only the 3 best guesses:`;
-
-          const suggestResponse = await inferenceProvider.generateRaw(suggestPrompt);
-          const suggestions = suggestResponse.split('\n')
-            .map(l => {
-              const cleaned = l.replace(/^\d+[\.\)]\s*/, '').trim();
-              const parts = cleaned.split('|');
-              const name = parts[0]?.trim();
-              const conf = parseInt(parts[1]?.trim() || '50', 10);
-              return { name: name || '', confidence: Math.min(100, Math.max(0, conf || 50)) };
-            })
-            .filter(s => s.name.length > 2)
-            .sort((a, b) => b.confidence - a.confidence);
-
-          console.log('[NutrientPipeline] AI suggestions:', suggestions.map(s => `${s.name} (${s.confidence}%)`).join(', '));
-
-          // Re-search USDA with AI-suggested names, weighted by AI confidence
-          let bestRef: typeof usdaRefs[0] | undefined;
-          let bestComboScore = 0;
-          for (const suggestion of suggestions) {
-            const refs = lookupUSDAAll(suggestion.name, 0.5);
-            for (const r of refs.slice(0, 3)) {
-              // Combined score: USDA fuzzy match * AI confidence
-              const combo = r.score * (suggestion.confidence / 100);
-              if (combo > bestComboScore) {
-                bestComboScore = combo;
-                bestRef = r;
-              }
-              if (!allRefsWithData.some(e => e.fdcId === r.fdcId)) {
-                allRefsWithData.push({ fdcId: r.fdcId, name: r.name, score: r.score, per100g: r.per100g as any });
-              }
-            }
-          }
-
-          if (bestRef && bestComboScore >= 0.4) {
-            usedRef = bestRef;
-            const scaled = scaleNutrients(usedRef.per100g, food.portion_g);
-            nutrients = {};
-            usdaNutrients = {};
-            for (const [k, v] of Object.entries(scaled)) {
-              nutrients[k] = v ?? 0;
-              usdaNutrients[k] = v ?? 0;
-            }
-            reasoning = `AI suggested "${usedRef.name}" for "${food.name}" (${Math.round(bestComboScore * 100)}% confidence)`;
-            console.log('[NutrientPipeline] AI-suggested USDA match:', usedRef.name, 'combo:', bestComboScore);
-          } else {
-            // Truly no match: full AI estimation
-            const estimate = await inferenceProvider.estimateNutrients(
-              { name: food.name, portion_g: food.portion_g, cooking: food.cooking }, {}
-            );
-            nutrients = { ...estimate.nutrients };
-            adjustments = estimate.meta.adjustments;
-            reasoning = estimate.meta.reasoning || 'No USDA match found. AI-estimated.';
-          }
-        } catch {
-          // Suggestion failed, full AI fallback
-          const estimate = await inferenceProvider.estimateNutrients(
-            { name: food.name, portion_g: food.portion_g, cooking: food.cooking }, {}
-          );
-          nutrients = { ...estimate.nutrients };
-          adjustments = estimate.meta.adjustments;
-          reasoning = estimate.meta.reasoning || 'AI-estimated (suggestion failed).';
-        }
-      }
-
-      if (controller.signal.aborted) return;
+      const adjustments = res.meta.adjustments;
+      const reasoning = res.meta.reasoning;
 
       // ── Phase 3a: Apply USDA retention factors (cooking loss) ──
       let retentionChanges: FoodPipelineItem['retentionChanges'];
       let cookingSeverity: number | undefined;
       let cookingMethod: string | undefined;
+      
+      let adjustedNutrients = { ...nutrients };
       if (food.cooking) {
         const retention = lookupRetention(food.name, food.cooking);
         if (retention) {
-          const result = applyRetention(nutrients, retention.factors);
-          nutrients = result.adjusted;
+          const result = applyRetention(adjustedNutrients, retention.factors);
+          adjustedNutrients = result.adjusted;
           retentionChanges = result.changes.length > 0 ? result.changes : undefined;
           cookingSeverity = retention.severity;
           cookingMethod = retention.method;
@@ -290,7 +137,7 @@ Only the 3 best guesses:`;
       // Mark as complete (interactions applied later after all foods finish)
       callbacks.updateFood(messageId, index, {
         status: 'complete',
-        nutrients,
+        nutrients: adjustedNutrients,
         usdaNutrients,
         usedRef: usedRef ? { fdcId: usedRef.fdcId, name: usedRef.name, score: usedRef.score } : undefined,
         allRefs: allRefsWithData,
@@ -301,11 +148,10 @@ Only the 3 best guesses:`;
         cookingMethod,
       });
 
-      // Return nutrients for post-completion interaction pass
       console.log('[NutrientPipeline] DONE:', food.name,
         usedRef ? `USDA "${usedRef.name}" (${usedRef.score})` : 'AI estimate',
-        Object.keys(nutrients).length, 'nutrients');
-      return { index, nutrients, name: food.name, portion_g: food.portion_g };
+        Object.keys(adjustedNutrients).length, 'nutrients');
+      return { index, nutrients: adjustedNutrients, name: food.name, portion_g: food.portion_g };
 
     } catch (err: any) {
       console.log('[NutrientPipeline] ERROR:', food.name, err?.message);

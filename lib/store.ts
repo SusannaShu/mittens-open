@@ -11,6 +11,7 @@ import './services/nutritionApi';
 import './services/profileApi';
 import './services/messagesApi';
 import './services/activityApi';
+import './services/activityTypeApi';
 
 export const store = configureStore({
   reducer: {

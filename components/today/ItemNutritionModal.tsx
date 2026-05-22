@@ -22,8 +22,8 @@ export default function ItemNutritionModal({ visible, onClose, item }: ItemNutri
     nutrients: item.nutrients,
     // Provide either the explicit usdaNutrients or let the sheet compute it from usedRef
     usdaNutrients: item.usdaNutrients,
-    usedRef: item.meta?.usedRef || item.usdaRef,
-    allRefs: item.meta?.allReferences || (item.usdaRef ? [item.usdaRef] : undefined),
+    usedRef: item.usedRef || item.meta?.usedRef || item.usdaRef || item.meta?.usedReference,
+    allRefs: item.allRefs || item.meta?.allReferences || item.meta?.allRefs || (item.usdaRef ? [item.usdaRef] : undefined),
     adjustments: item.meta?.adjustments,
     reasoning: item.meta?.reasoning || item.reasoning,
     retentionChanges: item.meta?.retentionChanges || item.retentionChanges,

@@ -148,7 +148,11 @@ export const profileApi = baseApi.injectEndpoints({
           const pantry = rows.map(r => ({
             id: r.id,
             foodName: r.item_name,
-            quantity: r.quantity != null ? `${r.quantity} ${r.unit || ''}`.trim() : '',
+            quantity: r.quantity != null ? (
+              (!r.unit || r.unit === 'units' || r.unit === 'whole')
+                ? `${r.quantity}`
+                : `${r.quantity} ${r.unit}`
+            ) : '',
             freshness: r.freshness || 'fresh',
             lastSeenAt: r.last_seen_at,
             updatedAt: r.updated_at,
@@ -170,22 +174,86 @@ export const profileApi = baseApi.injectEndpoints({
         try {
           const db = getDb();
           const now = new Date().toISOString();
-          const existing = db.getFirstSync(
-            'SELECT id, quantity FROM smart_pantry WHERE LOWER(item_name) = ?',
-            [foodName.toLowerCase()]
-          ) as any;
 
+          const singularize = (name: string): string => {
+            const clean = name.trim().toLowerCase();
+            const manualMap: Record<string, string> = {
+              'strawberries': 'strawberry',
+              'blueberries': 'blueberry',
+              'raspberries': 'raspberry',
+              'blackberries': 'blackberry',
+              'potatoes': 'potato',
+              'sweet potatoes': 'sweet potato',
+              'tomatoes': 'tomato',
+              'avocados': 'avocado',
+              'oranges': 'orange',
+              'apples': 'apple',
+              'bananas': 'banana',
+              'carrots': 'carrot',
+              'onions': 'onion',
+              'cucumbers': 'cucumber',
+              'zucchinis': 'zucchini',
+              'lemons': 'lemon',
+              'limes': 'lime',
+              'peaches': 'peach',
+              'pears': 'pear',
+              'plums': 'plum',
+              'peppers': 'pepper',
+              'bell peppers': 'bell pepper',
+              'mushrooms': 'mushroom',
+              'eggs': 'egg',
+              'almonds': 'almond',
+              'walnuts': 'walnut',
+              'nuts': 'nut',
+            };
+            if (manualMap[clean]) return manualMap[clean];
+            if (clean.endsWith('ies')) return clean.slice(0, -3) + 'y';
+            if (clean.endsWith('oes')) return clean.slice(0, -2);
+            if (clean.endsWith('s') && !clean.endsWith('ss') && !clean.endsWith('us') && !clean.endsWith('is') && !clean.endsWith('as')) {
+              return clean.slice(0, -1);
+            }
+            return clean;
+          };
+
+          const sName = singularize(foodName);
+          const displayName = sName.charAt(0).toUpperCase() + sName.slice(1);
+
+          const existing = db.getFirstSync(
+            'SELECT id, quantity, unit FROM smart_pantry WHERE LOWER(item_name) = ?',
+            [sName]
+          ) as any;
+ 
+          const parseQuantityAndUnit = (rawQty: string | number | undefined | null): { qty: number; unit: string } => {
+            if (rawQty == null) return { qty: 1, unit: 'whole' };
+            if (typeof rawQty === 'number') return { qty: rawQty, unit: 'units' };
+            const clean = String(rawQty).trim().toLowerCase();
+            if (!clean || clean === 'whole') return { qty: 1, unit: 'whole' };
+            const match = clean.match(/^([0-9]+(?:\.[0-9]+)?)\s*(.*)$/);
+            if (match) {
+              const qty = parseFloat(match[1]) || 1;
+              const unit = match[2].trim() || 'units';
+              return { qty, unit };
+            }
+            return { qty: 1, unit: clean };
+          };
+ 
+          const { qty, unit } = parseQuantityAndUnit(quantity);
+ 
           if (existing) {
+            const existingUnit = existing.unit;
+            const finalUnit = (existingUnit && (unit === 'units' || unit === 'whole') && existingUnit !== 'units' && existingUnit !== 'whole')
+              ? existingUnit
+              : unit;
             db.runSync(
-              `UPDATE smart_pantry SET quantity = quantity + 1, freshness = ?, updated_at = ?, last_seen_at = ? WHERE id = ?`,
-              [freshness || 'fresh', now, now, existing.id]
+              `UPDATE smart_pantry SET quantity = quantity + ?, unit = ?, freshness = ?, updated_at = ?, last_seen_at = ?, last_added_qty = ? WHERE id = ?`,
+              [qty, finalUnit, freshness || 'fresh', now, now, qty, existing.id]
             );
             return { data: { status: 'ok', id: existing.id } };
           }
-
+ 
           const result = db.runSync(
-            `INSERT INTO smart_pantry (item_name, quantity, unit, freshness, confidence, last_seen_at, updated_at) VALUES (?, ?, ?, ?, 'high', ?, ?)`,
-            [foodName, 1, quantity || 'whole', freshness || 'fresh', now, now]
+            `INSERT INTO smart_pantry (item_name, quantity, unit, freshness, confidence, last_seen_at, updated_at, last_added_qty) VALUES (?, ?, ?, ?, 'high', ?, ?, ?)`,
+            [displayName, qty, unit, freshness || 'fresh', now, now, qty]
           );
           return { data: { status: 'ok', id: result.lastInsertRowId } };
         } catch (e: any) {

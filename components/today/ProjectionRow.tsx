@@ -23,7 +23,7 @@ export default function ProjectionRow({ name, currentPct, projectedPct, barColor
           {/* Plan addition (lighter shade of barColor) */}
           <View style={{ width: `${Math.max(addedWidth, 0)}%`, height: '100%', backgroundColor: barColor, opacity: 0.5 }} />
         </View>
-        <Text style={{ fontSize: 11, fontWeight: '600', color: barColor, width: 38, textAlign: 'right' }}>{projectedPct}%</Text>
+        <Text style={{ fontSize: 11, fontWeight: '600', color: barColor, width: 44, textAlign: 'right' }} numberOfLines={1}>{Math.min(projectedPct, 999)}%</Text>
         {safetyLabel ? (
           <Text style={{ fontSize: 9, fontWeight: '700', color: safetyColor, width: 40, textAlign: 'center' }}>{safetyLabel}</Text>
         ) : (
@@ -51,7 +51,7 @@ export default function ProjectionRow({ name, currentPct, projectedPct, barColor
                 <Feather name={iconName as any} size={11} color={barColor} />
                 <Text style={{ fontSize: 11, color: colors.textSecondary, flex: 1 }}>{mc.meal}</Text>
                 <Text style={{ fontSize: 11, color: colors.textSecondary }}>+{mc.amount}{mc.unit}</Text>
-                <Text style={{ fontSize: 10, color: barColor, fontWeight: '600', width: 36, textAlign: 'right' }}>+{pctAdd}%</Text>
+                <Text style={{ fontSize: 10, color: barColor, fontWeight: '600', width: 44, textAlign: 'right' }} numberOfLines={1}>+{Math.min(pctAdd, 999)}%</Text>
               </View>
             );
           })}

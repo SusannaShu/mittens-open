@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { AppState } from 'react-native';
 import { saveMittensMessage } from '../lib/services/schedule/alarmScheduler';
 import { ActivityTypeService } from '../lib/services/activityTypeService';
+import { useGetActivityTypesQuery } from '../lib/services/activityTypeApi';
 import { getDb, enqueueSyncRecord } from '../lib/database';
 
 const STORAGE_KEY = 'mittens_focus_timer_end';
@@ -93,25 +94,16 @@ export function useFocusTimer(breakIntervalMins: number = 45, options?: FocusTim
   const [category, setCategory] = useState<TimerCategory>('work');
   const [activityName, setActivityName] = useState<string>('');
   const [startedAt, setStartedAt] = useState<string | null>(null);
-  const [dynamicCategories, setDynamicCategories] = useState<{ key: string; label: string; icon: string }[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load activity types for timer on mount + app resume
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const all = await ActivityTypeService.getAll();
-        setDynamicCategories(
-          all.filter(t => t.showInTimer).map(t => ({ key: t.key, label: t.label, icon: t.icon || 'circle' }))
-        );
-      } catch {}
-    };
-    load();
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') load();
-    });
-    return () => sub.remove();
-  }, []);
+  // Activity types from RTK Query cache -- auto-updates when ActivityTypes tag is invalidated
+  const { data: activityTypesData, refetch: refetchTypes } = useGetActivityTypesQuery();
+  const dynamicCategories = useMemo(() => {
+    if (!activityTypesData?.types) return [];
+    return activityTypesData.types
+      .filter(t => t.showInTimer)
+      .map(t => ({ key: t.key, label: t.label, icon: t.icon || 'circle' }));
+  }, [activityTypesData]);
 
   const clearTimer = async () => {
     if (intervalRef.current) clearInterval(intervalRef.current);

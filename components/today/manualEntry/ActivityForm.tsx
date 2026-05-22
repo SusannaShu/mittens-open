@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors, spacing } from '../../../lib/theme';
 import PhotoCapture from '../../common/PhotoCapture';
 import { COVERAGE_PRESETS } from './constants';
-import { ActivityTypeService } from '../../../lib/services/activityTypeService';
+import { useGetActivityTypesQuery } from '../../../lib/services/activityTypeApi';
 import type { ActivityTypeModel, Person } from '../../../lib/pipelines/types';
 import { s } from '../TodayModals';
 
@@ -26,15 +26,13 @@ interface ActivityFormProps {
 }
 
 export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: ActivityFormProps) {
-  const [activityTypes, setActivityTypes] = useState<ActivityTypeModel[]>([]);
+  const { data: activityTypesData } = useGetActivityTypesQuery();
+  const activityTypes = useMemo(() => {
+    if (!activityTypesData?.types) return [];
+    return activityTypesData.types.filter(t => t.showInManualLog);
+  }, [activityTypesData]);
   const [actName, setActName] = useState('');
   const [actType, setActType] = useState('other');
-
-  useEffect(() => {
-    ActivityTypeService.getAll().then(all =>
-      setActivityTypes(all.filter(t => t.showInManualLog))
-    );
-  }, []);
   const [actLocation, setActLocation] = useState('');
   const [actPhotos, setActPhotos] = useState<string[]>([]);
   const [actEngagement, setActEngagement] = useState<number | null>(null);
@@ -44,6 +42,17 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
   const [actCoveragePct, setActCoveragePct] = useState<number | null>(null);
   const [actSunscreen, setActSunscreen] = useState(false);
   const [actSubmitting, setActSubmitting] = useState(false);
+  const [actBhScale, setActBhScale] = useState<number | null>(null);
+
+  const selectedTypeDef = useMemo(() => {
+    return activityTypes.find(t => t.key === actType);
+  }, [activityTypes, actType]);
+
+  const isBrainHygiene = useMemo(() => {
+    if (!selectedTypeDef) return ['meditation', 'journal', 'scrolling'].includes(actType);
+    const subs = selectedTypeDef.subCategories || [];
+    return subs.includes('brain_hygiene') || ['meditation', 'journal', 'scrolling'].includes(actType);
+  }, [selectedTypeDef, actType]);
 
   // Track linked users
   const [linkedUsers, setLinkedUsers] = useState<Person[]>([]);
@@ -52,9 +61,15 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
     if (!actName.trim()) return;
     setActSubmitting(true);
     try {
+      const meta: any = {};
+      if (isBrainHygiene) {
+        meta.brain_hygiene_scale = actBhScale ?? 0;
+      }
+
       await onActivitySubmit({
         logName: actName.trim(),
         activityType: actType,
+        duration_min: 30, // Default manual activities to 30 min duration
         loggedAt: loggedAt.toISOString(),
         location: actLocation.trim() || undefined,
         outdoors: actAeiou.environment ? /outdoor|nature/i.test(actAeiou.environment) : undefined,
@@ -65,6 +80,7 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
         energy: actEnergy ?? undefined,
         aeiou: Object.keys(actAeiou).length > 0 ? actAeiou : undefined,
         lifeCategories: Object.keys(actLifeCats).length > 0 ? actLifeCats : undefined,
+        meta,
       } as any);
       onClose();
     } finally {
@@ -98,6 +114,19 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
               }
               if (t.exposureExtent && actCoveragePct === null) {
                 setActCoveragePct(t.exposureExtent);
+              }
+              
+              const isBH = t.subCategories?.includes('brain_hygiene') || ['meditation', 'journal', 'scrolling'].includes(t.key);
+              if (isBH) {
+                let defaultScale = t.brainHygieneScale ?? 0;
+                if (defaultScale === 0) {
+                  if (t.key === 'meditation' || t.key === 'journal') defaultScale = 2;
+                  else if (t.key === 'scrolling') defaultScale = -2;
+                  else defaultScale = 2;
+                }
+                setActBhScale(defaultScale);
+              } else {
+                setActBhScale(null);
               }
             }}
           >
@@ -141,6 +170,37 @@ export function ActivityForm({ onActivitySubmit, loggedAt, onClose, isFuture }: 
       {!isFuture && (
         <>
           <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 6, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>How did it feel?</Text>
+
+          {isBrainHygiene && (
+            <View style={{ backgroundColor: '#FAFAFA', borderRadius: 8, padding: spacing.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 }}>Brain Hygiene Impact</Text>
+              <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
+                {([-3, -2, -1, 0, 1, 2, 3]).map((val) => {
+                  const current = actBhScale ?? 0;
+                  const selected = current === val;
+                  let bg = colors.border;
+                  if (selected && val < 0) bg = '#EF4444';
+                  if (selected && val > 0) bg = '#10B981';
+                  if (selected && val === 0) bg = colors.textMuted;
+                  return (
+                    <TouchableOpacity
+                      key={val}
+                      style={[{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 4, backgroundColor: colors.border }, selected && { backgroundColor: bg }]}
+                      onPress={() => setActBhScale(val)}
+                    >
+                      <Text style={[{ fontSize: 10, fontWeight: '600', color: colors.textMuted }, selected && { color: '#fff' }]}>
+                        {val > 0 ? `+${val}` : String(val)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                <Text style={{ fontSize: 9, color: '#EF4444' }}>harmful</Text>
+                <Text style={{ fontSize: 9, color: '#10B981' }}>restorative</Text>
+              </View>
+            </View>
+          )}
 
           <ScaleSelector
             label="Engagement (1-10)"

@@ -38,7 +38,6 @@ import { MealDetailModal, GroceryListModal, ProjectedNutrientsModal } from '../.
 
 // API hooks
 import { useGetDashboardGaugesQuery, useGetDailyActivitiesQuery, ActivityEntry } from '../../lib/services/activityApi';
-import { HealthPillarService, PillarScore } from '../../lib/services/healthPillarService';
 
 const cleanFoodName = (name: string): string => {
   if (!name) return name;
@@ -131,14 +130,6 @@ export default function TodayScreen() {
   // Pantry history modal state
   const [pantryHistoryItem, setPantryHistoryItem] = useState<{ id: number, name: string } | null>(null);
 
-  // Local health pillar computation (fallback when cloud doesn't provide)
-  const [localPillars, setLocalPillars] = useState<PillarScore[] | null>(null);
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    HealthPillarService.computeForDate(today)
-      .then(setLocalPillars)
-      .catch(() => {});
-  }, [todayActivities.length]);
 
   // Activity Timer -- auto-logs when stopped
   const profileIntervalMins = profile?.workIntervalMins || 45;
@@ -256,7 +247,7 @@ export default function TodayScreen() {
           onToggle={() => toggle('dashboard')}
           dashboardGauges={dashboardData?.gauges || null}
           dashboardBreakdown={dashboardData?.breakdown || null}
-          healthPillars={dashboardData?.healthPillars || localPillars}
+          healthPillars={dashboardData?.healthPillars}
           pillarContributors={dashboardData?.pillarContributors}
           expandedGauge={expandedGauge}
           onExpandGauge={setExpandedGauge}
@@ -303,6 +294,12 @@ export default function TodayScreen() {
           onOpenGrocery={() => h.setGroceryModalVisible(true)}
           onOpenProjection={() => h.setProjectionExpanded(true)}
           onGenerate={triggerMealPlanRegeneration}
+          onDislikeFood={(food) => {
+            h.setDislikedMealItems((prev: string[]) => [...prev, food]);
+            h.dislikeFoodMutation({ food: cleanFoodName(food) }).then(() => {
+              debouncedRegeneratePlan();
+            });
+          }}
         />
 
         <PantrySection

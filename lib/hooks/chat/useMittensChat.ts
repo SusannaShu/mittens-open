@@ -164,6 +164,8 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
       portion_g: f.portion_g,
       nutrients: f.nutrients || {},
       usdaRef: f.usedRef ? { fdcId: f.usedRef.fdcId, name: f.usedRef.name } : undefined,
+      allRefs: f.allRefs,
+      usdaNutrients: f.usdaNutrients,
       adjustments: f.adjustments,
       reasoning: f.reasoning,
       retentionChanges: f.retentionChanges,

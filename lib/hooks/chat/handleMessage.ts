@@ -423,9 +423,33 @@ export async function handleMessage(
     photoTime ? [photoTime] : (ctx.photoTimestampsRef.current || undefined),
   );
 
-  // 5b. Face recognition on photos (non-blocking, runs in parallel with pipeline)
+  // 5b. Face recognition on photos -- deferred until after triage filters intents (step 7)
   let faceRecNotes: string[] = [];
-  if (photos.length > 0) {
+
+  // 6. Build pipeline input
+  const pipelineInput: PipelineInput = {
+    source: 'chat',
+    text,
+    photos: photos.length > 0 ? photos : undefined,
+    temporal,
+  };
+
+  // 7. Build intent cards and show immediately
+  const validIntents = triageResult.intents.filter(i => i.confidence >= 0.5);
+
+  // Dynamically inject face_recognition phase if there is a legible face detected
+  const hasFaceLegible = validIntents.some(intent => intent.context?.faceLegible === true);
+  const extractedName = validIntents.find(i => i.context?.extractedName)?.context?.extractedName;
+
+  if (photos.length > 0 && hasFaceLegible) {
+    validIntents.unshift({
+      pipeline: 'face_recognition',
+      confidence: 1.0,
+      inferrablePhases: ['detect', 'match'],
+      context: { extractedName }
+    });
+
+    // Run face recognition (only when triage detected legible faces)
     try {
       const { recognizeFaces, isOwner } = require('../../services/faceRecognition/faceRecognitionService');
       console.log(`[FaceRec:Chat] Running face recognition on ${photos.length} photo(s)`);
@@ -451,30 +475,6 @@ export async function handleMessage(
     } catch (faceErr: any) {
       console.warn('[FaceRec:Chat] Face recognition failed (non-blocking):', faceErr?.message);
     }
-  }
-
-  // 6. Build pipeline input
-  const pipelineInput: PipelineInput = {
-    source: 'chat',
-    text,
-    photos: photos.length > 0 ? photos : undefined,
-    temporal,
-  };
-
-  // 7. Build intent cards and show immediately
-  const validIntents = triageResult.intents.filter(i => i.confidence >= 0.5);
-
-  // Dynamically inject face_recognition phase if there is a legible face detected
-  const hasFaceLegible = validIntents.some(intent => intent.context?.faceLegible === true);
-  const extractedName = validIntents.find(i => i.context?.extractedName)?.context?.extractedName;
-
-  if (photos.length > 0 && hasFaceLegible) {
-    validIntents.unshift({
-      pipeline: 'face_recognition',
-      confidence: 1.0,
-      inferrablePhases: ['detect', 'match'],
-      context: { extractedName }
-    });
   }
 
   // Build intent phase lists (filtering by inferrablePhases)
@@ -770,7 +770,11 @@ export async function handleMessage(
                 freshness: item.freshness,
               });
             } catch (e: any) {
-              console.error('[Pipeline] Failed to persist pantry item:', item.name, e?.message);
+              console.error(
+                '[Pipeline] Failed to persist pantry item:',
+                item.name,
+                e?.data?.message || e?.data?.error || e?.message || e?.error || (typeof e === 'object' ? JSON.stringify(e) : e)
+              );
             }
           }
           console.log(`[Pipeline] ${data.length} pantry item(s) persisted to cloud`);

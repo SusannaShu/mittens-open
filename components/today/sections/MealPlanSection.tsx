@@ -15,6 +15,7 @@ interface Props {
   onOpenGrocery: () => void;
   onOpenProjection: () => void;
   onGenerate?: () => void;
+  onDislikeFood?: (food: string) => void;
 }
 
 const MEAL_SLOTS: [string, string, string][] = [
@@ -25,7 +26,7 @@ const MEAL_SLOTS: [string, string, string][] = [
 
 export default function MealPlanSection({
   mealPlan, meals, gapCoverage, isGeneratingPlan, collapsed, onToggle,
-  onOpenMealDetail, onOpenGrocery, onOpenProjection, onGenerate,
+  onOpenMealDetail, onOpenGrocery, onOpenProjection, onGenerate, onDislikeFood,
 }: Props) {
   const router = useRouter();
 
@@ -68,52 +69,50 @@ export default function MealPlanSection({
             if (!meal) return null;
             const mealItems: string[] = meal.items || [];
             return (
-              <TouchableOpacity
+              <View
                 key={key}
-                style={{ backgroundColor: colors.surface, borderRadius: 10, padding: 12, gap: 4 }}
-                onPress={() => onOpenMealDetail({ key, label, meal })}
-                activeOpacity={0.7}
+                style={{ backgroundColor: colors.bgCard, borderRadius: 10, padding: 12, gap: 6 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Feather name={icon as any} size={14} color={colors.textPrimary} />
-                    <Text style={{ fontSize: 14, fontWeight: '700', fontFamily: fonts.heading, color: colors.textPrimary }}>{label}</Text>
+                <TouchableOpacity
+                  onPress={() => onOpenMealDetail({ key, label, meal })}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Feather name={icon as any} size={14} color={colors.textPrimary} />
+                      <Text style={{ fontSize: 14, fontWeight: '700', fontFamily: fonts.heading, color: colors.textPrimary }}>{label}</Text>
+                    </View>
+                    <Feather name="chevron-right" size={14} color={colors.textMuted} />
                   </View>
-                  <Feather name="chevron-right" size={14} color={colors.textMuted} />
+                </TouchableOpacity>
+
+                {/* Individual food items with dislike button */}
+                <View style={{ gap: 2 }}>
+                  {mealItems.map((item: string, idx: number) => (
+                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18, flex: 1, marginRight: 8 }} numberOfLines={2}>
+                        {item}
+                      </Text>
+                      {onDislikeFood && (
+                        <TouchableOpacity
+                          onPress={() => onDislikeFood(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          activeOpacity={0.5}
+                          style={{ padding: 4 }}
+                        >
+                          <Feather name="thumbs-down" size={12} color={colors.textMuted} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
                 </View>
-                <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18 }}>
-                  {mealItems.join(', ')}
-                </Text>
+
                 {meal.prepTip && (
                   <Text style={{ fontSize: 12, color: colors.textMuted, fontStyle: 'italic', marginTop: 2 }}>{meal.prepTip}</Text>
                 )}
-              </TouchableOpacity>
+              </View>
             );
           })}
-
-          {/* Actionable Insights */}
-          {gapCoverage && (() => {
-            const significantGaps = Object.entries(gapCoverage)
-              .filter(([k, v]: [string, any]) => (v.afterPlanPct - v.currentPct) >= 10 && v.currentPct < 90)
-              .map(([k, v]: [string, any]) => ({ key: k, name: v.name, added: v.afterPlanPct - v.currentPct }))
-              .sort((a, b) => b.added - a.added)
-              .slice(0, 3);
-            
-            if (significantGaps.length > 0) {
-              return (
-                <View style={{ backgroundColor: '#F0F8FF', borderRadius: 10, padding: 12, marginTop: 4 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Feather name="zap" size={14} color="#0066CC" />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#0066CC', textTransform: 'uppercase' }}>Solver Insights</Text>
-                  </View>
-                  <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18 }}>
-                    This plan closes critical gaps in <Text style={{ fontWeight: '600', color: colors.textPrimary }}>{significantGaps.map(g => g.name).join(', ')}</Text>.
-                  </Text>
-                </View>
-              );
-            }
-            return null;
-          })()}
 
           {/* Action row */}
           <View style={{ gap: 6, marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
@@ -126,7 +125,7 @@ export default function MealPlanSection({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Feather name="shopping-cart" size={13} color={colors.textPrimary} />
                   <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>Grocery List</Text>
-                  <View style={{ backgroundColor: colors.surface, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+                  <View style={{ backgroundColor: colors.bgCard, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
                     <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textMuted }}>{mealPlan.groceryList.length}</Text>
                   </View>
                 </View>

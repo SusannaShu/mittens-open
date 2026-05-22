@@ -8,6 +8,7 @@
 import { DataProvider, MealInput, DailySummaryResult, SyncManifest } from './dataProvider';
 import { MealEntry, NutrientValues, NutrientGap, FoodRecommendation } from '../types';
 import { getDb, enqueueSyncRecord } from '../database';
+import { NUTRIENT_STORAGE } from '../data/nutrientStorage';
 
 // RDA values for gap calculation (subset for MVP, matches backend rda-calculator)
 const RDA: Record<string, { name: string; unit: string; rda: number; ul?: number }> = {
@@ -189,11 +190,42 @@ export class LocalDataProvider implements DataProvider {
   async getDailySummary(date: string): Promise<DailySummaryResult> {
     const meals = await this.getDailyMeals(date);
     const totals = this.sumNutrients(meals.map(m => m.summaryNutrients));
-    const gaps = this.computeGaps(totals);
+    
+    // Aggregate activity nutrient impacts (such as Vitamin D from outdoor sun exposure) into today's totals
+    const activities = await this.getDailyActivities(date);
+    for (const act of activities) {
+      try {
+        const impact = typeof act.nutrient_impact === 'string'
+          ? parseJson(act.nutrient_impact)
+          : act.nutrient_impact;
+        if (impact) {
+          for (const [key, val] of Object.entries(impact)) {
+            if (typeof val === 'number') {
+              totals[key] = (totals[key] || 0) + val;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse activity nutrient impact', err);
+      }
+    }
+
+    const gaps = this.computeGaps(totals, date);
     const recommendations = this.computeRecommendations(gaps);
     const pantry = this.getPantryItems();
 
-    return { date, meals, totals, gaps, recommendations, pantry };
+    // Build storedSources for nutrients with rolling windows
+    const storedSources: Record<string, any[]> = {};
+    for (const gap of gaps) {
+      if (gap.period === 'stored' && gap.avgDays) {
+        const rolling = this.getRollingNutrientData(gap.nutrient, date, gap.avgDays);
+        if (rolling.sources.length > 0) {
+          storedSources[gap.nutrient] = rolling.sources;
+        }
+      }
+    }
+
+    return { date, meals, totals, gaps, recommendations, pantry, storedSources };
   }
 
   private getPantryItems(): any[] {
@@ -205,7 +237,11 @@ export class LocalDataProvider implements DataProvider {
       return rows.map(r => ({
         id: r.id,
         foodName: r.item_name,
-        quantity: r.quantity != null ? `${r.quantity} ${r.unit || ''}`.trim() : '',
+        quantity: r.quantity != null ? (
+          (!r.unit || r.unit === 'units' || r.unit === 'whole')
+            ? `${r.quantity}`
+            : `${r.quantity} ${r.unit}`
+        ) : '',
         freshness: r.freshness || 'fresh',
         lastSeenAt: r.last_seen_at,
         updatedAt: r.updated_at,
@@ -226,7 +262,7 @@ export class LocalDataProvider implements DataProvider {
       [
         data.logName || data.activityType || 'Activity',
         data.activityType || 'other',
-        data.duration_min || 0,
+        data.duration_min || 30,
         data.intensity || 'moderate',
         data.loggedAt || now,
         data.outdoors ? 1 : 0,
@@ -256,7 +292,7 @@ export class LocalDataProvider implements DataProvider {
       [
         data.logName || data.activityType,
         data.activityType || 'other',
-        data.duration_min || 0,
+        data.duration_min || 30,
         data.intensity || 'moderate',
         data.outdoors ? 1 : 0,
         data.nature ? 1 : 0,
@@ -463,10 +499,108 @@ export class LocalDataProvider implements DataProvider {
     return totals;
   }
 
-  private computeGaps(totals: NutrientValues): NutrientGap[] {
+  /**
+   * Retrieve rolling nutrient data over a multi-day window.
+   * Used for 'stored' nutrients (fat-soluble vitamins, minerals with body reserves)
+   * to compute daily average intake instead of single-day snapshots.
+   */
+  private getRollingNutrientData(nutrient: string, date: string, days: number): { avgDaily: number; total: number; daysWithData: number; sources: any[] } {
+    const db = getDb();
+    const rows = db.getAllSync(
+      `SELECT logged_at, summary_nutrients, items FROM nutrition_logs
+       WHERE date(logged_at, 'localtime') >= date(?, '-' || ? || ' days')
+         AND date(logged_at, 'localtime') <= ?
+         AND entry_type = 'food'
+         AND deleted_at IS NULL`,
+      [date, days.toString(), date]
+    ) as any[];
+
+    let total = 0;
+    const daySet = new Set<string>();
+    const sources: any[] = [];
+
+    for (const row of rows) {
+      const nutrients = parseJson(row.summary_nutrients) || {};
+      const amount = nutrients[nutrient] || 0;
+      if (amount > 0) {
+        total += amount;
+        const d = row.logged_at?.slice(0, 10);
+        if (d) daySet.add(d);
+
+        // Track sources for storedSources display
+        try {
+          const items = parseJson(row.items) || [];
+          for (const item of items) {
+            const itemAmount = item.nutrients?.[nutrient] || 0;
+            if (itemAmount > 0) {
+              const dayNum = Math.ceil((new Date(date).getTime() - new Date(row.logged_at).getTime()) / 86400000);
+              sources.push({
+                name: item.name || item.foodName || 'Unknown',
+                value: itemAmount,
+                days: dayNum || 0,
+                nutrient_source: item.nutrient_source || 'ai_estimate',
+              });
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // Also check activity_logs for vitamin D from sun exposure
+    if (nutrient === 'vitamin_d') {
+      const actRows = db.getAllSync(
+        `SELECT logged_at, nutrient_impact, log_name FROM activity_logs
+         WHERE date(logged_at, 'localtime') >= date(?, '-' || ? || ' days')
+           AND date(logged_at, 'localtime') <= ?
+           AND nutrient_impact IS NOT NULL`,
+        [date, days.toString(), date]
+      ) as any[];
+      for (const act of actRows) {
+        try {
+          const impact = parseJson(act.nutrient_impact) || {};
+          if (impact.vitamin_d > 0) {
+            total += impact.vitamin_d;
+            const d = act.logged_at?.slice(0, 10);
+            if (d) daySet.add(d);
+            sources.push({
+              name: act.log_name || 'Sun exposure',
+              value: impact.vitamin_d,
+              days: Math.ceil((new Date(date).getTime() - new Date(act.logged_at).getTime()) / 86400000) || 0,
+              nutrient_source: 'activity',
+            });
+          }
+        } catch {}
+      }
+    }
+
+    return {
+      total,
+      avgDaily: daySet.size > 0 ? total / days : 0,
+      daysWithData: daySet.size,
+      sources: sources.sort((a, b) => b.value - a.value).slice(0, 10),
+    };
+  }
+
+  private computeGaps(totals: NutrientValues, date: string): NutrientGap[] {
     const gaps: NutrientGap[] = [];
     for (const [key, rdaInfo] of Object.entries(RDA)) {
-      const intake = totals[key] || 0;
+      const storage = NUTRIENT_STORAGE[key];
+      let intake = totals[key] || 0;
+      let period: 'daily' | 'stored' = 'daily';
+      let avgDays: number | null = null;
+
+      // For stored nutrients with multi-day windows, use rolling average
+      // when enough historical data exists
+      if (storage?.period === 'stored' && storage.rollingDays > 1) {
+        const rolling = this.getRollingNutrientData(key, date, storage.rollingDays);
+        if (rolling.daysWithData >= storage.rollingDays) {
+          intake = rolling.avgDaily;
+          period = 'stored';
+          avgDays = storage.rollingDays;
+        }
+        // else: not enough data, fall back to today-only
+      }
+
       const pct = rdaInfo.rda > 0 ? Math.round((intake / rdaInfo.rda) * 100) : 100;
       const ulPct = rdaInfo.ul ? Math.round((intake / rdaInfo.ul) * 100) : null;
 
@@ -487,7 +621,8 @@ export class LocalDataProvider implements DataProvider {
         pct,
         ulPct: ulPct || null,
         status,
-        period: 'daily',
+        period,
+        avgDays,
       });
     }
     return gaps.sort((a, b) => a.pct - b.pct);

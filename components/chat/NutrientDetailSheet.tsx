@@ -182,6 +182,19 @@ export default function NutrientDetailSheet({
             })}
           </View>
 
+          {/* AI-estimated indicator */}
+          {!hasNoNutrients && food && !food.usedRef && (
+            <View style={s.aiEstimateBanner}>
+              <Feather name="cpu" size={13} color="#6B7280" />
+              <View style={{ flex: 1 }}>
+                <Text style={s.aiEstimateTitle}>AI Estimated</Text>
+                <Text style={s.aiEstimateSubtext}>
+                  No USDA match was found. Values are estimated by AI and may be approximate.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Vitamins & minerals -- two-column: USDA ref vs Final */}
           <View style={s.microSection}>
             <Text style={s.sectionLabel}>Vitamins & Minerals</Text>
@@ -264,6 +277,21 @@ export default function NutrientDetailSheet({
             </Accordion>
           )}
 
+          {/* Manual USDA search for ALL foods */}
+          {food && !hasNoNutrients && (
+            <Accordion title="Search & Choose USDA Reference" icon="search">
+              <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 8 }}>
+                Search the USDA database to replace current nutrients with reference values.
+              </Text>
+              <USDAFoodSearch
+                onAddFood={(usdaFood) => {
+                  onUsdaSelect?.(usdaFood);
+                  onClose();
+                }}
+              />
+            </Accordion>
+          )}
+
           {/* AI reasoning (if no USDA ref was used) */}
           {food?.reasoning && !food?.usedRef && (
             <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
@@ -303,7 +331,7 @@ export default function NutrientDetailSheet({
           )}
 
           {food?.interactionChanges && food.interactionChanges.length > 0 && (
-            <Accordion title="Nutrient Interactions" icon="zap">
+            <Accordion title="Bioavailability & Interactions" icon="zap">
               {food.interactionChanges.map((ch, i) => {
                 const info = NUTRIENT_INFO[ch.target] || { label: ch.target, unit: '' };
                 const triggerLabel = ch.trigger.startsWith('_')

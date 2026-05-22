@@ -45,9 +45,10 @@ export class Gemma26BBrain implements Brain {
   private config: Gemma26BConfig;
 
   constructor(config: Gemma26BConfig) {
+    const cleanModel = (config.model || '').trim().replace(/\s*:\s*/g, ':');
     this.config = {
       ...config,
-      model: config.model || 'gemma4:e2b',
+      model: cleanModel || 'gemma4:e2b',
     };
   }
 

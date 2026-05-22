@@ -117,6 +117,10 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
   const [hasSunscreen, setHasSunscreen] = useState(false);
   const [linkedUsers, setLinkedUsers] = useState<Person[]>([]);
 
+  // Brain Hygiene
+  const [isBrainHygiene, setIsBrainHygiene] = useState(false);
+  const [brainHygieneScale, setBrainHygieneScale] = useState<number | null>(null);
+
   // Life categories weights (0-10 scale, normalized to 0-1 on save)
   const [lifeCats, setLifeCats] = useState<Record<string, number>>({});
 
@@ -184,20 +188,31 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
 
       // Movement + Brain Hygiene from activity type metadata
       setMetValue(activity.mets ?? null);
-      loadActivityTypeMeta(activity.activityType);
+      loadActivityTypeMeta(activity.activityType, activity.mets);
+
+      // Load custom scale selection from activity.meta
+      const bhScale = activity.meta?.brain_hygiene_scale ?? null;
+      setBrainHygieneScale(bhScale);
     }
   }, [activity]);
 
-  const loadActivityTypeMeta = async (typeKey: string) => {
+  const loadActivityTypeMeta = async (typeKey: string, existingMets: number | null | undefined) => {
     try {
       const typeDef = await ActivityTypeService.getByKey(typeKey);
       if (!typeDef) return;
       const subs = typeDef.subCategories || [];
-      setIsMovement(subs.includes('movement'));
-      if (metValue == null && typeDef.defaultMets) {
+      const hasMovement = subs.includes('movement') || (existingMets != null && existingMets > 0);
+      setIsMovement(hasMovement);
+      if (existingMets == null && typeDef.defaultMets) {
         setMetValue(typeDef.defaultMets);
       }
-    } catch { /* type not found, use defaults */ }
+      const hasBH = subs.includes('brain_hygiene') || ['meditation', 'journal', 'scrolling'].includes(typeKey);
+      setIsBrainHygiene(hasBH);
+    } catch {
+      // type not found, use defaults
+      const hasBH = ['meditation', 'journal', 'scrolling'].includes(typeKey);
+      setIsBrainHygiene(hasBH);
+    }
   };
 
   if (!activity) return null;
@@ -216,10 +231,24 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         }
       }
 
+      let parsedDuration = parseInt(durationMin, 10);
+      if (isNaN(parsedDuration) || parsedDuration < 1) {
+        parsedDuration = 30;
+      }
+
+      const existingMeta = activity.meta || {};
+      const newMeta = {
+        ...existingMeta,
+        brain_hygiene_scale: isBrainHygiene ? (brainHygieneScale ?? 0) : undefined,
+      };
+      if (!isBrainHygiene) {
+        delete newMeta.brain_hygiene_scale;
+      }
+
       await onSave(activity.id, {
         activityType: activity.activityType || 'other',
         logName: logName.trim() || activity.logName,
-        duration_min: parseInt(durationMin, 10) || activity.duration_min,
+        duration_min: parsedDuration,
         engagement,
         energy,
         location: location.trim() || undefined,
@@ -229,7 +258,8 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
         aeiou: Object.keys(aeiou).length > 0 ? aeiou : undefined,
         lifeCategories: Object.keys(normalizedCats).length > 0 ? normalizedCats : undefined,
         ...(showSunSection ? { coverage_pct: coveragePct, sunscreen: hasSunscreen } : {}),
-        ...(isMovement && metValue != null ? { mets: metValue } : {}),
+        mets: isMovement ? metValue : null,
+        meta: newMeta,
       });
       onClose();
     } catch {
@@ -352,6 +382,38 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               setMetValue={setMetValue}
               durationMin={durationMin}
             />
+
+            {/* Brain Hygiene expanded: impact scale */}
+            {isBrainHygiene && (
+              <View style={{ backgroundColor: '#FAFAFA', borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 }}>Brain Hygiene Impact</Text>
+                <View style={{ flexDirection: 'row', gap: 4, marginTop: 4 }}>
+                  {([-3, -2, -1, 0, 1, 2, 3]).map((val) => {
+                    const current = brainHygieneScale ?? 0;
+                    const selected = current === val;
+                    let bg = colors.border;
+                    if (selected && val < 0) bg = '#EF4444';
+                    if (selected && val > 0) bg = '#10B981';
+                    if (selected && val === 0) bg = colors.textMuted;
+                    return (
+                      <TouchableOpacity
+                        key={val}
+                        style={[{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 4, backgroundColor: colors.border }, selected && { backgroundColor: bg }]}
+                        onPress={() => setBrainHygieneScale(val)}
+                      >
+                        <Text style={[{ fontSize: 10, fontWeight: '600', color: colors.textMuted }, selected && { color: '#fff' }]}>
+                          {val > 0 ? `+${val}` : String(val)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                  <Text style={{ fontSize: 9, color: '#EF4444' }}>harmful</Text>
+                  <Text style={{ fontSize: 9, color: '#10B981' }}>restorative</Text>
+                </View>
+              </View>
+            )}
 
             {/* Sun Exposure -- coverage & sunscreen (only for sun/outdoor) */}
             {showSunSection && (

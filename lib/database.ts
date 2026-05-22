@@ -460,6 +460,11 @@ export async function initializeDatabase(): Promise<void> {
     `ALTER TABLE activity_types ADD COLUMN brain_hygiene_scale INTEGER`,
     `ALTER TABLE daily_meal_plans ADD COLUMN bioavailability_notes TEXT`,
     `ALTER TABLE daily_meal_plans ADD COLUMN solver_metadata TEXT`,
+    // WS0: Fix crash — smart_pantry.freshness column missing
+    `ALTER TABLE smart_pantry ADD COLUMN freshness TEXT DEFAULT 'good'`,
+    // WS3: Supplements and vitamin D recommendation storage
+    `ALTER TABLE daily_meal_plans ADD COLUMN supplements TEXT`,
+    `ALTER TABLE daily_meal_plans ADD COLUMN vitamin_d_rec TEXT`,
   ];
   for (const sql of migrations) {
     try { database.runSync(sql); } catch { /* column already exists */ }

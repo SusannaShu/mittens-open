@@ -22,6 +22,9 @@ import {
 import { OllamaProvider } from '../lib/providers/ollamaProvider';
 import { invalidateBrainCache, setBrainId } from '../lib/brain/selector';
 
+/** Sanitize model name: strip whitespace, collapse spaces around colon */
+const sanitizeModel = (m: string) => OllamaProvider.sanitizeModelName(m);
+
 export const PRIVATE_MODELS = [
   { key: 'ollama-selfhost', label: 'Self-Hosted', sub: 'Ollama', inference: 'ollama' as InferenceMode },
   { key: 'ollama-byok', label: 'BYOK', sub: 'own key', inference: 'ollama' as InferenceMode },
@@ -269,7 +272,7 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
     }
 
     if (modelKey === 'ollama-byok' || modelKey === 'ollama-selfhost') {
-      await setOllamaConfig(ollamaUrl, ollamaKey || undefined, ollamaModel || 'gemma4:26b');
+      await setOllamaConfig(ollamaUrl, ollamaKey || undefined, sanitizeModel(ollamaModel) || 'gemma4:26b');
       await setBrainId('gemma26b' as any);
     } else {
       await setBrainId(modelKey as any);
@@ -290,19 +293,48 @@ export function useBrainConfig(profileContext: any, onRefresh: () => void, onSyn
       return;
     }
     try {
-      await setOllamaConfig(ollamaUrl, ollamaKey || undefined, ollamaModel || 'gemma4:26b');
+      // Sanitize model name before saving (strip accidental spaces)
+      const cleanModel = sanitizeModel(ollamaModel) || 'gemma4:26b';
+      if (cleanModel !== ollamaModel) {
+        setOllamaModel(cleanModel);
+      }
+      await setOllamaConfig(ollamaUrl, ollamaKey || undefined, cleanModel);
       const provider = new OllamaProvider({
-        baseUrl: ollamaUrl, apiKey: ollamaKey || undefined, model: ollamaModel || 'gemma4:26b',
+        baseUrl: ollamaUrl, apiKey: ollamaKey || undefined, model: cleanModel,
       });
       const ok = await provider.ping();
-      setOllamaConnected(ok);
-      if (!ok) Alert.alert('Connection Failed', 'Could not reach the endpoint. Check the URL and make sure the server is running.\n\nBoth devices must be on the same WiFi, or use Tailscale.');
+      if (!ok) {
+        setOllamaConnected(false);
+        Alert.alert('Connection Failed', 'Could not reach the endpoint. Check the URL and make sure the server is running.\n\nBoth devices must be on the same WiFi, or use Tailscale.');
+        return;
+      }
+      // Validate model exists on server
+      const available = await provider.listModels();
+      if (available.length > 0 && !available.includes(cleanModel)) {
+        // Check for close match (e.g. user typed "gemma4" but server has "gemma4:latest")
+        const match = available.find(m => m.startsWith(cleanModel.split(':')[0]));
+        if (match) {
+          setOllamaModel(match);
+          await setOllamaConfig(ollamaUrl, ollamaKey || undefined, match);
+          setOllamaConnected(true);
+          Alert.alert('Model Auto-Corrected', `"${cleanModel}" was not found. Using "${match}" instead.\n\nAvailable: ${available.slice(0, 5).join(', ')}`);
+        } else {
+          setOllamaConnected(false);
+          Alert.alert('Model Not Found', `"${cleanModel}" is not available on this server.\n\nAvailable models:\n${available.slice(0, 8).join('\n')}`);
+        }
+      } else {
+        setOllamaConnected(true);
+      }
     } catch { setOllamaConnected(false); }
     finally { setOllamaTesting(false); }
   };
 
   const handleSaveOllamaConfig = async () => {
-    await setOllamaConfig(ollamaUrl, ollamaKey || undefined, ollamaModel || 'gemma4:26b');
+    const cleanModel = sanitizeModel(ollamaModel) || 'gemma4:26b';
+    if (cleanModel !== ollamaModel) {
+      setOllamaModel(cleanModel);
+    }
+    await setOllamaConfig(ollamaUrl, ollamaKey || undefined, cleanModel);
   };
 
   const currentModel = selectedModel;

@@ -7,13 +7,36 @@ const NUTRIENT_KEYS = [
   'calcium', 'iron', 'magnesium', 'potassium', 'zinc', 'omega3',
 ];
 
+/**
+ * UL Source Rules — IOM Dietary Reference Intakes
+ * 
+ * Some nutrients have ULs that apply ONLY to specific forms/sources.
+ * If a nutrient is listed here, UL enforcement only applies when
+ * the food's sourceType matches one of the listed sources.
+ * 
+ * Nutrients NOT listed here: UL applies to total intake from all sources.
+ * 
+ * References:
+ *  - Vitamin A: IOM 2001 — UL for preformed retinol only; β-carotene (plant) has no UL
+ *  - Vitamin D: IOM 2011 — UL for exogenous intake; endogenous sun synthesis is self-limiting
+ *  - Vitamin E: IOM 2000 — UL for supplemental α-tocopherol only; food E has no UL
+ *  - Folate: IOM 1998 — UL for synthetic folic acid only; food folate has no UL
+ *  - Niacin: IOM 1998 — UL for nicotinic acid (supplements/fortified); food niacin has no UL
+ *  - Magnesium: IOM 1997 — UL for supplemental/pharmacological only; food Mg has no UL
+ *  - Iron: IOM 2001 — UL applies to all sources technically, but non-heme (plant) has
+ *    very low bioavailability (~2-20%), making plant iron toxicity virtually impossible
+ *  - Vitamin B6: IOM 1998 — UL set at 100mg based on supplemental pyridoxine studies;
+ *    food B6 has never caused toxicity (max ~3mg/day from food)
+ */
 const UL_RULES: Record<string, string[]> = {
-  vitamin_a: ['animal', 'supplement', 'fortified'], // beta-carotene (plant) is harmless
-  vitamin_d: ['supplement'], // sun activity and food are harmless
-  iron: ['animal', 'supplement', 'fortified'], // exclude plant (non-heme) iron
-  magnesium: ['supplement', 'fortified'], // dietary magnesium is harmless
-  folate: ['supplement', 'fortified'], // folic acid only
-  vitamin_e: ['supplement'], // food E is harmless
+  vitamin_a:  ['animal', 'supplement', 'fortified'], // β-carotene (plant) is harmless
+  vitamin_d:  ['supplement'],                         // sun synthesis is self-limiting
+  vitamin_e:  ['supplement'],                         // food vitamin E is harmless
+  folate:     ['supplement', 'fortified'],            // synthetic folic acid only
+  niacin:     ['supplement', 'fortified'],            // nicotinic acid flush; food niacin safe
+  magnesium:  ['supplement', 'fortified'],            // dietary magnesium is harmless
+  iron:       ['animal', 'supplement', 'fortified'],  // non-heme plant iron absorption too low
+  vitamin_b6: ['supplement'],                         // food B6 maxes ~3mg/day, UL is 100mg
 };
 
 export interface MealPlanCandidate {
@@ -30,6 +53,11 @@ export interface MealPlanCandidate {
   freshness?: string;
   portionMultiplier?: number;
   scaledNutrients?: Record<string, number>;
+  usdaNutrients?: Record<string, number>;
+  usedRef?: { fdcId: number; name: string; score: number };
+  allRefs?: Array<{ fdcId: number; name: string; category: string; score: number; per100g: Record<string, number | null> }>;
+  adjustments?: any[];
+  reasoning?: string;
 }
 
 export interface NutrientGap {
@@ -85,7 +113,10 @@ export function solveMealPlan(
   for (const g of gaps) gapMap[g.nutrient] = g;
 
   // Identify gap nutrients (< 90% RDA)
-  const gapNutrients = gaps.filter(g => g.status === 'low' || g.status === 'moderate').map(g => g.nutrient);
+  // Exclude vitamin_d — addressed via sun/UV exposure recommendation, not food optimization
+  const gapNutrients = gaps
+    .filter(g => (g.status === 'low' || g.status === 'moderate') && g.nutrient !== 'vitamin_d')
+    .map(g => g.nutrient);
 
   // Build LP model
   const model: any = {
@@ -237,7 +268,8 @@ export function solveMealPlan(
       model.constraints[`pantry_cap_${i}`] = { max: Math.min(maxMultiplier, 1.5) };
       variable[`pantry_cap_${i}`] = 1;
     } else {
-      model.constraints[`max_portion_${i}`] = { max: 1.5 };
+      // Cap portion at 1.2x serving to keep meals realistic
+      model.constraints[`max_portion_${i}`] = { max: 1.2 };
       variable[`max_portion_${i}`] = 1;
     }
 

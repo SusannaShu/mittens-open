@@ -15,6 +15,46 @@
 
 import type { PantryDelta } from './types';
 
+export function singularize(name: string): string {
+  const clean = name.trim().toLowerCase();
+  const manualMap: Record<string, string> = {
+    'strawberries': 'strawberry',
+    'blueberries': 'blueberry',
+    'raspberries': 'raspberry',
+    'blackberries': 'blackberry',
+    'potatoes': 'potato',
+    'sweet potatoes': 'sweet potato',
+    'tomatoes': 'tomato',
+    'avocados': 'avocado',
+    'oranges': 'orange',
+    'apples': 'apple',
+    'bananas': 'banana',
+    'carrots': 'carrot',
+    'onions': 'onion',
+    'cucumbers': 'cucumber',
+    'zucchinis': 'zucchini',
+    'lemons': 'lemon',
+    'limes': 'lime',
+    'peaches': 'peach',
+    'pears': 'pear',
+    'plums': 'plum',
+    'peppers': 'pepper',
+    'bell peppers': 'bell pepper',
+    'mushrooms': 'mushroom',
+    'eggs': 'egg',
+    'almonds': 'almond',
+    'walnuts': 'walnut',
+    'nuts': 'nut',
+  };
+  if (manualMap[clean]) return manualMap[clean];
+  if (clean.endsWith('ies')) return clean.slice(0, -3) + 'y';
+  if (clean.endsWith('oes')) return clean.slice(0, -2);
+  if (clean.endsWith('s') && !clean.endsWith('ss') && !clean.endsWith('us') && !clean.endsWith('is') && !clean.endsWith('as')) {
+    return clean.slice(0, -1);
+  }
+  return clean;
+}
+
 // ═══════════════════════════════════════
 // PANTRY OPERATIONS
 // ═══════════════════════════════════════
@@ -65,11 +105,12 @@ export function addToPantry(
   try {
     const { getDb } = require('../../database');
     const db = getDb();
-    const normalized = itemName.toLowerCase().trim();
+    const sName = singularize(itemName);
+    const displayName = sName.charAt(0).toUpperCase() + sName.slice(1);
 
     const existing = db.getFirstSync(
       'SELECT id, quantity FROM smart_pantry WHERE LOWER(item_name) = ?',
-      [normalized],
+      [sName],
     ) as any;
 
     if (existing?.id) {
@@ -80,14 +121,14 @@ export function addToPantry(
          WHERE id = ?`,
         [quantity, quantity, confidence, existing.id],
       );
-      console.log(`[Pantry] Restocked ${normalized}: +${quantity}${unit}`);
+      console.log(`[Pantry] Restocked ${sName}: +${quantity}${unit}`);
     } else {
       db.runSync(
         `INSERT INTO smart_pantry (item_name, quantity, unit, last_added_qty, confidence, last_seen_at, updated_at)
          VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        [normalized, quantity, unit, quantity, confidence],
+        [displayName, quantity, unit, quantity, confidence],
       );
-      console.log(`[Pantry] Added new item: ${normalized} (${quantity}${unit})`);
+      console.log(`[Pantry] Added new item: ${sName} (${quantity}${unit})`);
     }
   } catch (err: any) {
     console.warn('[Pantry] Add failed:', err?.message);
@@ -173,11 +214,12 @@ function applyDelta(
 ): { remaining: number; isLow: boolean } | null {
   const { getDb } = require('../../database');
   const db = getDb();
-  const normalized = delta.name.toLowerCase().trim();
+  const sName = singularize(delta.name);
+  const displayName = sName.charAt(0).toUpperCase() + sName.slice(1);
 
   const existing = db.getFirstSync(
     'SELECT id, quantity, last_added_qty FROM smart_pantry WHERE LOWER(item_name) = ?',
-    [normalized],
+    [sName],
   ) as any;
 
   let itemId = existing?.id;
@@ -187,17 +229,17 @@ function applyDelta(
       const result = db.runSync(
         `INSERT INTO smart_pantry (item_name, quantity, unit, last_added_qty, confidence, last_seen_at, updated_at)
          VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        [normalized, delta.qtyChange, delta.unit, delta.qtyChange, delta.confidence]
+        [displayName, delta.qtyChange, delta.unit, delta.qtyChange, delta.confidence]
       );
       itemId = result.lastInsertRowId;
-      console.log(`[Pantry] Added new item from shopping: ${normalized} (${delta.qtyChange}${delta.unit})`);
+      console.log(`[Pantry] Added new item from shopping: ${sName} (${delta.qtyChange}${delta.unit})`);
     } else {
       // Consumption of untracked item
-      console.log(`[Pantry] Unknown item "${normalized}" consumed -- adding as 0 remaining.`);
+      console.log(`[Pantry] Unknown item "${sName}" consumed -- adding as 0 remaining.`);
       const result = db.runSync(
         `INSERT INTO smart_pantry (item_name, quantity, unit, last_added_qty, confidence, last_seen_at, updated_at)
          VALUES (?, 0, ?, 0, ?, datetime('now'), datetime('now'))`,
-        [normalized, delta.unit, delta.confidence]
+        [displayName, delta.unit, delta.confidence]
       );
       itemId = result.lastInsertRowId;
     }
@@ -218,7 +260,7 @@ function applyDelta(
   const isLow = isRunningLow(newQty, existing?.last_added_qty || (delta.qtyChange > 0 ? delta.qtyChange : 0));
 
   console.log(
-    `[Pantry] ${normalized}: ${existing?.quantity || 0} -> ${newQty}${delta.unit}` +
+    `[Pantry] ${sName}: ${existing?.quantity || 0} -> ${newQty}${delta.unit}` +
     ` (${delta.reason})${isLow ? ' [RUNNING LOW]' : ''}`,
   );
 
@@ -239,4 +281,90 @@ function applyDelta(
 function isRunningLow(remaining: number, lastAdded: number | null): boolean {
   if (!lastAdded || lastAdded <= 0) return false;
   return remaining < lastAdded * 0.3;
+}
+
+/**
+ * Synchronize pantry from a vision scan.
+ * Adds new items, updates quantities of existing ones, and records history.
+ */
+export function syncPantryFromScan(
+  scannedItems: Array<{
+    name: string;
+    qty: number;
+    unit: string;
+    confidence: 'high' | 'medium' | 'guess';
+    framePath: string;
+  }>
+): { added: number; updated: number } {
+  let added = 0;
+  let updated = 0;
+
+  const { getDb } = require('../../database');
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  // First consolidate duplicates in scannedItems to make sure we don't insert/update duplicates!
+  const consolidated: Record<string, { qty: number; unit: string; confidence: 'high' | 'medium' | 'guess' }> = {};
+
+  for (const item of scannedItems) {
+    const sName = singularize(item.name);
+    if (consolidated[sName]) {
+      consolidated[sName].qty += item.qty;
+      if (item.unit !== 'units' && item.unit !== 'whole' && item.unit !== 'each' && (consolidated[sName].unit === 'units' || consolidated[sName].unit === 'whole' || consolidated[sName].unit === 'each')) {
+        consolidated[sName].unit = item.unit;
+      }
+    } else {
+      consolidated[sName] = {
+        qty: item.qty,
+        unit: item.unit,
+        confidence: item.confidence,
+      };
+    }
+  }
+
+  for (const [name, data] of Object.entries(consolidated)) {
+    const existing = db.getFirstSync(
+      'SELECT id, quantity, unit FROM smart_pantry WHERE LOWER(item_name) = ?',
+      [name]
+    ) as any;
+
+    if (existing?.id) {
+      const finalUnit = (existing.unit && (data.unit === 'units' || data.unit === 'whole' || data.unit === 'each') && existing.unit !== 'units' && existing.unit !== 'whole' && existing.unit !== 'each')
+        ? existing.unit
+        : data.unit;
+
+      db.runSync(
+        `UPDATE smart_pantry
+         SET quantity = quantity + ?, unit = ?, confidence = ?,
+             last_seen_at = datetime('now'), updated_at = datetime('now'), last_added_qty = ?
+         WHERE id = ?`,
+        [data.qty, finalUnit, data.confidence, data.qty, existing.id]
+      );
+
+      db.runSync(
+        `INSERT INTO pantry_history (item_id, qty_change, reason, frame_path)
+         VALUES (?, ?, ?, ?)`,
+        [existing.id, data.qty, 'Vision Scan Update', scannedItems[0]?.framePath || null]
+      );
+
+      updated++;
+    } else {
+      const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+      const result = db.runSync(
+        `INSERT INTO smart_pantry (item_name, quantity, unit, confidence, last_seen_at, updated_at, last_added_qty)
+         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), ?)`,
+        [displayName, data.qty, data.unit, data.confidence, data.qty]
+      );
+
+      db.runSync(
+        `INSERT INTO pantry_history (item_id, qty_change, reason, frame_path)
+         VALUES (?, ?, ?, ?)`,
+        [result.lastInsertRowId, data.qty, 'Vision Scan Add', scannedItems[0]?.framePath || null]
+      );
+
+      added++;
+    }
+  }
+
+  return { added, updated };
 }

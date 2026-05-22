@@ -22,6 +22,7 @@ export const baseApi = createApi({
     'CalendarEvent',
     'MealPlan',
     'UnifiedCalendar',
+    'ActivityTypes',
   ],
   endpoints: () => ({}),
 });

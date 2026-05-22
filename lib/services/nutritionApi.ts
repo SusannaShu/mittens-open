@@ -291,17 +291,136 @@ export const nutritionApi = baseApi.injectEndpoints({
     }),
 
     getNutrientRecs: build.mutation<any, { nutrient: string }>({
-      queryFn: ({ nutrient }) => ({
-        data: { nutrient, name: nutrient, unit: '', actual: 0, rda: 0, deficit: 0, pct: 0, foods: [] },
-      }),
+      queryFn: ({ nutrient }) => {
+        try {
+          const { COMMON_FOODS } = require('../../data/commonFoods');
+          const RDA_MAP: Record<string, { name: string; unit: string; rda: number }> = {
+            vitamin_d: { name: 'Vitamin D', unit: 'mcg', rda: 15 },
+            iron: { name: 'Iron', unit: 'mg', rda: 18 },
+            calcium: { name: 'Calcium', unit: 'mg', rda: 1000 },
+            magnesium: { name: 'Magnesium', unit: 'mg', rda: 310 },
+            vitamin_c: { name: 'Vitamin C', unit: 'mg', rda: 75 },
+            potassium: { name: 'Potassium', unit: 'mg', rda: 2600 },
+            vitamin_a: { name: 'Vitamin A', unit: 'mcg', rda: 700 },
+            zinc: { name: 'Zinc', unit: 'mg', rda: 8 },
+            omega3: { name: 'Omega-3', unit: 'g', rda: 1.1 },
+            folate: { name: 'Folate', unit: 'mcg', rda: 400 },
+            vitamin_b12: { name: 'Vitamin B12', unit: 'mcg', rda: 2.4 },
+            vitamin_b6: { name: 'Vitamin B6', unit: 'mg', rda: 1.3 },
+            vitamin_e: { name: 'Vitamin E', unit: 'mg', rda: 15 },
+            vitamin_k: { name: 'Vitamin K', unit: 'mcg', rda: 90 },
+            protein: { name: 'Protein', unit: 'g', rda: 95 },
+            fiber: { name: 'Fiber', unit: 'g', rda: 25 },
+          };
+          const rdaInfo = RDA_MAP[nutrient] || { name: nutrient, unit: '', rda: 0 };
+
+          const scored = COMMON_FOODS
+            .filter((f: any) => f.per100g && (f.per100g[nutrient] || 0) > 0)
+            .map((f: any) => ({
+              name: f.name,
+              group: f.group,
+              amount: f.per100g[nutrient],
+              per100g: f.per100g,
+            }))
+            .sort((a: any, b: any) => b.amount - a.amount)
+            .slice(0, 6);
+
+          return {
+            data: {
+              nutrient,
+              name: rdaInfo.name,
+              unit: rdaInfo.unit,
+              rda: rdaInfo.rda,
+              foods: scored,
+              source: 'usda',
+            },
+          };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
     }),
 
     dislikeFood: build.mutation<any, { food: string; reason?: string }>({
-      queryFn: () => ({ data: { dislikedFoods: [], action: 'added' } }),
+      queryFn: ({ food, reason }) => {
+        try {
+          const db = getDb();
+          const row = db.getFirstSync('SELECT disliked_foods FROM nutrition_profile WHERE id = 1') as any;
+          let list: Array<{ food: string; reason?: string }> = [];
+          try { list = JSON.parse(row?.disliked_foods || '[]'); } catch {}
+          if (!Array.isArray(list)) list = [];
+          const idx = list.findIndex(d => d.food?.toLowerCase() === food.toLowerCase());
+          let action: string;
+          if (idx >= 0) {
+            list.splice(idx, 1);
+            action = 'removed';
+          } else {
+            list.push({ food, reason });
+            action = 'added';
+          }
+          db.runSync('UPDATE nutrition_profile SET disliked_foods = ? WHERE id = 1', [JSON.stringify(list)]);
+          return { data: { dislikedFoods: list, action } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['MealPlan'],
     }),
 
     updateSunExposure: build.mutation<any, { id: number; duration_min?: number; coverage_pct?: number; sunscreen?: boolean }>({
-      queryFn: () => ({ data: { status: 'ok', vitamin_d_mcg: 0, reasoning: '' } }),
+      queryFn: ({ id, duration_min, coverage_pct, sunscreen }) => {
+        try {
+          const db = getDb();
+          const { estimateVitaminDSynthesis } = require('../../services/vitaminDSynthesis');
+
+          // Get profile for skin type
+          const profile = db.getFirstSync('SELECT skin_type FROM nutrition_profile WHERE id = 1') as any;
+          const skinType = profile?.skin_type || 'fitzpatrick-4';
+
+          // Get UV from the activity itself or current weather
+          const activity = db.getFirstSync('SELECT * FROM activity_logs WHERE id = ?', [id]) as any;
+          let uvIndex = 0;
+          if (activity?.meta) {
+            try { uvIndex = JSON.parse(activity.meta)?.uv || 0; } catch {}
+          }
+          if (!uvIndex) {
+            // Fallback: latest weather data
+            const weather = db.getFirstSync(
+              `SELECT meta FROM weather_cache ORDER BY fetched_at DESC LIMIT 1`
+            ) as any;
+            if (weather?.meta) {
+              try { uvIndex = JSON.parse(weather.meta)?.uv || 0; } catch {}
+            }
+          }
+
+          const dur = duration_min || activity?.duration_min || 15;
+          const synthesis = estimateVitaminDSynthesis({
+            durationMin: dur,
+            uvIndex,
+            skinType,
+            bodyCoverage: (coverage_pct || 25) / 100,
+            sunscreen: sunscreen ?? false,
+          });
+
+          // Update the activity's nutrient_impact
+          const nutrientImpact = { vitamin_d: synthesis.mcg };
+          db.runSync(
+            `UPDATE activity_logs SET nutrient_impact = ?, duration_min = ? WHERE id = ?`,
+            [JSON.stringify(nutrientImpact), dur, id]
+          );
+
+          return {
+            data: {
+              status: 'ok',
+              vitamin_d_mcg: synthesis.mcg,
+              vitamin_d_iu: synthesis.iu,
+              reasoning: synthesis.explanation,
+            },
+          };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
       invalidatesTags: ['DailySummary'],
     }),
 
@@ -341,6 +460,8 @@ export const nutritionApi = baseApi.injectEndpoints({
           if (row.grocery_list) plan.groceryList = JSON.parse(row.grocery_list);
           if (row.bioavailability_notes) plan.bioavailabilityNotes = JSON.parse(row.bioavailability_notes);
           if (row.solver_metadata) plan.solverMetadata = JSON.parse(row.solver_metadata);
+          if (row.supplements) plan.supplements = JSON.parse(row.supplements);
+          if (row.vitamin_d_rec) plan.vitaminDRec = JSON.parse(row.vitamin_d_rec);
           return { data: { plan } };
         } catch (e: any) {
           return { error: { status: 'CUSTOM_ERROR', error: e.message } };

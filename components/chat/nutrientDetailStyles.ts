@@ -393,4 +393,28 @@ export const s = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E0D4',
   },
+
+  // AI estimate banner
+  aiEstimateBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    padding: 10,
+    backgroundColor: '#F5F3FF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9E5F5',
+  },
+  aiEstimateTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  aiEstimateSubtext: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+    lineHeight: 15,
+  },
 });

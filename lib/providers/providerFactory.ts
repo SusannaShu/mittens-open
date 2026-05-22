@@ -86,10 +86,12 @@ export async function getOllamaConfig(): Promise<OllamaConfig> {
     AsyncStorage.getItem(OLLAMA_KEY_KEY),
     AsyncStorage.getItem(OLLAMA_MODEL_KEY),
   ]);
+  // Sanitize model name (strip accidental spaces like "gemma4: e2b")
+  const cleanModel = (model || '').trim().replace(/\s*:\s*/g, ':');
   return {
     baseUrl: url || '',
     apiKey: key || undefined,
-    model: model || 'gemma4:26b',
+    model: cleanModel || 'gemma4:26b',
   };
 }
 

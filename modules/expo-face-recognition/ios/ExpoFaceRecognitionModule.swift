@@ -82,6 +82,12 @@ public class ExpoFaceRecognitionModule: Module {
     AsyncFunction("detectFaces") { (imagePath: String) -> [[String: Any]] in
       let path = self.toFilePath(imagePath)
 
+      // Skip face detection on simulator -- Vision framework can crash
+      #if targetEnvironment(simulator)
+      NSLog("[FaceRecognition] Skipping face detection on simulator")
+      return []
+      #else
+
       guard let imageData = FileManager.default.contents(atPath: path),
             let uiImage = UIImage(data: imageData),
             let cgImage = uiImage.cgImage else {
@@ -160,10 +166,14 @@ public class ExpoFaceRecognitionModule: Module {
 
       NSLog("[FaceRecognition] Detected %d faces with embeddings", results.count)
       return results
+      #endif // simulator guard
     }
 
     // ─── Simple face count (fast, no embeddings) ───
     AsyncFunction("countFaces") { (imagePath: String) -> Int in
+      #if targetEnvironment(simulator)
+      return 0
+      #else
       let path = self.toFilePath(imagePath)
 
       guard let imageData = FileManager.default.contents(atPath: path),
@@ -174,6 +184,7 @@ public class ExpoFaceRecognitionModule: Module {
 
       let boxes = try await self.detectFaceBoundingBoxes(cgImage: cgImage)
       return boxes.count
+      #endif
     }
 
     // ─── Unload model to free memory ───
@@ -299,12 +310,40 @@ public class ExpoFaceRecognitionModule: Module {
         
         let count = result.elementCount
         var embedding = [Float](repeating: 0, count: count)
-        result.data.withUnsafeBytes { rawBuffer in
-            if let ptr = rawBuffer.bindMemory(to: Float.self).baseAddress {
-                for i in 0..<count {
-                    embedding[i] = ptr[i]
-                }
+
+        // Safely extract embedding based on the actual element type
+        switch result.elementType {
+        case .float:
+          result.data.withUnsafeBytes { rawBuffer in
+            if let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: Float.self) {
+              for i in 0..<count {
+                embedding[i] = ptr[i]
+              }
             }
+          }
+        case .double:
+          result.data.withUnsafeBytes { rawBuffer in
+            if let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: Double.self) {
+              for i in 0..<count {
+                embedding[i] = Float(ptr[i])
+              }
+            }
+          }
+        @unknown default:
+          // Fallback: try Float interpretation but guard against crashes
+          result.data.withUnsafeBytes { rawBuffer in
+            let byteCount = rawBuffer.count
+            let expectedBytes = count * MemoryLayout<Float>.stride
+            guard byteCount >= expectedBytes else {
+              NSLog("[FaceRecognition] Buffer size mismatch: got %d bytes, expected %d", byteCount, expectedBytes)
+              return
+            }
+            if let ptr = rawBuffer.baseAddress?.assumingMemoryBound(to: Float.self) {
+              for i in 0..<count {
+                embedding[i] = ptr[i]
+              }
+            }
+          }
         }
         
         // L2 normalize the embedding

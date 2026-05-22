@@ -77,18 +77,18 @@ export default function USDAFoodSearch({ onAddFood }: USDAFoodSearchProps) {
                 placeholderTextColor={colors.textMuted}
               />
               <Text style={styles.unitText}>g</Text>
+              
+              <TouchableOpacity
+                style={styles.cancelCircle}
+                onPress={() => setPendingFood(null)}
+              >
+                <Feather name="x" size={14} color={colors.textMuted} />
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.addCircle} onPress={handleAdd}>
+                <Feather name="plus" size={14} color={colors.bg} />
+              </TouchableOpacity>
             </View>
-          </View>
-          <View style={styles.pendingActions}>
-            <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
-              <Feather name="plus" size={14} color={colors.bg} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.cancelBtn}
-              onPress={() => setPendingFood(null)}
-            >
-              <Feather name="x" size={14} color={colors.textMuted} />
-            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -173,56 +173,58 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
   },
   pendingRow: {
-    flexDirection: 'row',
-    backgroundColor: '#F7F7F7',
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
     borderRadius: radius.sm,
-    padding: 8,
+    padding: 10,
     marginBottom: spacing.xs,
-    gap: 8,
   },
   pendingInfo: { flex: 1 },
   pendingName: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textPrimary,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   pendingInputs: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   input: {
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 4,
-    height: 30,
-    paddingHorizontal: 6,
+    borderColor: '#CED4DA',
+    borderRadius: 6,
+    height: 32,
+    paddingHorizontal: 8,
     fontSize: 12,
+    color: colors.textPrimary,
   },
   unitText: {
     fontSize: 12,
     color: colors.textMuted,
+    marginRight: 2,
   },
-  pendingActions: {
-    justifyContent: 'center',
-    gap: 4,
-  },
-  addBtn: {
-    width: 28,
-    height: 28,
+  addCircle: {
+    width: 32,
+    height: 32,
     backgroundColor: colors.textPrimary,
-    borderRadius: 4,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
-  cancelBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#ddd',
+  cancelCircle: {
+    width: 32,
+    height: 32,
+    backgroundColor: '#E9ECEF',
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -70,10 +70,15 @@ export function useSyncHandlers(selectedDate: string, refetch: () => void) {
   const [analyzingManual, setAnalyzingManual] = useState(false);
   const [manualMealType, setManualMealType] = useState('snack');
 
-  const handleEditItem = (idx: number, key: string, value: string) => {
+  const handleEditItem = (idx: number, key: string, value: any) => {
     const updated = [...editItems];
     const item = { ...updated[idx] };
-    if (key === 'portion_g') {
+    if (key === 'object_override') {
+      // Direct override from USDA match selection — merge all properties, bypass AI
+      updated[idx] = { ...item, ...value, _nameChanged: false };
+      setEditItems(updated);
+      return;
+    } else if (key === 'portion_g') {
       if (!item._originalPortionG) {
         item._originalPortionG = parseFloat(item.portion_g || item.portionG || '0') || 1;
         item._originalNutrients = { ...(item.nutrients || {}) };

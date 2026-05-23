@@ -72,7 +72,7 @@ export function useTodayHandlers(refetch: () => void, triggerMealPlanRegeneratio
 
   /* ── Edit handlers ── */
 
-  const handleEditItem = (idx: number, key: string, value: string) => {
+  const handleEditItem = (idx: number, key: string, value: any) => {
     const updated = [...editItems];
     const item = { ...updated[idx] };
 
@@ -83,7 +83,12 @@ export function useTodayHandlers(refetch: () => void, triggerMealPlanRegeneratio
       item._originalNutrients = { ...(item.nutrients || {}) };
     }
 
-    if (key === 'portion_g') {
+    if (key === 'object_override') {
+      // Direct override from USDA match selection — merge all properties, bypass AI
+      updated[idx] = { ...item, ...value, _nameChanged: false };
+      setEditItems(updated);
+      return;
+    } else if (key === 'portion_g') {
       const origG = item._originalPortionG;
       const newG = parseFloat(value) || 0;
       

@@ -210,7 +210,7 @@ export class LocalDataProvider implements DataProvider {
       }
     }
 
-    const gaps = this.computeGaps(totals, date);
+    const gaps = this.computeGaps(totals, date, meals);
     const recommendations = this.computeRecommendations(gaps);
     const pantry = this.getPantryItems();
 
@@ -246,7 +246,8 @@ export class LocalDataProvider implements DataProvider {
         lastSeenAt: r.last_seen_at,
         updatedAt: r.updated_at,
       }));
-    } catch {
+    } catch (e: any) {
+      console.error('Error in getPantryItems:', e);
       return [];
     }
   }
@@ -581,11 +582,43 @@ export class LocalDataProvider implements DataProvider {
     };
   }
 
-  private computeGaps(totals: NutrientValues, date: string): NutrientGap[] {
+  private getRollingDietaryVitaminD(date: string, days: number): { avgDaily: number; total: number; daysWithData: number } {
+    const db = getDb();
+    const rows = db.getAllSync(
+      `SELECT logged_at, summary_nutrients FROM nutrition_logs
+       WHERE date(logged_at, 'localtime') >= date(?, '-' || ? || ' days')
+         AND date(logged_at, 'localtime') <= ?
+         AND entry_type = 'food'
+         AND deleted_at IS NULL`,
+      [date, days.toString(), date]
+    ) as any[];
+
+    let total = 0;
+    const daySet = new Set<string>();
+
+    for (const row of rows) {
+      const nutrients = parseJson(row.summary_nutrients) || {};
+      const amount = nutrients['vitamin_d'] || 0;
+      if (amount > 0) {
+        total += amount;
+        const d = row.logged_at?.slice(0, 10);
+        if (d) daySet.add(d);
+      }
+    }
+
+    return {
+      total,
+      avgDaily: daySet.size > 0 ? total / days : 0,
+      daysWithData: daySet.size,
+    };
+  }
+
+  private computeGaps(totals: NutrientValues, date: string, meals: any[] = []): NutrientGap[] {
     const gaps: NutrientGap[] = [];
     for (const [key, rdaInfo] of Object.entries(RDA)) {
       const storage = NUTRIENT_STORAGE[key];
       let intake = totals[key] || 0;
+      let dietaryIntake = intake;
       let period: 'daily' | 'stored' = 'daily';
       let avgDays: number | null = null;
 
@@ -597,12 +630,30 @@ export class LocalDataProvider implements DataProvider {
           intake = rolling.avgDaily;
           period = 'stored';
           avgDays = storage.rollingDays;
+
+          if (key === 'vitamin_d') {
+            const rollingDietary = this.getRollingDietaryVitaminD(date, storage.rollingDays);
+            dietaryIntake = rollingDietary.avgDaily;
+          } else {
+            dietaryIntake = intake;
+          }
+        } else {
+          // Fall back to today-only
+          if (key === 'vitamin_d') {
+            const todayDietaryTotals = this.sumNutrients(meals.map(m => m.summaryNutrients));
+            dietaryIntake = todayDietaryTotals['vitamin_d'] || 0;
+          }
         }
-        // else: not enough data, fall back to today-only
+      } else {
+        // Daily
+        if (key === 'vitamin_d') {
+          const todayDietaryTotals = this.sumNutrients(meals.map(m => m.summaryNutrients));
+          dietaryIntake = todayDietaryTotals['vitamin_d'] || 0;
+        }
       }
 
       const pct = rdaInfo.rda > 0 ? Math.round((intake / rdaInfo.rda) * 100) : 100;
-      const ulPct = rdaInfo.ul ? Math.round((intake / rdaInfo.ul) * 100) : null;
+      const ulPct = rdaInfo.ul ? Math.round((dietaryIntake / rdaInfo.ul) * 100) : null;
 
       let status: NutrientGap['status'] = 'good';
       if (ulPct && ulPct > 100) status = 'excess';

@@ -5,10 +5,12 @@ import { Meal } from '../../lib/types';
 import { colors, spacing } from '../../lib/theme';
 import { todayStyles as styles } from '../../styles/todayStyles';
 import ItemNutritionModal from './ItemNutritionModal';
+import { useUpdateEntryDirectMutation } from '../../lib/services/nutritionApi';
 
 export default function MealRow({ meal, onEdit }: { meal: Meal; onEdit: (meal: Meal, displayTitle: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [updateEntryDirect] = useUpdateEntryDirectMutation();
   const isActivity = meal.entryType === 'activity';
   const sumGrams = meal.items?.reduce((acc: number, item: any) => item.type === 'activity' ? acc : acc + (Number(item.portion_g) || Number(item.portionG) || 0), 0) || 0;
   
@@ -134,6 +136,18 @@ export default function MealRow({ meal, onEdit }: { meal: Meal; onEdit: (meal: M
         visible={!!selectedItem}
         onClose={() => setSelectedItem(null)}
         item={selectedItem}
+        onUpdate={(updatedItem) => {
+          // Replace the updated item in the meal's items list
+          const updatedItems = (meal.items || []).map((it: any) => {
+            if (it === selectedItem || (it.name === selectedItem?.name && it.portion_g === selectedItem?.portion_g)) {
+              return { ...it, ...updatedItem, _nameChanged: false };
+            }
+            return it;
+          });
+          const newLogName = updatedItems.map((i: any) => i.name || i.foodName || '').filter(Boolean).join(', ');
+          updateEntryDirect({ id: meal.id, items: updatedItems, logName: newLogName });
+          setSelectedItem(null);
+        }}
       />
     </View>
   );

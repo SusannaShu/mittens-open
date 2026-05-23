@@ -531,6 +531,7 @@ export async function estimateNutrients(
   }
 
   // ── 4-Tier Brain-Driven Cascade ──
+  let aiRanSuccessfully = false;
   if (useAI && provider) {
     try {
       // Tier 1: Search USDA for candidates.
@@ -587,13 +588,17 @@ export async function estimateNutrients(
           }
         }
       }
+
+      // Brain cascade completed successfully (even if it rejected all candidates)
+      aiRanSuccessfully = true;
     } catch (e: any) {
       console.warn('[estimateNutrients] Brain cascade error:', e.message);
     }
   }
 
-  // Non-AI fallback: if no AI or AI failed, fall back to top match if it is highly confident
-  if (!usedRef && allRefs.length > 0 && allRefs[0].score >= 0.70) {
+  // Non-AI fallback: only if AI didn't run or crashed. If AI ran successfully
+  // and still didn't pick a ref, respect that decision — fall through to AI estimation.
+  if (!aiRanSuccessfully && !usedRef && allRefs.length > 0 && allRefs[0].score >= 0.70) {
     usedRef = allRefs[0];
     reasoning = `Fallback USDA match: "${usedRef.name}" (${Math.round(usedRef.score * 100)}% confidence)`;
   }

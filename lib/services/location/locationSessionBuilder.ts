@@ -118,9 +118,19 @@ export function recordLocationPoint(entry: {
     console.log(`[sessionBuilder] recordPoint: motion=${motionType} speed=${entry.speed} at=${now}`);
 
     // Find the currently active (open) session
-    const activeSession = db.getFirstSync(
+    let activeSession = db.getFirstSync(
       'SELECT * FROM location_sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1'
     ) as any;
+
+    if (activeSession) {
+      const sessionStartMs = new Date(activeSession.started_at).getTime();
+      const isStale = (nowMs - sessionStartMs) > 2 * 60 * 60 * 1000; // 2 hours
+      if (isStale) {
+        console.log(`[sessionBuilder] Active session #${activeSession.id} is stale (${Math.round((nowMs - sessionStartMs) / 3600000)}h old). Closing at start time.`);
+        closeSession(db, activeSession.id, activeSession.started_at);
+        activeSession = null;
+      }
+    }
 
     if (!activeSession) {
       // No active session — only start one for actual movement.

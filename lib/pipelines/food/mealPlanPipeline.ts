@@ -22,9 +22,63 @@ import {
   inferSourceType,
   buildCandidateFromResult,
 } from './candidateGenerator';
-import { estimateNutrients } from '../../services/food/nutrientEstimator';
+import { estimateNutrients, NutrientResult } from '../../services/food/nutrientEstimator';
 import { recommendSupplements } from './supplementRecommender';
 import { estimateVitaminDSynthesis, recommendSunExposure } from '../../services/vitaminDSynthesis';
+import { generateAllCookTips } from './cookTipGenerator';
+
+// ── Time-Aware Slot Selection ──
+
+/**
+ * Determine which meal slots make sense given the current time, what's
+ * already been eaten, and remaining nutrient gaps.  Asks the LLM first;
+ * falls back to a simple hour-based heuristic.
+ */
+async function determineMealSlots(
+  brain: any,
+  currentTime: Date,
+  eatenMeals: string[],
+  eatenFoodNames: string[],
+  gapSummary: string,
+): Promise<string[]> {
+  const hh = currentTime.getHours();
+  const mm = currentTime.getMinutes();
+  const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+
+  try {
+    const prompt = `Current local time: ${timeStr}.
+Meals already eaten today: ${eatenMeals.length > 0 ? eatenMeals.join(', ') : 'none'}.
+Foods already eaten: ${eatenFoodNames.length > 0 ? eatenFoodNames.join(', ') : 'none'}.
+Remaining nutrient gaps: ${gapSummary || 'none significant'}.
+
+Which meal slots should we plan for? Choose from: breakfast, lunch, dinner, snack.
+Only include slots that make sense given the time of day and what has already been eaten.
+
+Return ONLY a JSON array of strings, e.g. ["lunch", "dinner"].`;
+
+    const slots = await brain.json(prompt, {}, null);
+    if (Array.isArray(slots) && slots.length > 0) {
+      // Validate each slot is a known string
+      const valid = slots
+        .map((s: any) => String(s).toLowerCase().trim())
+        .filter((s: string) => ['breakfast', 'lunch', 'dinner', 'snack'].includes(s));
+      if (valid.length > 0) return valid;
+    }
+  } catch (e: any) {
+    console.warn('[MealPlan] LLM slot selection failed, using time heuristic:', e.message);
+  }
+
+  // Fallback: time-based heuristic
+  let heuristicSlots: string[];
+  if (hh < 10)       heuristicSlots = ['breakfast', 'lunch', 'dinner'];
+  else if (hh < 14)  heuristicSlots = ['lunch', 'dinner'];
+  else if (hh < 19)  heuristicSlots = ['dinner'];
+  else               heuristicSlots = ['snack'];
+
+  // Filter out already-eaten slots
+  const eatenSet = new Set(eatenMeals.map(m => m.toLowerCase()));
+  return heuristicSlots.filter(s => !eatenSet.has(s));
+}
 
 export async function generateMealPlanPipeline(
   userId: string,
@@ -34,6 +88,15 @@ export async function generateMealPlanPipeline(
   const db = getDb();
   const today = new Date().toLocaleDateString('en-CA');
 
+  // ── 0. Obtain brain early — needed for slot selection, candidate gen, and tips ──
+  let brain: any = null;
+  try {
+    const { getBrain } = require('../../brain/selector');
+    brain = await getBrain();
+  } catch (e: any) {
+    console.warn('[MealPlan] Failed to load active brain for planning:', e.message);
+  }
+
   // ── 1. Gather context ──
   const loggedRows = db.getAllSync(
     `SELECT log_name, items, meal_type FROM nutrition_logs WHERE date(logged_at) = ? AND deleted_at IS NULL ORDER BY logged_at ASC`,
@@ -41,8 +104,26 @@ export async function generateMealPlanPipeline(
   ) as any[];
 
   const eatenMealTypes = new Set(loggedRows.map(m => (m.meal_type || '').toLowerCase()).filter(Boolean));
+  const eatenFoodNames = loggedRows.map(r => r.log_name || '').filter(Boolean);
   const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'];
-  const remainingMeals = MEAL_SLOTS.filter(slot => !eatenMealTypes.has(slot));
+
+  // Build gap summary for slot selection prompt
+  const gapSummaryStr = gaps
+    .filter(g => (g.status === 'low' || g.status === 'moderate' || g.pct < 80) && g.nutrient !== 'vitamin_d')
+    .slice(0, 8)
+    .map(g => `${g.name}: ${g.pct}%`)
+    .join(', ');
+
+  // Time-aware slot selection (LLM with heuristic fallback)
+  let remainingMeals: string[];
+  if (brain) {
+    remainingMeals = await determineMealSlots(
+      brain, new Date(), Array.from(eatenMealTypes), eatenFoodNames, gapSummaryStr
+    );
+  } else {
+    // No brain available — fall back to simple filtering
+    remainingMeals = MEAL_SLOTS.filter(slot => !eatenMealTypes.has(slot));
+  }
 
   if (remainingMeals.length === 0) {
     return { plan: await handleAllMealsEaten(db, today, gaps, MEAL_SLOTS) };
@@ -93,13 +174,12 @@ export async function generateMealPlanPipeline(
   // Build fallback structure
   const fallbackPlan: Record<string, any> = {};
   for (const slot of remainingMeals) {
-    fallbackPlan[slot] = { candidates: [], cookTip: '' };
+    fallbackPlan[slot] = { candidates: [] };
   }
 
-  let llmPlan: Record<string, { candidates: Array<{ food: string; targets_gap?: string; fromPantry?: boolean }>; cookTip?: string }>;
+  let llmPlan: Record<string, { candidates: Array<{ food: string; targets_gap?: string; fromPantry?: boolean }> }>;
   try {
-    const { getBrain } = require('../../brain/selector');
-    const brain = await getBrain();
+    if (!brain) throw new Error('No brain available');
     llmPlan = await brain.json(prompt, {}, fallbackPlan);
   } catch (e: any) {
     console.warn('[MealPlan] LLM candidate gen failed, using fallback:', e.message);
@@ -107,13 +187,6 @@ export async function generateMealPlanPipeline(
   }
 
   // ── 3. Parallelized USDA Brain-Driven Matching & Estimation ──
-  let brain: any = null;
-  try {
-    const { getBrain } = require('../../brain/selector');
-    brain = await getBrain();
-  } catch (e: any) {
-    console.warn('[MealPlan] Failed to load active brain for planning:', e.message);
-  }
 
   const estimationPromises: Promise<{
     foodName: string;
@@ -123,6 +196,7 @@ export async function generateMealPlanPipeline(
     pantryMatch: any;
     result: NutrientResult;
   } | null>[] = [];
+
 
   let candidateIdx = 0;
 
@@ -215,6 +289,16 @@ export async function generateMealPlanPipeline(
 
   // ── 7. Assemble ──
   const assembledPlan = assemblePlan(mealAssignment, pantryRows, adjustedCoverage, remainingMeals, llmPlan);
+
+  // Post-solver: generate cooking tips for final selected foods
+  if (brain) {
+    const cookTips = await generateAllCookTips(brain, mealAssignment, gaps);
+    for (const [slot, tip] of Object.entries(cookTips)) {
+      if (tip && assembledPlan[slot]) {
+        assembledPlan[slot].prepTip = tip;
+      }
+    }
+  }
 
   const uncoveredGaps = Object.entries(adjustedCoverage)
     .filter(([, v]) => v.status !== 'covered' && v.currentPct < 70 && v.afterPlanPct < 70)
@@ -431,15 +515,11 @@ function assemblePlan(
       }
     }
 
-    // Add cook tip from LLM if available
-    const cookTip = llmPlan?.[slot]?.cookTip;
-
     plan[slot] = {
       items: mealItems,
       nutrients: mealNutrients,
       fromPantry,
       fromStore,
-      ...(cookTip ? { prepTip: cookTip } : {}),
     };
   }
 

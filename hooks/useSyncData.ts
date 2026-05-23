@@ -409,6 +409,15 @@ export function useSyncData(selectedDate: string, viewMode: ViewMode) {
     for (let i = 0; i < sessions.length; i++) {
       const s = sessions[i] as LocationSession;
       if (s.motionType !== 'stationary') {
+        // If there's a gap of more than 10 minutes since the last segment in the group,
+        // they are separate trips. Flush the group first.
+        if (trailGroup.length > 0) {
+          const lastSession = trailGroup[trailGroup.length - 1];
+          const gapMs = new Date(s.startedAt).getTime() - new Date(lastSession.endedAt || lastSession.startedAt).getTime();
+          if (gapMs > 10 * 60 * 1000) {
+            flushTrailGroup();
+          }
+        }
         // Trail segment -- accumulate
         trailGroup.push(s);
         continue;

@@ -343,8 +343,13 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
               />
             )}
 
-            {/* Context toggles row: Outdoors, Nature, Movement */}
-            <View style={s.contextToggleRow}>
+            {/* Context toggles row: Outdoors, Nature, Movement, Brain Hygiene */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginTop: spacing.md, marginBottom: spacing.md }}
+              contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}
+            >
               <TouchableOpacity
                 style={[s.sunscreenToggle, isOutdoors && s.sunscreenToggleActive]}
                 onPress={() => setIsOutdoors(!isOutdoors)}
@@ -372,7 +377,16 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                   <Feather name="activity" size={11} /> Movement
                 </Text>
               </TouchableOpacity>
-            </View>
+              <TouchableOpacity
+                style={[s.sunscreenToggle, isBrainHygiene && s.sunscreenToggleActive]}
+                onPress={() => setIsBrainHygiene(!isBrainHygiene)}
+                activeOpacity={0.6}
+              >
+                <Text style={[s.sunscreenToggleText, isBrainHygiene && s.sunscreenToggleTextActive]}>
+                  <Feather name="heart" size={11} /> Brain Hygiene
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
 
             {/* Movement expanded: MET value */}
             <ActivityContextToggles
@@ -455,6 +469,8 @@ export default function ActivityEditModal({ visible, activity, onClose, onSave, 
                 )}
               </View>
             )}
+
+            <View style={{ height: spacing.lg }} />
 
             {/* Engagement */}
             <ScaleSelector

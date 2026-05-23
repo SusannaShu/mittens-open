@@ -117,10 +117,9 @@ RULES:
 2. Whole, minimally processed foods ONLY. No powders, supplements, or fortified products.
 3. Specify a realistic household portion (e.g. "4 oz salmon fillet", "1 cup cooked lentils", "2 large eggs").
 4. Each meal needs: a protein source, a carb/grain, and 1-2 vegetables.
-5. Choose cooking methods that preserve nutrients: steaming > boiling, raw > overcooked.
-6. Prefer in-season produce for ${season}.
-7. Prefer pantry items. Mark with [pantry].
-8. Tag which gap nutrient each food primarily targets.
+5. Prefer in-season produce for ${season}.
+6. Prefer pantry items. Mark with [pantry].
+7. Tag which gap nutrient each food primarily targets.
 
 Return ONLY valid JSON:
 {
@@ -128,8 +127,7 @@ ${remainingMeals.map(m => `  "${m}": {
     "candidates": [
       { "food": "4 oz salmon fillet", "targets_gap": "omega3", "fromPantry": false },
       { "food": "1 cup cooked quinoa", "targets_gap": "protein", "fromPantry": true }
-    ],
-    "cookTip": "Steam vegetables to preserve vitamin C; pair iron-rich foods with citrus."
+    ]
   }`).join(',\n')}
 }`;
 }

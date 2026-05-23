@@ -470,6 +470,45 @@ export const nutritionApi = baseApi.injectEndpoints({
       providesTags: ['MealPlan'],
     }),
 
+    updateTodayMealPlan: build.mutation<any, { slot: string; foods: any[] }>({
+      queryFn: ({ slot, foods }) => {
+        try {
+          const db = getDb();
+          const today = new Date().toLocaleDateString('en-CA');
+          const row = db.getFirstSync(
+            `SELECT id, ${slot} FROM daily_meal_plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1`,
+            [today]
+          ) as any;
+          if (!row) return { error: { status: 'CUSTOM_ERROR', error: 'No meal plan found for today' } };
+
+          // Parse existing slot data, update foods, recalculate nutrients
+          let slotData: any = {};
+          try { slotData = JSON.parse(row[slot] || '{}'); } catch {}
+          slotData.foods = foods;
+
+          // Recalculate slot nutrients from updated foods
+          const slotNutrients: Record<string, number> = {};
+          for (const food of foods) {
+            if (food.nutrients) {
+              for (const [k, v] of Object.entries(food.nutrients)) {
+                if (typeof v === 'number') slotNutrients[k] = (slotNutrients[k] || 0) + v;
+              }
+            }
+          }
+          slotData.nutrients = slotNutrients;
+
+          db.runSync(
+            `UPDATE daily_meal_plans SET ${slot} = ?, updated_at = datetime('now') WHERE id = ?`,
+            [JSON.stringify(slotData), row.id]
+          );
+          return { data: { status: 'ok' } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['MealPlan'],
+    }),
+
     generateMealPlan: build.mutation<{ plan: any }, void>({
       queryFn: () => ({ data: { plan: null } }),
       invalidatesTags: ['MealPlan'],
@@ -525,6 +564,7 @@ export const {
   useUpdateSunExposureMutation,
   useReestimateItemMutation,
   useGetTodayMealPlanQuery,
+  useUpdateTodayMealPlanMutation,
   useGenerateMealPlanMutation,
   useGenerateMealPlanAsyncMutation,
   useLazyCheckMealPlanJobStatusQuery,

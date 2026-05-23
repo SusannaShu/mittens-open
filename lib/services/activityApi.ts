@@ -53,6 +53,7 @@ export interface ActivityEntry {
   meta?: Record<string, any>;
   image?: Array<{ id: number; url: string }> | null;
   googleEventId?: string | null;
+  originSessionId?: number | null;
   mets?: number | null;
   isNature?: boolean;
   isStrength?: boolean;
@@ -118,6 +119,7 @@ function rowToActivity(r: any): ActivityEntry {
     isStrength: !!r.is_strength,
     meta: r.meta ? JSON.parse(r.meta) : undefined,
     googleEventId: r.google_event_id,
+    originSessionId: r.origin_session_id,
   };
 }
 
@@ -158,8 +160,8 @@ export const activityApi = baseApi.injectEndpoints({
           const db = getDb();
           const now = body.loggedAt || new Date().toISOString();
           const result = db.runSync(
-            `INSERT INTO activity_logs (logged_at, activity_type, log_name, duration_min, intensity, outdoors, location, engagement, energy, mets, is_nature, is_strength, source, aeiou, life_categories, meta)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO activity_logs (logged_at, activity_type, log_name, duration_min, intensity, outdoors, location, engagement, energy, mets, is_nature, is_strength, source, aeiou, life_categories, meta, origin_session_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               now,
               body.activityType || 'other',
@@ -177,6 +179,7 @@ export const activityApi = baseApi.injectEndpoints({
               body.aeiou ? JSON.stringify(body.aeiou) : null,
               body.lifeCategories ? JSON.stringify(body.lifeCategories) : null,
               body.meta ? JSON.stringify(body.meta) : null,
+              body.originSessionId ?? null,
             ]
           );
           const id = (result as any).lastInsertRowId || 0;
@@ -269,7 +272,7 @@ export const activityApi = baseApi.injectEndpoints({
           const numDays = days || 7;
           const rows = db.getAllSync(
             `SELECT * FROM activity_logs
-             WHERE logged_at >= date('now', '-' || ? || ' days')
+             WHERE date(logged_at, 'localtime') >= date('now', 'localtime', '-' || ? || ' days')
              ORDER BY logged_at ASC`,
             [numDays]
           ) as any[];
@@ -313,15 +316,19 @@ export const activityApi = baseApi.injectEndpoints({
             }
           }
 
-          const gauges = {
-            work: Math.min(100, Math.round((categoryMinutes.work / totalTarget) * 100)),
-            health: Math.min(100, Math.round((categoryMinutes.health / totalTarget) * 100)),
-            play: Math.min(100, Math.round((categoryMinutes.play / totalTarget) * 100)),
-            love: Math.min(100, Math.round((categoryMinutes.love / totalTarget) * 100)),
-          };
-
           const todayStr = new Date().toLocaleDateString('en-CA');
           const healthPillars = await HealthPillarService.computeForDate(todayStr);
+
+          const healthAvg = healthPillars.length > 0
+            ? Math.round(healthPillars.reduce((sum, p) => sum + p.value, 0) / healthPillars.length)
+            : 0;
+
+          const gauges = {
+            work: Math.min(100, Math.round((categoryMinutes.work / (120 * numDays)) * 100)),
+            health: healthAvg,
+            play: Math.min(100, Math.round((categoryMinutes.play / (60 * numDays)) * 100)),
+            love: Math.min(100, Math.round((categoryMinutes.love / (60 * numDays)) * 100)),
+          };
 
           return {
             data: {

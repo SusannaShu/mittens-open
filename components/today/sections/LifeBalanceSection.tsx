@@ -54,7 +54,7 @@ export default function LifeBalanceSection({
                   <View style={gaugeStyles.track}>
                     <View style={[gaugeStyles.fill, { width: `${Math.min(val, 100)}%` }]} />
                   </View>
-                  <Text style={gaugeStyles.pct}>{val > 0 ? `${val}%` : '--'}</Text>
+                  <Text style={gaugeStyles.pct}>{dashboardGauges ? `${val}%` : '--'}</Text>
                 </TouchableOpacity>
                 {isExpanded && cat === 'health' && healthPillars && (
                   <HealthPillarsExpandable

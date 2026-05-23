@@ -22,6 +22,7 @@ export const LOCATION_TASK = 'MITTENS_LOCATION';
 // In-memory state (persisted to Backend on change)
 let currentPlace: string | null = null;
 let currentLocation: { lat: number; lon: number } | null = null;
+let lastLoggedLocation: { lat: number; lon: number } | null = null;
 let lastLocationTime: number = 0;
 let lastMotionType: string | null = null;
 let locationChangeCallbacks: Array<() => void> = [];
@@ -274,8 +275,8 @@ function handleSignificantLocationChange(location: Location.LocationObject) {
 
   // Only log if moved meaningfully. Motion transitions can force their own samples,
   // so the regular trail stream can stay distance-based without cutting off endpoints.
-  if (prevLat != null && prevLon != null) {
-    const dist = haversineMeters(prevLat, prevLon, latitude, longitude);
+  if (lastLoggedLocation != null) {
+    const dist = haversineMeters(lastLoggedLocation.lat, lastLoggedLocation.lon, latitude, longitude);
     if (dist < TRAIL_POINT_DISTANCE_M) return;
   }
 
@@ -334,6 +335,7 @@ function logLocationPoint(entry: {
   speed?: number | null;
   loggedAt: string;
 }) {
+  lastLoggedLocation = { lat: entry.latitude, lon: entry.longitude };
   locationHistory.push({
     lat: entry.latitude,
     lon: entry.longitude,
@@ -553,6 +555,7 @@ export async function initLocationServices(
       accuracy: Location.Accuracy.Balanced,
     });
     currentLocation = { lat: loc.coords.latitude, lon: loc.coords.longitude };
+    lastLoggedLocation = { lat: loc.coords.latitude, lon: loc.coords.longitude };
     lastLocationTime = Date.now();
 
     logToLocal({
@@ -754,6 +757,7 @@ export async function stopLocationServices(): Promise<void> {
 
   currentPlace = null;
   currentLocation = null;
+  lastLoggedLocation = null;
   clearPendingMotionStart();
   clearStationarySettleTimer();
   stationaryAnchor = null;

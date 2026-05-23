@@ -1,16 +1,20 @@
+import { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, SafeAreaView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, fonts } from '../../lib/theme';
 import ProjectionRow from './ProjectionRow';
+import ItemNutritionModal from './ItemNutritionModal';
 
 /* ── Meal Detail Modal ── */
-export function MealDetailModal({ visible, onClose, mealDetailData, gapCoverage, mealPlan }: {
+export function MealDetailModal({ visible, onClose, mealDetailData, gapCoverage, mealPlan, onUpdateMeal }: {
   visible: boolean;
   onClose: () => void;
   mealDetailData: { key: string; label: string; meal: any } | null;
   gapCoverage: any;
   mealPlan: any;
+  onUpdateMeal?: (slot: string, updatedFoods: any[]) => void;
 }) {
+  const [selectedFood, setSelectedFood] = useState<any>(null);
   if (!mealDetailData) return null;
 
   const { label, meal, key: mealKey } = mealDetailData;
@@ -46,11 +50,24 @@ export function MealDetailModal({ visible, onClose, mealDetailData, gapCoverage,
           </TouchableOpacity>
         </View>
         <ScrollView style={{ flex: 1, padding: 20 }} contentContainerStyle={{ gap: 16, paddingBottom: 40 }}>
-          {/* Ingredients */}
+          {/* Ingredients — tappable for nutrition detail & USDA override */}
           <View style={{ gap: 6 }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>Ingredients</Text>
-            {mealItems.map((item: string, i: number) => (
-              <Text key={i} style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 20 }}>- {item}</Text>
+            {(meal.foods && meal.foods.length > 0 ? meal.foods : mealItems.map((name: string) => ({ name }))).map((food: any, i: number) => (
+              <TouchableOpacity
+                key={i}
+                onPress={() => setSelectedFood({ ...food, name: food.name || mealItems[i] || '' })}
+                activeOpacity={0.6}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 3 }}
+              >
+                <Text style={{ flex: 1, fontSize: 14, color: colors.textSecondary, lineHeight: 20 }}>
+                  - {food.name || mealItems[i] || ''}
+                </Text>
+                {food.portion_g ? (
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>{food.portion_g}g</Text>
+                ) : null}
+                <Feather name="chevron-right" size={12} color={colors.textMuted} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
             ))}
           </View>
 
@@ -116,6 +133,24 @@ export function MealDetailModal({ visible, onClose, mealDetailData, gapCoverage,
             </View>
           )}
         </ScrollView>
+
+        {/* Ingredient nutrition detail / USDA override */}
+        <ItemNutritionModal
+          visible={!!selectedFood}
+          onClose={() => setSelectedFood(null)}
+          item={selectedFood}
+          onUpdate={onUpdateMeal ? (updatedItem) => {
+            const foods = meal.foods || mealItems.map((name: string) => ({ name }));
+            const updatedFoods = foods.map((f: any) => {
+              if (f === selectedFood || f.name === selectedFood?.name) {
+                return { ...f, ...updatedItem, _nameChanged: false };
+              }
+              return f;
+            });
+            onUpdateMeal(mealKey, updatedFoods);
+            setSelectedFood(null);
+          } : undefined}
+        />
       </SafeAreaView>
     </Modal>
   );
@@ -239,6 +274,7 @@ export function ProjectedNutrientsModal({ visible, onClose, gapCoverage, mealPla
               return (
                 <ProjectionRow
                   key={e.key}
+                  nutrientKey={e.key}
                   name={e.name}
                   currentPct={currentPct}
                   projectedPct={pct}

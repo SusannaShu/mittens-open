@@ -120,7 +120,7 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
       let cookingSeverity: number | undefined;
       let cookingMethod: string | undefined;
       
-      let adjustedNutrients = { ...nutrients };
+      let adjustedNutrients: Record<string, number> = { ...nutrients };
       if (food.cooking) {
         const retention = lookupRetention(food.name, food.cooking);
         if (retention) {
@@ -141,7 +141,12 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
         usdaNutrients,
         usedRef: usedRef ? { fdcId: usedRef.fdcId, name: usedRef.name, score: usedRef.score } : undefined,
         allRefs: allRefsWithData,
-        adjustments,
+        adjustments: adjustments.map(adj => ({
+          nutrient: adj.key,
+          usdaValue: adj.usdaValue ?? 0,
+          adjustedValue: adj.adjustedValue,
+          reason: adj.reason,
+        })),
         reasoning,
         retentionChanges,
         cookingSeverity,

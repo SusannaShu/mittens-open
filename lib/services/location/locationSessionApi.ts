@@ -55,8 +55,21 @@ export const locationSessionApi = baseApi.injectEndpoints({
           return { error: { status: 'CUSTOM_ERROR', error: e.message } };
         }
       },
+      providesTags: ['DailySummary'],
+    }),
+    deleteLocationSession: build.mutation<{ status: string }, number>({
+      queryFn: (id) => {
+        try {
+          const db = getDb();
+          db.runSync('DELETE FROM location_sessions WHERE id = ?', [id]);
+          return { data: { status: 'ok' } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['DailySummary'],
     }),
   }),
 });
 
-export const { useGetLocationSessionsQuery } = locationSessionApi;
+export const { useGetLocationSessionsQuery, useDeleteLocationSessionMutation } = locationSessionApi;

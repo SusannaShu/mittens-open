@@ -49,8 +49,10 @@ export function onTrailStart(
   try {
     const db = getDb();
 
-    // Don't create activity logs for stationary sessions
-    if (motionType === 'stationary') return null;
+    // Only auto-create activity logs for movement trails (walking, running, cycling)
+    if (motionType !== 'walking' && motionType !== 'running' && motionType !== 'cycling') {
+      return null;
+    }
 
     // Check if there's already an activity log for this session
     // Check both old FK and new provenance column
@@ -81,8 +83,9 @@ export function onTrailStart(
       `INSERT INTO activity_logs (
         logged_at, log_name, activity_type, duration_min, mets,
         location, source, location_session_id, origin_session_id,
+        outdoors, nature,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'trail', ?, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, 'trail', ?, ?, 0, 0, datetime('now'), datetime('now'))`,
       [
         startedAt,
         logName,
@@ -149,55 +152,9 @@ export async function onDwellActivityCreate(
   placeName: string | null,
   neighborhood: string | null,
 ): Promise<number | null> {
-  try {
-    const db = getDb();
-
-    // Check if already linked
-    const existing = db.getFirstSync(
-      `SELECT id FROM activity_logs
-       WHERE origin_session_id = ?`,
-      [sessionId],
-    ) as any;
-    if (existing) return existing.id;
-
-    // Build title from available location info
-    const locationLabel = placeName || neighborhood || 'Unknown place';
-    const logName = `At ${locationLabel}`;
-
-    const result = db.runSync(
-      `INSERT INTO activity_logs (
-        logged_at, log_name, activity_type, duration_min,
-        location, source, origin_session_id,
-        created_at, updated_at
-      ) VALUES (?, ?, 'other', ?, ?, 'dwell', ?, datetime('now'), datetime('now'))`,
-      [
-        startedAt,
-        logName,
-        DEFAULT_DURATION_MIN,
-        placeName || null,
-        sessionId,
-      ],
-    );
-
-    const logId = result?.lastInsertRowId ?? null;
-    if (!logId) return null;
-
-    console.log(`[TrailBridge] Created dwell activity #${logId}: ${logName}`);
-
-    // Try to match against planned calendar events
-    try {
-      const { matchAndConvertPlannedEvent } = require('./calendarEventMatcher');
-      const googleEventId = matchAndConvertPlannedEvent(logId, startedAt, placeName);
-      if (googleEventId) {
-        console.log(`[TrailBridge] Linked dwell #${logId} to calendar event ${googleEventId}`);
-      }
-    } catch { /* calendar matcher not loaded */ }
-
-    return logId;
-  } catch (err: any) {
-    console.warn('[TrailBridge] Failed to create dwell activity:', err?.message);
-    return null;
-  }
+  // Prevent stationary dwell sessions from automatically creating activity logs.
+  // Location logs can still be manually logged or converted by the user.
+  return null;
 }
 
 /**

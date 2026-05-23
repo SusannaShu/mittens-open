@@ -417,4 +417,21 @@ export const s = StyleSheet.create({
     marginTop: 2,
     lineHeight: 15,
   },
+
+  // Apply pill button (in USDA reference accordion)
+  applyPill: {
+    height: 24,
+    paddingHorizontal: 10,
+    backgroundColor: colors.textPrimary,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  applyPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
 });

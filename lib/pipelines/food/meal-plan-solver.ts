@@ -191,23 +191,29 @@ export function solveMealPlan(
 
     let score = 0;
 
-    // Gap-closing reward
+    // Gap-closing reward — normalize by deficit so partially-filled gaps
+    // get proportionally higher reward per unit of contribution
     for (const gapNutrient of gapNutrients) {
       const amount = nutrients[gapNutrient] || 0;
       const g = gapMap[gapNutrient];
       if (amount > 0 && g && g.rda > 0) {
         const deficit = Math.max(0, g.rda - g.actual);
+        if (deficit <= 0) continue; // Already covered, no reward
         const contribution = Math.min(amount, deficit);
         const weight = MACRO_KEYS.has(gapNutrient) ? W_GAP_MACRO : W_GAP;
-        score += weight * (contribution / g.rda);
+        score += weight * (contribution / deficit);
       }
     }
 
-    // Overshoot penalty
+    // Overshoot penalty — source-aware so safe food sources aren't penalized
     for (const key of NUTRIENT_KEYS) {
       const amount = nutrients[key] || 0;
       const g = gapMap[key];
       if (amount <= 0 || !g || g.rda <= 0 || g.pct < 90) continue;
+
+      // Check if UL applies to this source type
+      const rule = UL_RULES[key];
+      if (rule && !rule.includes(sourceType)) continue; // Safe source, no penalty
 
       const tier = SAFETY_TIER[key] ?? 2;
       const ratio = amount / g.rda;

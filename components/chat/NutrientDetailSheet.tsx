@@ -259,6 +259,25 @@ export default function NutrientDetailSheet({
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Text style={s.refScore}>{Math.round(ref.score * 100)}%</Text>
+                      {isSelected && onUsdaSelect && food.usedRef?.fdcId !== ref.fdcId && (
+                        <TouchableOpacity
+                          style={s.applyPill}
+                          onPress={() => {
+                            const scaled = scaleNutrients(ref.per100g as any, food.portion_g);
+                            onUsdaSelect({
+                              fdcId: ref.fdcId,
+                              name: ref.name,
+                              category: (ref as any).category || '',
+                              score: ref.score,
+                              per100g: ref.per100g as any,
+                              amountGram: food.portion_g,
+                              customName: ref.name.split(',')[0],
+                            });
+                          }}
+                        >
+                          <Text style={s.applyPillText}>Apply</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => {

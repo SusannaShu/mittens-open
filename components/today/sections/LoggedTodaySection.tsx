@@ -54,8 +54,13 @@ export default function LoggedTodaySection({ meals, todayActivities, collapsed, 
   const items: TimelineItem[] = useMemo(() => {
     const result: TimelineItem[] = [];
 
-    // Location blocks with smart titles
+    // Location blocks with smart titles (skip those already converted/logged)
     for (const session of locationSessions) {
+      const isLinked = todayActivities.some(
+        (a) => a.meta?.locationSession?.id === session.id || a.originSessionId === session.id || a.id === session.id
+      );
+      if (isLinked) continue;
+
       const childActs = getChildActivitiesForSession(session);
       const smartTitle = generateLocationBlockTitle(session, childActs);
       result.push({

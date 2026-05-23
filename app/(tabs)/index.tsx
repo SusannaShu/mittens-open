@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, RefreshControl,
   ActivityIndicator, TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useGetDailySummaryQuery, useGetTodayMealPlanQuery, useGenerateMealPlanAsyncMutation } from '../../lib/services/nutritionApi';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useGetDailySummaryQuery, useGetTodayMealPlanQuery, useGenerateMealPlanAsyncMutation, useUpdateTodayMealPlanMutation } from '../../lib/services/nutritionApi';
 import { nutritionApi } from '../../lib/services/nutritionApi';
 import { useGetProfileQuery } from '../../lib/services/profileApi';
 import { colors, spacing } from '../../lib/theme';
@@ -38,6 +38,7 @@ import { MealDetailModal, GroceryListModal, ProjectedNutrientsModal } from '../.
 
 // API hooks
 import { useGetDashboardGaugesQuery, useGetDailyActivitiesQuery, ActivityEntry } from '../../lib/services/activityApi';
+import { useDeleteLocationSessionMutation } from '../../lib/services/location/locationSessionApi';
 
 const cleanFoodName = (name: string): string => {
   if (!name) return name;
@@ -60,6 +61,8 @@ export default function TodayScreen() {
   const { data: dashboardData } = useGetDashboardGaugesQuery();
   const { data: activityData } = useGetDailyActivitiesQuery();
   const { data: mealPlanData } = useGetTodayMealPlanQuery();
+  const [updateTodayMealPlan] = useUpdateTodayMealPlanMutation();
+  const [deleteLocationSession] = useDeleteLocationSessionMutation();
   const todayActivities: ActivityEntry[] = activityData?.activities || [];
   const rawMealPlan = mealPlanData?.plan || null;
   const gapCoverage = rawMealPlan?.gapCoverage || null;
@@ -157,6 +160,13 @@ export default function TodayScreen() {
   useEffect(() => {
     if (profile && profile.onboarded === false) router.replace('/onboarding');
   }, [profile]);
+
+  // Refetch daily summary when Today screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   // Fetch weather
   useEffect(() => {
@@ -448,6 +458,9 @@ export default function TodayScreen() {
         mealDetailData={h.mealDetailModal}
         gapCoverage={gapCoverage}
         mealPlan={mealPlan}
+        onUpdateMeal={(slot, foods) => {
+          updateTodayMealPlan({ slot, foods });
+        }}
       />
 
       <GroceryListModal
@@ -483,11 +496,24 @@ export default function TodayScreen() {
         activity={h.editingActivity}
         onClose={() => { h.setActivityEditVisible(false); h.setEditingActivity(null); }}
         onSave={async (id, data) => {
-          await h.reflectActivity({ id, ...data }).unwrap();
+          if (id === -1) {
+            const originSessionId = h.editingActivity?.meta?.locationSession?.id;
+            await h.logActivity({
+              ...data,
+              source: 'location',
+              origin_session_id: originSessionId,
+            }).unwrap();
+          } else {
+            await h.reflectActivity({ id, ...data }).unwrap();
+          }
           refetch();
         }}
         onDelete={async (id) => {
-          await h.deleteActivity(id).unwrap();
+          if (id === -1 && h.editingActivity?.meta?.locationSession?.id) {
+            await deleteLocationSession(h.editingActivity.meta.locationSession.id).unwrap();
+          } else {
+            await h.deleteActivity(id).unwrap();
+          }
           refetch();
         }}
       />

@@ -25,7 +25,7 @@ interface EditModalProps {
   loggedAt?: Date;
   onLoggedAtChange?: (d: Date) => void;
   onMealTypeChange: (t: string) => void;
-  onItemChange: (idx: number, key: string, val: string) => void;
+  onItemChange: (idx: number, key: string, val: any) => void;
   onRemoveItem: (idx: number) => void;
   onItemTextChange: (t: string) => void;
   onDirectSave: () => void;
@@ -284,6 +284,17 @@ export function EditModal({
         visible={!!selectedItem}
         onClose={() => setSelectedItem(null)}
         item={selectedItem}
+        onUpdate={(updatedItem) => {
+          // Find the index of the selected item in the items list
+          const idx = items.findIndex((it: any) =>
+            it === selectedItem ||
+            (it.name === selectedItem?.name && it.portion_g === selectedItem?.portion_g)
+          );
+          if (idx >= 0) {
+            onItemChange(idx, 'object_override', updatedItem);
+          }
+          setSelectedItem(null);
+        }}
       />
     </KeyboardAvoidingView>
   </Modal>

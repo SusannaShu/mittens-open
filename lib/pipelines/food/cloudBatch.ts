@@ -33,15 +33,17 @@ function buildCombinedFoodPrompt(
 You are identifying specific food items for USDA FoodData Central database matching.
 Each food name will be used to look up accurate nutritional data.${captionLine}
 ${memory ? `User preferences: ${memory}\n` : ''}
-Provide the most specific food name possible:
+Provide the most specific, search-friendly food name possible:
 - "grilled chicken breast" not "chicken"
 - "jasmine rice" not "rice"
 - "steamed broccoli" not "broccoli"
+- NEVER group multiple separate basic ingredients (e.g. "rice, lentils, and quinoa mixture", "eggs and spinach", "chicken and rice bowl", "granola with yogurt") into a single composite item. You MUST decompose mixtures, combos, or multi-ingredient dishes into their individual constituent ingredients (e.g., list "brown rice", "lentils", and "quinoa" as separate items) so they can be individually matched to USDA entries.
 - If a branded product is visible, include the brand name
 
 PORTION ESTIMATION:
 - Use plate/bowl/utensils as size references (dinner plate ~25cm, fork ~20cm)
 - Provide BOTH grams AND household measure
+- Estimate individual portion weights/sizes for each decomposed ingredient separately.
 
 CONFIDENCE: 0.9+ clearly visible, 0.6-0.8 likely, below 0.5 uncertain
 

@@ -64,11 +64,11 @@ export function onTrailStart(
     if (existing) return existing.id;
 
     const label = MOTION_LABELS[motionType] || MOTION_LABELS.unknown;
-    const logName = `${label} (trail)`;
     const metValue = MOTION_MET[motionType] ?? MOTION_MET.unknown;
 
-    // Resolve place name from known_places
+    // Resolve place name from known_places or reverse geocode
     let placeName: string | null = null;
+    let locationLabel: string | null = null;
     try {
       const place = db.getFirstSync(
         `SELECT name FROM known_places
@@ -79,11 +79,28 @@ export function onTrailStart(
       placeName = place?.name ?? null;
     } catch { /* known_places may not exist */ }
 
+    // Build a descriptive log name: "Walking in Central Park" not "Walking (trail)"
+    if (placeName) {
+      locationLabel = placeName;
+    } else {
+      try {
+        const { localReverseGeocode } = require('../location/placeInference');
+        // localReverseGeocode is async but we need sync here; use cached neighborhood
+        const { getCurrentPlace } = require('../location/locationService');
+        locationLabel = getCurrentPlace() || null;
+      } catch { /* location service not available */ }
+    }
+    const logName = locationLabel
+      ? `${label} in ${locationLabel}`
+      : label;
+
+    // Don't hard-code outdoors — walking in a museum isn't outdoor.
+    // Let the VLM triage detect outdoors/nature from the actual scene.
     const result = db.runSync(
       `INSERT INTO activity_logs (
         logged_at, log_name, activity_type, duration_min, mets,
         location, source, location_session_id, origin_session_id,
-        outdoors, nature,
+        outdoors, is_nature,
         created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, 'trail', ?, ?, 0, 0, datetime('now'), datetime('now'))`,
       [

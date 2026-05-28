@@ -50,17 +50,22 @@ export default function MealRow({ meal, onEdit }: { meal: Meal; onEdit: (meal: M
     };
 
     return (
-      <View style={[styles.logContainer, { borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: 8, padding: spacing.sm, marginBottom: spacing.sm }]}>
+      <TouchableOpacity
+        style={[styles.logContainer, { borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: 8, padding: spacing.sm, marginBottom: spacing.sm }]}
+        onPress={() => onEdit(meal, displayTitle)}
+        activeOpacity={0.7}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Feather name={actIcon as any} size={16} color={colors.textSecondary} style={{ marginRight: 8 }} />
           <View style={{ flex: 1 }}>
             <Text style={styles.logName}>{displayTitle}</Text>
             <Text style={styles.logMeta}>
               {timeStr ? `${timeStr} -- ` : ''}
-              {meta.duration_min ? `${meta.duration_min} min` : 'activity'}
+              {meta.duration_min ? `${Math.ceil(meta.duration_min)} min` : 'activity'}
               {intensityLabel}
             </Text>
           </View>
+          <Text style={styles.editText}>Edit</Text>
         </View>
 
         {/* Nutrient impact chips */}
@@ -82,21 +87,19 @@ export default function MealRow({ meal, onEdit }: { meal: Meal; onEdit: (meal: M
             ))}
           </View>
         )}
-      </View>
+      </TouchableOpacity>
     );
   }
 
   return (
     <View style={styles.logContainer}>
-      <TouchableOpacity style={styles.logHeader} onPress={() => setExpanded(!expanded)} activeOpacity={0.7}>
+      <TouchableOpacity style={styles.logHeader} onPress={() => onEdit(meal, displayTitle)} activeOpacity={0.7}>
         <View style={styles.logDot} />
         <View style={{ flex: 1, paddingRight: spacing.sm }}>
           <Text style={styles.logName} numberOfLines={2}>{displayTitle}</Text>
-          <Text style={styles.logMeta}>{timeStr ? `${timeStr} -- ` : ''}{meal.mealType} -- {sumGrams}g total</Text>
+          <Text style={styles.logMeta}>{timeStr ? `${timeStr} -- ` : ''}{meal.mealType} -- {Math.ceil(sumGrams)}g total</Text>
         </View>
-        <TouchableOpacity onPress={() => onEdit(meal, displayTitle)} style={{ padding: 4 }}>
-          <Text style={styles.editText}>Edit</Text>
-        </TouchableOpacity>
+        <Text style={styles.editText}>Edit</Text>
       </TouchableOpacity>
 
       {meal.failure_logs && meal.failure_logs.length > 0 && (

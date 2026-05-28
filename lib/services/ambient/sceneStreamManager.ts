@@ -1,10 +1,13 @@
 /**
  * ambient/sceneStreamManager.ts -- Ambient intelligence brain.
  *
- * Multi-signal pipeline: quality gate -> scene triage -> log.
+ * Context-aware pipeline: pixel dedup → place recognition → scene triage → log.
  * Every frame gets a title and description. Independent signals
  * (nature, outdoors, movement, screenUse, foodContext) route to
  * appropriate downstream handlers.
+ *
+ * Uses context window (time, place, recent scenes, previous frame) and
+ * visual place recognition for richer scene understanding.
  */
 
 import type { SceneTriage } from './types';
@@ -119,46 +122,68 @@ class SceneStreamManager {
     skipGate = false,
   ): Promise<FrameResult> {
     const logger = new PipelineLogger();
-    const FileSystem = require('expo-file-system/legacy');
 
     // Phase 0: Morning greeting
     await this.checkMorningGreeting(skipGate);
 
-    // Phase 1: Quality Gate
+    // Phase 1: Pixel-only dedup (free, no VLM call)
     if (skipGate) {
       logger.skipPhase('gate', 'quality', 'Skipped (retry)');
     } else {
-      const gateIdx = logger.startPhase('gate', 'quality');
+      const gateIdx = logger.startPhase('gate', 'dedup');
       try {
-        const { checkQualityGate } = require('./frameDedup');
-        const bedtimeNear = isNearBedtime();
-        const gateResult = await checkQualityGate(framePath, { nearBedtime: bedtimeNear });
-        if (gateResult.skip) {
-          logger.completePhase(gateIdx, `Skipped (tier ${gateResult.tier}): ${gateResult.reason}`);
-          FileSystem.deleteAsync(framePath, { idempotent: true }).catch(() => {});
-          return { summary: `Skipped: ${gateResult.reason}`, log: logger.finalize() };
+        const { pixelDedup } = require('./frameDedup');
+        const isDuplicate = await pixelDedup(framePath);
+        if (isDuplicate) {
+          logger.completePhase(gateIdx, 'Skipped: identical frame (pixel dedup)');
+          return { summary: 'Skipped: identical frame', log: logger.finalize() };
         }
-        logger.completePhase(gateIdx, `Frame passed quality gate${bedtimeNear ? ' (bedtime mode)' : ''}`);
-        // NOTE: setLastFrame is called AFTER triage (below) so we have the description
+        logger.completePhase(gateIdx, 'Frame passed pixel dedup');
       } catch (err: any) {
-        logger.completePhase(gateIdx, `Gate failed: ${err?.message}`);
+        logger.completePhase(gateIdx, `Dedup check failed: ${err?.message}`);
       }
     }
 
     // Consume GPS tag if phone-triggered capture
     this.consumeGpsTag(framePath);
 
-    // Build context from phone state
-    const context = this.buildContext();
+    // Resolve place: visual embeddings → GPS geofence → reverse geocode
+    let visualPlace: string | null = null;
+    const placeIdx = logger.startPhase('classify', 'place');
+    try {
+      const { recognizePlace } = require('../placeRecognition/placeRecognitionService');
+      const match = await recognizePlace(framePath);
+      if (match) {
+        visualPlace = match.name;
+        logger.completePhase(placeIdx, `Visual: ${match.name} (${(match.similarity * 100).toFixed(0)}%)`);
+      } else {
+        logger.completePhase(placeIdx, 'No visual match');
+      }
+    } catch (err: any) {
+      logger.completePhase(placeIdx, `Place recognition unavailable: ${err?.message}`);
+    }
 
-    // Phase 2: Scene Triage (replaces dual classifier)
+    // Build GPS/geocode place as fallback
+    let gpsPlace: string | null = null;
+    try {
+      const { getCurrentPlace } = require('../location/locationService');
+      gpsPlace = getCurrentPlace() || null;
+    } catch { /* location service not loaded */ }
+
+    const resolvedPlace = visualPlace || gpsPlace;
+
+    // Build rich context snapshot with previous frame for multi-image
+    const { getContextSnapshot, pushScene, setLastFrame: setCtxLastFrame } = require('./contextWindow');
+    const snapshot = getContextSnapshot(resolvedPlace, visualPlace);
+
+    // Phase 2: Scene Triage (includes legibility + dedup + classification in 1 VLM call)
     const triageIdx = logger.startPhase('classify', 'triage');
-    const triage = await triageFrame(framePath, context);
+    const triage = await triageFrame(framePath, snapshot);
 
     const signalLabels = this.buildSignalLabels(triage);
     logger.completePhase(
       triageIdx,
-      `${signalLabels}, ${triage.people} people`,
+      `${signalLabels}, ${triage.people} people${triage.usable === false ? ' [NOT USABLE]' : ''}${triage.sameScene ? ' [SAME SCENE]' : ''}`,
     );
 
     // Brain offline -- surface error (do NOT update reference frame)
@@ -172,12 +197,48 @@ class SceneStreamManager {
       };
     }
 
-    // Update reference frame NOW -- triage succeeded and frame is legible
+    // Skip non-usable frames (pitch-black, fully covered only)
+    if (triage.usable === false) {
+      console.log('[SceneStream] Frame not usable (pitch-black/covered)');
+      return { summary: 'Skipped: frame not usable', log: logger.finalize() };
+    }
+
+    // Skip if same scene as previous (VLM-based dedup via multi-image)
+    if (triage.sameScene === true) {
+      console.log('[SceneStream] Same scene as previous frame');
+      return {
+        summary: `Same scene: ${triage.title}`,
+        log: logger.finalize(),
+        title: triage.title,
+        description: triage.description,
+      };
+    }
+
+    // Update context window with this frame
+    pushScene(triage.description || triage.title);
+    setCtxLastFrame(framePath);
+
+    // Update reference frame for legacy frameDedup
     if (!skipGate) {
       try {
         const { setLastFrame } = require('./frameDedup');
         setLastFrame(framePath, triage.description || triage.title);
       } catch {}
+    }
+
+    // Phase 2.5: Place learning — reinforce or learn from roomType
+    if (triage.roomType && resolvedPlace) {
+      try {
+        const { confirmAndReinforce } = require('../placeRecognition/placeRecognitionService');
+        // If we already matched a place, reinforce with this new frame
+        if (visualPlace) {
+          const { recognizePlace } = require('../placeRecognition/placeRecognitionService');
+          const match = await recognizePlace(framePath);
+          if (match) {
+            confirmAndReinforce(match.placeId, framePath);
+          }
+        }
+      } catch { /* place recognition not loaded */ }
     }
 
     // Phase 2.5: Sleep check

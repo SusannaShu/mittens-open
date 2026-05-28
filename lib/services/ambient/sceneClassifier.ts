@@ -1,22 +1,24 @@
 /**
- * ambient/sceneClassifier.ts -- Multi-signal scene triage for pendant frames.
+ * ambient/sceneClassifier.ts -- Context-aware scene triage for pendant frames.
  *
- * Single VLM call that extracts independent health signals from every frame:
- *   - nature (touch grass score)
- *   - outdoors (vitamin D score)
- *   - movement + type (MET health score)
- *   - screenUse (sedentary timer)
- *   - foodContext (eating/grocery/cooking/pantry triggers deeper pipeline)
+ * Single VLM call that replaces the old quality gate + classifier pipeline.
+ * Now handles legibility, scene-change detection, and signal extraction
+ * in one pass with full context: time, place, recent scenes, motion, and
+ * optionally the previous frame for multi-image context.
  *
- * Every frame always gets a title and description -- no more "Nothing detected."
+ * Key design decisions:
+ *   - `usable: false` ONLY for pitch-black/fully covered (not for blur/low-res)
+ *   - `sameScene` replaces the separate VLM dedup call
+ *   - `roomType` feeds into visual place learning
+ *   - Wearable images are EXPECTED to be low-res/blurry — never reject on quality
  */
 
 import type {
   SceneTriage,
   SceneSignals,
   DetectedFoodItem,
-  ClassifierContext,
 } from './types';
+import type { ContextSnapshot } from './contextWindow';
 
 const DEFAULT_SIGNALS: SceneSignals = {
   nature: false,
@@ -26,17 +28,25 @@ const DEFAULT_SIGNALS: SceneSignals = {
   foodContext: null,
 };
 
-/** Triage a pendant frame into multi-signal health data */
+/** Triage a pendant frame with rich context + optional previous frame */
 export async function triageFrame(
   framePath: string,
-  context: ClassifierContext,
+  snapshot: ContextSnapshot,
 ): Promise<SceneTriage> {
   const { getBrain } = require('../../brain/selector');
   const brain = await getBrain();
 
-  const prompt = buildPrompt(context);
+  const prompt = buildPrompt(snapshot);
+
+  // Multi-image: [previous frame, current frame] for context
+  const images: string[] = [];
+  if (snapshot.lastFramePath) {
+    images.push(snapshot.lastFramePath);
+  }
+  images.push(framePath);
 
   const fallback: SceneTriage = {
+    usable: true,
     title: 'Capture',
     description: '',
     signals: { ...DEFAULT_SIGNALS },
@@ -45,72 +55,101 @@ export async function triageFrame(
   };
 
   try {
-    const raw = await brain.vision(prompt, [framePath]);
+    const raw = await brain.vision(prompt, images);
     return parseTriage(raw, fallback);
   } catch (err: any) {
     const msg = err?.message || String(err);
-    console.error('[Classifier] Vision failed:', msg);
+    console.warn('[Classifier] Vision attempt 1 failed:', msg);
 
-    const isConnectivityError =
-      err?.name === 'ConnectionError' ||
-      msg.includes('Network request failed') ||
-      msg.includes('Failed to fetch') ||
-      msg.includes('ECONNREFUSED') ||
-      msg.includes('Cannot reach') ||
-      msg.includes('AbortError') ||
-      msg.includes('Model file not downloaded');
+    // Retry once -- transient model loading / memory pressure errors usually succeed
+    try {
+      const raw = await brain.vision(prompt, images);
+      return parseTriage(raw, fallback);
+    } catch (retryErr: any) {
+      const retryMsg = retryErr?.message || String(retryErr);
+      console.error('[Classifier] Vision retry failed:', retryMsg);
 
-    if (isConnectivityError) {
-      return { ...fallback, error: `Brain offline: ${msg}` };
+      const isConnectivityError =
+        retryErr?.name === 'ConnectionError' ||
+        retryMsg.includes('Network request failed') ||
+        retryMsg.includes('Failed to fetch') ||
+        retryMsg.includes('ECONNREFUSED') ||
+        retryMsg.includes('Cannot reach') ||
+        retryMsg.includes('Model file not downloaded');
+
+      if (isConnectivityError) {
+        return { ...fallback, error: `Brain offline: ${retryMsg}` };
+      }
+
+      return fallback;
     }
-
-    return fallback;
   }
 }
 
 // --- Prompt Construction ---
 
-function buildPrompt(ctx: ClassifierContext): string {
+function buildPrompt(snapshot: ContextSnapshot): string {
+  const hasLastFrame = !!snapshot.lastFramePath;
+
   const parts: string[] = [
-    'Analyze this photo from a wearable camera. The person wearing the camera is the subject.',
-    'You MUST always provide a title and description for the scene.',
-    'Respond JSON only:',
-    '{',
-    '  "title": "short scene title (2-5 words, e.g. Park afternoon, Morning commute, Desk work)",',
-    '  "description": "one-line description of the overall scene",',
-    '  "signals": {',
-    '    "nature": true/false (trees, grass, water, flowers, parks, garden visible?),',
-    '    "outdoors": true/false (is this outside, not inside a building?),',
-    '    "movement": true/false (person is walking, running, cycling, exercising?),',
-    '    "movementType": "walking" or null (free-form: walking, running, cycling, hiking, gym, yoga, dancing, swimming, etc),',
-    '    "screenUse": true/false (laptop, phone, tablet, monitor visible and being used?),',
-    '    "foodContext": "eating"|"grocery"|"cooking"|"pantry"|null',
-    '  },',
-    '  "foodItems": [{"name":"...", "qty":1, "unit":"whole", "conf":0.9}] or [] (only if food visible),',
-    '  "people": 0 (number of visible faces/people),',
-    '  "faceLegible": true/false (true ONLY if a person\'s face is clearly visible, in focus, and facing the camera. False if person is detected from behind, blurred, or face is not legible),',
-    '  "sleepContext": {"isDark": true/false, "screensVisible": true/false} or null',
-    '}',
+    // Image context
+    hasLastFrame
+      ? 'Two photos from a chest-mounted wearable camera. Photo 1 is the previous capture. Photo 2 is the current capture.'
+      : 'Photo from a chest-mounted wearable camera.',
+    'These images are EXPECTED to be low-resolution, motion-blurred, and poorly lit. That is normal for wearable cameras.',
+    'Your job is to figure out what the user is DOING right now. Do NOT judge image quality.',
     '',
-    'foodContext definitions:',
-    '- "eating": consuming food/drink, plated food, cup in hand, snacking',
-    '- "grocery": in a store/market, items on shelves, shopping cart, checkout',
-    '- "cooking": preparing food, cutting, stirring, using stove/oven/blender',
-    '- "pantry": looking at fridge, freezer, pantry shelf, food storage',
-    '- null: no food-related activity',
+
+    // Temporal & spatial context
+    `Time: ${snapshot.time}`,
   ];
 
-  if (ctx.place) {
-    parts.push(`Location: ${ctx.place}`);
+  if (snapshot.place) parts.push(`Place: ${snapshot.place}`);
+  if (snapshot.visualPlace) parts.push(`Known room: ${snapshot.visualPlace}`);
+  if (snapshot.motion) parts.push(`Motion sensor: ${snapshot.motion}`);
+  if (snapshot.currentSession) {
+    const elapsed = Math.round((Date.now() - snapshot.currentSession.startedAt) / 60000);
+    parts.push(`Current activity: ${snapshot.currentSession.type} for ${elapsed}min`);
   }
 
-  if (ctx.motionType) {
-    parts.push(`Motion sensor: ${ctx.motionType}`);
+  // Recent scene history
+  if (snapshot.recentScenes.length > 0) {
+    parts.push(`Recent scenes:`);
+    snapshot.recentScenes.forEach((s, i) => {
+      parts.push(`  ${i + 1}. ${s}`);
+    });
   }
 
-  if (ctx.recentMemory) {
-    parts.push(`Notes: ${ctx.recentMemory}`);
+  parts.push('');
+  parts.push('Respond JSON only:');
+  parts.push('{');
+  parts.push('  "usable": true/false (false ONLY if pitch-black, fully covered, or absolutely nothing visible),');
+  if (hasLastFrame) {
+    parts.push('  "sameScene": true/false (has anything meaningful changed between the two photos?),');
   }
+  parts.push('  "title": "short action + place (2-5 words, e.g. Walking in Central Park, Working at desk, Cooking dinner)",');
+  parts.push('  "description": "one sentence: what is the user doing right now",');
+  parts.push('  "signals": {');
+  parts.push('    "nature": true/false (trees, grass, water, flowers, parks visible?),');
+  parts.push('    "outdoors": true/false (outside, not inside a building?),');
+  parts.push('    "movement": true/false (walking, running, cycling, exercising?),');
+  parts.push('    "movementType": "walking" or null (walking, running, cycling, hiking, gym, etc),');
+  parts.push('    "screenUse": true/false (laptop, phone, tablet being used?),');
+  parts.push('    "foodContext": "eating"|"grocery"|"cooking"|"pantry"|null');
+  parts.push('  },');
+  parts.push('  "foodItems": [{"name":"...", "qty":1, "unit":"whole", "conf":0.9}] or [],');
+  parts.push('  "people": 0,');
+  parts.push('  "faceLegible": true/false,');
+  parts.push('  "sleepContext": {"isDark": true/false, "screensVisible": true/false} or null,');
+  parts.push('  "roomType": "kitchen"|"bathroom"|"office"|"bedroom"|"hallway"|"living_room"|"outdoor"|"store"|"gym"|null');
+  parts.push('}');
+  parts.push('');
+  parts.push('foodContext definitions:');
+  parts.push('- "eating": consuming food/drink, plated food, cup in hand, snacking');
+  parts.push('- "grocery": in a store/market, items on shelves, shopping cart');
+  parts.push('- "cooking": preparing food, cutting, stirring, using stove/oven');
+  parts.push('- "pantry": looking at fridge, freezer, pantry shelf, food storage');
+  parts.push('- null: no food-related activity');
 
   return parts.join('\n');
 }
@@ -163,6 +202,8 @@ function parseTriage(
       : undefined;
 
     return {
+      usable: parsed.usable !== false, // Default to usable (wearable-tolerant)
+      sameScene: parsed.sameScene !== undefined ? Boolean(parsed.sameScene) : undefined,
       title: parsed.title || fallback.title,
       description: parsed.description || parsed.desc || '',
       signals,
@@ -170,6 +211,7 @@ function parseTriage(
       people: Number(parsed.people || parsed.ppl || 0),
       faceLegible: parsed.faceLegible !== undefined ? Boolean(parsed.faceLegible) : undefined,
       sleepContext,
+      roomType: parsed.roomType || undefined,
     };
   } catch (err) {
     console.warn('[Classifier] Parse failed, using fallback');

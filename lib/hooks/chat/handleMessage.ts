@@ -71,27 +71,58 @@ const FACE_RECOGNITION_PHASES: Array<{ key: string; label: string; featherIcon: 
   { key: 'match', label: 'Matching identities', featherIcon: 'user-check' },
 ];
 
-/**
- * Build the phase list for a triage intent, respecting inferrablePhases.
- * Only shows phases with evidence (if specified).
- */
+const MEAL_ACTION_PHASES: Array<{ key: string; label: string; featherIcon: string }> = [
+  { key: 'execute', label: 'Updating meal plan', featherIcon: 'refresh-cw' },
+];
+
 function buildPhasesForIntent(intent: DetectedIntent): IntentPhase[] {
   let allPhases: Array<{ key: string; label: string; featherIcon: string }>;
+  let coreKeys: string[] = [];
+
   switch (intent.pipeline) {
-    case 'meal': allPhases = MEAL_PHASES; break;
-    case 'activity': allPhases = ACTIVITY_PHASES; break;
-    case 'sleep': allPhases = SLEEP_PHASES; break;
-    case 'pantry': allPhases = PANTRY_PHASES; break;
-    case 'chat': allPhases = CHAT_PHASES; break;
-    case 'timer': allPhases = TIMER_PHASES; break;
-    case 'face_recognition': allPhases = FACE_RECOGNITION_PHASES; break;
-    default: return [];
+    case 'meal':
+      allPhases = MEAL_PHASES;
+      coreKeys = ['identify', 'nutrients', 'bioavailability', 'validate'];
+      break;
+    case 'activity':
+      allPhases = ACTIVITY_PHASES;
+      coreKeys = ['detect'];
+      break;
+    case 'sleep':
+      allPhases = SLEEP_PHASES;
+      coreKeys = ['detect'];
+      break;
+    case 'pantry':
+      allPhases = PANTRY_PHASES;
+      coreKeys = ['identify'];
+      break;
+    case 'chat':
+      allPhases = CHAT_PHASES;
+      coreKeys = ['classify', 'respond'];
+      break;
+    case 'timer':
+      allPhases = TIMER_PHASES;
+      coreKeys = ['execute'];
+      break;
+    case 'face_recognition':
+      allPhases = FACE_RECOGNITION_PHASES;
+      coreKeys = ['detect', 'match'];
+      break;
+    case 'meal_action':
+      allPhases = MEAL_ACTION_PHASES;
+      coreKeys = ['execute'];
+      break;
+    default:
+      return [];
   }
 
-  // Filter to only phases with evidence (if inferrablePhases specified)
+  // Filter to core phases PLUS any optional phases with evidence in inferrablePhases
   const allowed = intent.inferrablePhases;
   if (allowed && allowed.length > 0) {
-    allPhases = allPhases.filter(p => allowed.includes(p.key));
+    allPhases = allPhases.filter(p => coreKeys.includes(p.key) || allowed.includes(p.key));
+  } else {
+    // If no inferrablePhases specified, keep only core keys (e.g. omit eatingContext by default)
+    allPhases = allPhases.filter(p => coreKeys.includes(p.key));
   }
 
   return allPhases.map(p => ({ ...p, status: 'queued' as const }));
@@ -232,6 +263,12 @@ function composeReply(
           parts.push(data.response);
         }
         break;
+
+      case 'meal_action':
+        if (data?.reply) {
+          parts.push(data.reply);
+        }
+        break;
     }
   }
 
@@ -299,6 +336,9 @@ async function runIntent(
       }
       return { type: 'email', data: await runner.runEmailPipeline(input) };
     }
+
+    case 'meal_action':
+      return { type: 'meal_action', data: await runner.runMealActionPipeline(input, intent.actionParams) };
 
     default:
       return { type: 'chat', data: null };
@@ -487,7 +527,7 @@ export async function handleMessage(
   // Show progress message with intent cards immediately
   const progressMsgId = `m-${Date.now()}`;
   const hasVisibleIntents = intentCards.some(i =>
-    i.phases.length > 0 && !['chat', 'email', 'watch'].includes(i.pipeline)
+    i.phases.length > 0 && !['chat', 'email', 'watch', 'meal_action'].includes(i.pipeline)
   );
 
   if (hasVisibleIntents) {
@@ -554,6 +594,11 @@ export async function handleMessage(
     'watch:fetch': 'Fetching content...',
     'watch:filter': 'Filtering results...',
     'watch:extract': 'Extracting details...',
+    'meal_action:dismiss_item': 'Updating meal plan...',
+    'meal_action:regenerate_slot': 'Regenerating...',
+    'meal_action:generate_plan': 'Generating meal plan...',
+    'meal_action:set_preference': 'Saving preference...',
+    'meal_action:sun_exposure': 'Checking UV data...',
   };
 
   // 8. Run pipelines SEQUENTIALLY (E2B is single-threaded)
@@ -783,6 +828,20 @@ export async function handleMessage(
 
       // Meal persistence is handled by useNutrientPipeline after
       // all foods complete nutrient estimation
+
+      case 'meal_action':
+        // Meal plan was modified -- invalidate caches so Today tab refreshes
+        if (data?.action === 'meal_plan_updated' || data?.action === 'meal_plan_generated') {
+          try {
+            const { nutritionApi } = await import('../../services/nutritionApi');
+            const { store } = await import('../../store');
+            store.dispatch(nutritionApi.util.invalidateTags(['MealPlan', 'DailySummary']));
+            console.log('[Pipeline] Meal plan cache invalidated after meal_action');
+          } catch (e: any) {
+            console.warn('[Pipeline] Failed to invalidate meal plan cache:', e?.message);
+          }
+        }
+        break;
     }
   }
 

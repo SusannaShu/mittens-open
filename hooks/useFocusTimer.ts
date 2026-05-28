@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
 import { AppState } from 'react-native';
 import { saveMittensMessage } from '../lib/services/schedule/alarmScheduler';
 import { ActivityTypeService } from '../lib/services/activityTypeService';
+import { getLastHandledBreakAt } from '../lib/services/focusTimerNotificationHandler';
+import { scheduleBackgroundBreak, cancelBackgroundBreak } from '../lib/services/focusTimerNotificationHandler';
 import { useGetActivityTypesQuery } from '../lib/services/activityTypeApi';
 import { getDb, enqueueSyncRecord } from '../lib/database';
 
@@ -24,22 +25,9 @@ export async function startGlobalTimer(category: string, name: string, breakInte
   await AsyncStorage.setItem(NAME_KEY, name);
   await AsyncStorage.setItem(START_KEY, nowMs.toString());
 
-  // Schedule break reminder notification
-  await Notifications.scheduleNotificationAsync({
-    identifier: 'focus-timer',
-    content: {
-      title: 'Mittens',
-      subtitle: 'Time to stretch!',
-      body: `You've been doing ${name} for ${breakIntervalMins} minutes. Take a breather!`,
-      data: { type: 'focus_rest' },
-      sound: 'default',
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: breakIntervalMins * 60,
-      repeats: false,
-    },
-  });
+  // Schedule background break timer -- Mittens will speak via TTS when it fires,
+  // even when the app is backgrounded (kept alive by audio keepalive + location).
+  scheduleBackgroundBreak(name, breakIntervalMins);
 
   // Log activity immediately so it appears on the calendar
   const entryId = await logTimerActivity(category, name, breakIntervalMins, new Date(nowMs).toISOString());
@@ -66,7 +54,7 @@ export async function stopGlobalTimer() {
   await AsyncStorage.removeItem(START_KEY);
   await AsyncStorage.removeItem(ENTRY_ID_KEY);
   await AsyncStorage.removeItem(BREAK_COUNT_KEY);
-  await Notifications.cancelScheduledNotificationAsync('focus-timer').catch(() => {});
+  cancelBackgroundBreak();
 
   const { DeviceEventEmitter } = require('react-native');
   DeviceEventEmitter.emit('focusTimerUpdated');
@@ -149,59 +137,69 @@ export function useFocusTimer(breakIntervalMins: number = 45, options?: FocusTim
           // Break reminder fired -- timer keeps running (user manually stops)
           setTimeLeft(0);
           setIsRunning(true);
-          
-          // Track how many break reminders have fired this session
-          let breakCount = 1;
-          try {
-            const countStr = await AsyncStorage.getItem(BREAK_COUNT_KEY);
-            breakCount = countStr ? parseInt(countStr, 10) + 1 : 1;
-          } catch {}
-          await AsyncStorage.setItem(BREAK_COUNT_KEY, breakCount.toString());
 
-          // Get break goals (activities tagged with "Mention in Break")
-          let breakGoals: string[] = [];
-          try {
-            const allTypes = await ActivityTypeService.getAll();
-            breakGoals = allTypes
-              .filter(t => t.mentionDuringBreak)
-              .map(t => t.label);
-          } catch {}
+          // The notification listener (focusTimerNotificationHandler) handles
+          // TTS + chat message at notification delivery time, even when
+          // backgrounded. Only run the nudge here if the listener didn't
+          // already fire (e.g. app was killed or listener failed).
+          const handledAt = getLastHandledBreakAt();
+          const alreadyHandled = (Date.now() - handledAt) < breakIntervalMins * 60 * 1000;
 
-          // Build TTS message -- progressive nudging
-          let ttsMsg: string;
-          let chatMsg: string;
-          const activity = nameStr || catStr || 'work';
-          const goalsPhrase = breakGoals.length > 0
-            ? breakGoals.join(' or ')
-            : 'a stretch';
+          if (!alreadyHandled) {
+            // Track how many break reminders have fired this session
+            let breakCount = 1;
+            try {
+              const countStr = await AsyncStorage.getItem(BREAK_COUNT_KEY);
+              breakCount = countStr ? parseInt(countStr, 10) + 1 : 1;
+            } catch {}
+            await AsyncStorage.setItem(BREAK_COUNT_KEY, breakCount.toString());
 
-          if (breakCount === 1) {
-            // First nudge: gentle reminder
-            ttsMsg = `Susanna, time to take a break from ${activity}. How about some ${goalsPhrase}?`;
-            chatMsg = `Time to stretch! You've been doing ${activity} for a while. How about some ${goalsPhrase}?`;
-          } else if (breakCount === 2) {
-            // Second nudge: more persuasive, use the brain if available
-            ttsMsg = `Hey Susanna, still going? Your body will thank you for some ${goalsPhrase}. Come on, just a quick set!`;
-            chatMsg = `Still at it? Come on, just a quick round of ${goalsPhrase}. Your future self will thank you!`;
-          } else {
-            // Third+ nudge: playful escalation
-            ttsMsg = `Susanna! That's ${breakCount} reminders now. Seriously, go do some ${goalsPhrase}. I'm not going to stop asking.`;
-            chatMsg = `Reminder #${breakCount}. I'm not going away until you do some ${goalsPhrase}. Your back is begging you.`;
+            // Get break goals (activities tagged with "Mention in Break")
+            let breakGoals: string[] = [];
+            try {
+              const allTypes = await ActivityTypeService.getAll();
+              breakGoals = allTypes
+                .filter(t => t.mentionDuringBreak)
+                .map(t => t.label);
+            } catch {}
+
+            // Build TTS message -- progressive nudging
+            let ttsMsg: string;
+            let chatMsg: string;
+            const activity = nameStr || catStr || 'work';
+            const goalsPhrase = breakGoals.length > 0
+              ? breakGoals.join(' or ')
+              : 'a stretch';
+
+            if (breakCount === 1) {
+              // First nudge: gentle reminder
+              ttsMsg = `Susanna, time to take a break from ${activity}. How about some ${goalsPhrase}?`;
+              chatMsg = `Time to stretch! You've been doing ${activity} for a while. How about some ${goalsPhrase}?`;
+            } else if (breakCount === 2) {
+              // Second nudge: more persuasive, use the brain if available
+              ttsMsg = `Hey Susanna, still going? Your body will thank you for some ${goalsPhrase}. Come on, just a quick set!`;
+              chatMsg = `Still at it? Come on, just a quick round of ${goalsPhrase}. Your future self will thank you!`;
+            } else {
+              // Third+ nudge: playful escalation
+              ttsMsg = `Susanna! That's ${breakCount} reminders now. Seriously, go do some ${goalsPhrase}. I'm not going to stop asking.`;
+              chatMsg = `Reminder #${breakCount}. I'm not going away until you do some ${goalsPhrase}. Your back is begging you.`;
+            }
+
+            // TTS fires independently -- never swallowed by goal lookup failures
+            try {
+              const { speak } = require('../lib/services/voice/ttsService');
+              speak(ttsMsg);
+            } catch (ttsErr) {
+              console.warn('[timer] TTS failed:', ttsErr);
+            }
+
+            saveMittensMessage(chatMsg, 'focus_timer_break');
+
+            // Schedule next break
+            const nextEnd = Date.now() + breakIntervalMins * 60 * 1000;
+            await AsyncStorage.setItem(STORAGE_KEY, nextEnd.toString());
           }
 
-          // TTS fires independently -- never swallowed by goal lookup failures
-          try {
-            const { speak } = require('../lib/services/voice/ttsService');
-            speak(ttsMsg);
-          } catch (ttsErr) {
-            console.warn('[timer] TTS failed:', ttsErr);
-          }
-
-          saveMittensMessage(chatMsg, 'focus_timer_break');
-          
-          // Schedule next break
-          const nextEnd = Date.now() + breakIntervalMins * 60 * 1000;
-          await AsyncStorage.setItem(STORAGE_KEY, nextEnd.toString());
           options?.onComplete?.();
         }
       } else {

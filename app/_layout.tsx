@@ -9,6 +9,7 @@ import { usePendantBridge } from '../lib/hooks/pendant/usePendantBridge';
 import { setBackendUser } from '../lib/userContext';
 import { initExecutorch } from 'react-native-executorch';
 import { ExpoResourceFetcher } from 'react-native-executorch-expo-resource-fetcher';
+import { restoreBackgroundBreakIfNeeded } from '../lib/services/focusTimerNotificationHandler';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -56,7 +57,24 @@ export default function RootLayout() {
         
         console.log('[init] Local database ready');
 
-        // 3. Initialize Location & Motion Tracking
+        // 3. Initialize voice system (Kokoro neural TTS + background audio keepalive)
+        //    This MUST run early -- the silent audio keepalive keeps the JS thread alive
+        //    when backgrounded, which is required for all setTimeout-based features
+        //    (cooking timers, sleep nudges, focus break timers).
+        //    Also loads the Kokoro model so speak() uses the neural voice, not Siri.
+        try {
+          const { initVoice } = require('../lib/services/ai/voiceService');
+          await initVoice();
+          console.log('[init] Voice system ready (Kokoro + keepalive)');
+        } catch (voiceErr) {
+          console.warn('[init] Voice init failed (TTS will use native fallback):', voiceErr);
+        }
+
+        // 3b. Restore background break timer (must run AFTER voice init so
+        //     Kokoro is loaded and keepalive is running before we try to speak)
+        restoreBackgroundBreakIfNeeded();
+
+        // 4. Initialize Location & Motion Tracking
         const { initLocationServices, startActivityRecognition } = require('../lib/services/location/locationService');
         const { getDb } = require('../lib/database');
         const db = getDb();

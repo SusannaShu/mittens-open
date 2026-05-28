@@ -4,6 +4,7 @@
  */
 
 import { baseApi } from './baseApi';
+import { getLocalDateString } from '../dateUtils';
 import { getDb } from '../database';
 import type { DailySummary, WeeklySummary, SnapResponse } from '../types';
 
@@ -22,7 +23,7 @@ export const nutritionApi = baseApi.injectEndpoints({
     getDailySummary: build.query<DailySummary, string | void>({
       queryFn: async (date) => {
         try {
-          const localDate = date ? date.split('&')[0] : new Date().toLocaleDateString('en-CA');
+          const localDate = date ? date.split('&')[0] : getLocalDateString();
           const { LocalDataProvider } = require('../providers/localDataProvider');
           const provider = new LocalDataProvider();
           const summary = await provider.getDailySummary(localDate);
@@ -445,7 +446,7 @@ export const nutritionApi = baseApi.injectEndpoints({
       queryFn: () => {
         try {
           const db = getDb();
-          const today = new Date().toLocaleDateString('en-CA');
+          const today = getLocalDateString();
           const row = db.getFirstSync(
             `SELECT * FROM daily_meal_plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1`,
             [today]
@@ -474,7 +475,7 @@ export const nutritionApi = baseApi.injectEndpoints({
       queryFn: ({ slot, foods }) => {
         try {
           const db = getDb();
-          const today = new Date().toLocaleDateString('en-CA');
+          const today = getLocalDateString();
           const row = db.getFirstSync(
             `SELECT id, ${slot} FROM daily_meal_plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1`,
             [today]
@@ -509,23 +510,37 @@ export const nutritionApi = baseApi.injectEndpoints({
       invalidatesTags: ['MealPlan'],
     }),
 
+    regenerateSlot: build.mutation<any, { slot: string; excludedFoods: string[]; sessionPrefs?: string }>({
+      queryFn: async ({ slot, excludedFoods, sessionPrefs }) => {
+        try {
+          const { regenerateSlotPipeline } = require('../pipelines/food/mealPlanPipeline');
+          const result = await regenerateSlotPipeline(slot, excludedFoods, sessionPrefs);
+          return { data: { status: 'ok', ...result } };
+        } catch (e: any) {
+          return { error: { status: 'CUSTOM_ERROR', error: e.message } };
+        }
+      },
+      invalidatesTags: ['MealPlan', 'DailySummary'],
+    }),
+
     generateMealPlan: build.mutation<{ plan: any }, void>({
       queryFn: () => ({ data: { plan: null } }),
       invalidatesTags: ['MealPlan'],
     }),
 
-    generateMealPlanAsync: build.mutation<{ success: boolean; jobId: string; status: string; message: string }, { customConstraint?: string } | void>({
+    generateMealPlanAsync: build.mutation<{ success: boolean; jobId: string; status: string; message: string }, { customConstraint?: string; sessionPrefs?: string } | void>({
       queryFn: async (args) => {
         try {
           const { LocalDataProvider } = require('../providers/localDataProvider');
           const provider = new LocalDataProvider();
-          const today = new Date().toLocaleDateString('en-CA');
+          const today = getLocalDateString();
           const summary = await provider.getDailySummary(today);
 
           const { generateMealPlanPipeline } = require('../pipelines/food/mealPlanPipeline');
-          const customConstraint = (args as any)?.customConstraint || '';
+          // sessionPrefs flows through customConstraint to the pipeline
+          const sessionPrefs = (args as any)?.sessionPrefs || (args as any)?.customConstraint || '';
           
-          await generateMealPlanPipeline('local-user', summary.gaps, customConstraint);
+          await generateMealPlanPipeline('local-user', summary.gaps, sessionPrefs);
 
           return {
             data: { success: true, jobId: 'local-meal-plan', status: 'completed', message: 'Meal plan generated' },
@@ -565,6 +580,7 @@ export const {
   useReestimateItemMutation,
   useGetTodayMealPlanQuery,
   useUpdateTodayMealPlanMutation,
+  useRegenerateSlotMutation,
   useGenerateMealPlanMutation,
   useGenerateMealPlanAsyncMutation,
   useLazyCheckMealPlanJobStatusQuery,

@@ -277,6 +277,29 @@ export function useTodayHandlers(refetch: () => void, triggerMealPlanRegeneratio
   const handleManualSubmit = async () => {
     if (!manualText.trim() && manualPhotos.length === 0 && manualUsdaFoods.length === 0) return;
 
+    if (manualUsdaFoods.length === 0 && (manualText.trim() || manualPhotos.length > 0)) {
+      const text = manualText.trim();
+      const photos = [...manualPhotos];
+      const mealType = manualMealType;
+      const loggedAt = manualLoggedAt.toISOString();
+
+      setManualModalVisible(false);
+      setManualText('');
+      setManualPhotos([]);
+      setManualUsdaFoods([]);
+
+      router.push({
+        pathname: '/chat',
+        params: {
+          triggerManualText: text,
+          triggerManualPhotos: JSON.stringify(photos),
+          triggerMealType: mealType,
+          triggerLoggedAt: loggedAt,
+        }
+      });
+      return;
+    }
+
     setAnalyzingManual(true);
     try {
       let result: any;

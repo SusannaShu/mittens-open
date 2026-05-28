@@ -1,4 +1,5 @@
-import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useState } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors, fonts } from '../../../lib/theme';
@@ -14,8 +15,10 @@ interface Props {
   onOpenMealDetail: (data: { key: string; label: string; meal: any }) => void;
   onOpenGrocery: () => void;
   onOpenProjection: () => void;
-  onGenerate?: () => void;
+  onGenerate?: (sessionPrefs?: string) => void;
   onDislikeFood?: (food: string) => void;
+  onDismissAndRegenerate?: (food: string, slot: string) => void;
+  isRegenerating?: string | null; // slot currently being regenerated
 }
 
 const MEAL_SLOTS: [string, string, string][] = [
@@ -27,10 +30,18 @@ const MEAL_SLOTS: [string, string, string][] = [
 export default function MealPlanSection({
   mealPlan, meals, gapCoverage, isGeneratingPlan, collapsed, onToggle,
   onOpenMealDetail, onOpenGrocery, onOpenProjection, onGenerate, onDislikeFood,
+  onDismissAndRegenerate, isRegenerating,
 }: Props) {
   const router = useRouter();
+  const [moodInput, setMoodInput] = useState('');
 
-  if (!mealPlan) {
+  // Treat plan with no actual meals as empty
+  const hasMeals = mealPlan && MEAL_SLOTS.some(([key]) => {
+    const meal = mealPlan[key];
+    return meal && Array.isArray(meal.items) && meal.items.length > 0;
+  });
+
+  if (!hasMeals) {
     return (
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>MEAL PLAN</Text>
@@ -43,12 +54,39 @@ export default function MealPlanSection({
               </Text>
             </>
           ) : (
-            <TouchableOpacity onPress={onGenerate} style={{ alignItems: 'center' }}>
-              <Feather name="refresh-cw" size={16} color={colors.accent} style={{ marginBottom: 4 }} />
-              <Text style={{ fontSize: 14, fontWeight: '500', color: colors.accent }}>
-                Tap to generate plan
-              </Text>
-            </TouchableOpacity>
+            <View style={{ alignItems: 'center', gap: 10, width: '100%', paddingHorizontal: 8 }}>
+              <TextInput
+                style={{
+                  width: '100%',
+                  fontSize: 13,
+                  color: colors.textPrimary,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  backgroundColor: colors.bgCard,
+                }}
+                placeholder="In the mood for something? (e.g., warm soup, no dairy, Asian...)"
+                placeholderTextColor={colors.textMuted}
+                value={moodInput}
+                onChangeText={setMoodInput}
+                returnKeyType="done"
+                blurOnSubmit
+              />
+              <TouchableOpacity
+                onPress={() => {
+                  onGenerate?.(moodInput.trim() || undefined);
+                  setMoodInput('');
+                }}
+                style={{ alignItems: 'center' }}
+              >
+                <Feather name="refresh-cw" size={16} color={colors.accent} style={{ marginBottom: 4 }} />
+                <Text style={{ fontSize: 14, fontWeight: '500', color: colors.accent }}>
+                  Tap to generate plan
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -68,10 +106,17 @@ export default function MealPlanSection({
             const meal = mealPlan[key];
             if (!meal) return null;
             const mealItems: string[] = meal.items || [];
+            const isSlotRegenerating = isRegenerating === key;
             return (
               <View
                 key={key}
-                style={{ backgroundColor: colors.bgCard, borderRadius: 10, padding: 12, gap: 6 }}
+                style={{
+                  backgroundColor: colors.bgCard,
+                  borderRadius: 10,
+                  padding: 12,
+                  gap: 6,
+                  opacity: isSlotRegenerating ? 0.6 : 1,
+                }}
               >
                 <TouchableOpacity
                   onPress={() => onOpenMealDetail({ key, label, meal })}
@@ -86,28 +131,35 @@ export default function MealPlanSection({
                   </View>
                 </TouchableOpacity>
 
-                {/* Individual food items with dislike button */}
-                <View style={{ gap: 2 }}>
-                  {mealItems.map((item: string, idx: number) => (
-                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 }}>
-                      <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18, flex: 1, marginRight: 8 }} numberOfLines={2}>
-                        {item}
-                      </Text>
-                      {onDislikeFood && (
-                        <TouchableOpacity
-                          onPress={() => onDislikeFood(item)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          activeOpacity={0.5}
-                          style={{ padding: 4 }}
-                        >
-                          <Feather name="thumbs-down" size={12} color={colors.textMuted} />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
-                </View>
+                {/* Individual food items with dismiss button */}
+                {isSlotRegenerating ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}>
+                    <ActivityIndicator size="small" color={colors.textMuted} />
+                    <Text style={{ fontSize: 13, color: colors.textMuted }}>Replacing...</Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 2 }}>
+                    {mealItems.map((item: string, idx: number) => (
+                      <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 18, flex: 1, marginRight: 8 }} numberOfLines={2}>
+                          {item}
+                        </Text>
+                        {onDismissAndRegenerate && (
+                          <TouchableOpacity
+                            onPress={() => onDismissAndRegenerate(item, key)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.5}
+                            style={{ padding: 4 }}
+                          >
+                            <Feather name="x" size={12} color={colors.textMuted} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
 
-                {meal.prepTip && (
+                {meal.prepTip && !isSlotRegenerating && (
                   <Text style={{ fontSize: 12, color: colors.textMuted, fontStyle: 'italic', marginTop: 2 }}>{meal.prepTip}</Text>
                 )}
               </View>

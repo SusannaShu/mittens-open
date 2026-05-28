@@ -61,16 +61,9 @@ export interface ActivityEntry {
   failure_logs?: any[];
 }
 
-export interface BreakdownActivity {
-  id: number;
-  logName: string;
-  activityType: string;
-  duration_min: number;
+export interface BreakdownActivity extends ActivityEntry {
   weight: number;
   weighted_min: number;
-  loggedAt: string;
-  engagement: number | null;
-  energy: number | null;
 }
 
 export interface PillarContributor {
@@ -303,15 +296,9 @@ export const activityApi = baseApi.injectEndpoints({
               categoryMinutes[cat] += weightedMin;
 
               breakdown[cat].push({
-                id: r.id,
-                logName: r.log_name || 'Activity',
-                activityType: r.activity_type || 'other',
-                duration_min: dur,
+                ...rowToActivity(r),
                 weight: w as number,
                 weighted_min: weightedMin,
-                loggedAt: r.logged_at,
-                engagement: r.engagement,
-                energy: r.energy,
               });
             }
           }

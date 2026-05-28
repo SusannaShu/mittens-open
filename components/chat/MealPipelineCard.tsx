@@ -48,6 +48,8 @@ export interface FoodPipelineItem {
   cookingMethod?: string;
   /** Interaction effects */
   interactionChanges?: Array<{ target: string; trigger: string; type: string; beforeValue: number; afterValue: number; reason: string; sourceFoods?: string[] }>;
+  /** Gut health and NOVA classification */
+  validation?: any;
 }
 
 /** Extended USDA ref with per100g data for local switching */

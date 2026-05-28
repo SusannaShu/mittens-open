@@ -141,9 +141,24 @@ export default function NutrientDetailSheet({
           <Text style={s.sheetTitle} numberOfLines={1}>{title}</Text>
           <View style={{ width: 22 }} />
         </View>
-        {food?.reasoning && (
-          <Text style={s.sourceLabel}>{food.reasoning}</Text>
-        )}
+        {(() => {
+          if (!food) return null;
+          const hasUsdaMatch = !!(food.usedRef && (food.usedRef.fdcId || food.usedRef.name));
+          if (hasUsdaMatch) {
+            const refName = food.usedRef?.name || food.name;
+            return (
+              <Text style={s.sourceLabel}>
+                Brain selected USDA reference: "{refName}"
+              </Text>
+            );
+          } else {
+            return (
+              <Text style={s.sourceLabel}>
+                AI Estimate
+              </Text>
+            );
+          }
+        })()}
 
         <ScrollView style={s.scrollBody} showsVerticalScrollIndicator={false}>
           {/* Empty state: no nutrients / no USDA match */}

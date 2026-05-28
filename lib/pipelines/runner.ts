@@ -247,6 +247,27 @@ export class PipelineRunner {
       throw e;
     }
 
+    // Check if classify detected an actionable intent → hand off to meal action pipeline
+    if (classRes?.action && classRes.action.type && classRes.action.type !== 'none') {
+      const actionIdx = this.logger.startPhase('chat', 'action_dispatch');
+      try {
+        const actionResult = await this.runMealActionPipeline(input, classRes.action);
+        this.logger.completePhase(actionIdx, `Action: ${classRes.action.type} → ${actionResult.action}`);
+        const finalResult = {
+          ...classRes,
+          reply: actionResult.reply,
+          action: actionResult.action,
+          actionResult: actionResult.result,
+        };
+        this.emit('chat', { status: 'complete', result: finalResult });
+        return finalResult;
+      } catch (e: any) {
+        this.logger.failPhase(actionIdx, e.message);
+        // Fall through to normal respond if action fails
+        console.warn('[Pipeline] Meal action failed, falling back to chat:', e.message);
+      }
+    }
+
     // Phase 2: Respond -- use directReply from classify if available
     this.emit('chat', { status: 'running', currentPhase: 'respond' });
     const respondIdx = this.logger.startPhase('chat', 'respond');
@@ -750,5 +771,130 @@ export class PipelineRunner {
 
     this.emit('watch', { status: 'complete', result });
     return result;
+  }
+
+  /**
+   * Execute a meal plan action (dismiss item, regenerate slot, generate plan,
+   * set preference, or sun exposure query).
+   *
+   * Called from:
+   *   1. Triage → meal_action pipeline (direct routing)
+   *   2. Chat classify → action detected (fallback routing)
+   */
+  async runMealActionPipeline(input: PipelineInput, actionParams: any): Promise<any> {
+    const action = actionParams?.type || actionParams?.action;
+    this.emit('meal_action', { status: 'running', currentPhase: action });
+    const phaseIdx = this.logger.startPhase('meal_action', action);
+
+    try {
+      let result: any;
+
+      switch (action) {
+        case 'dismiss_item': {
+          const { regenerateSlotPipeline } = await import('./food/mealPlanPipeline');
+          const slot = actionParams.slot || 'lunch';
+          const foodItem = actionParams.foodItem || '';
+          const regenResult = await regenerateSlotPipeline(slot, [foodItem], actionParams.preference);
+          result = {
+            reply: `Done — I replaced ${foodItem} in ${slot}. Your plan is updated.`,
+            action: 'meal_plan_updated',
+            result: regenResult,
+          };
+          break;
+        }
+
+        case 'regenerate_slot': {
+          const { regenerateSlotPipeline } = await import('./food/mealPlanPipeline');
+          const slot = actionParams.slot || 'dinner';
+          const slotResult = await regenerateSlotPipeline(slot, [], actionParams.preference);
+          result = {
+            reply: `Here's a new ${slot} for you.`,
+            action: 'meal_plan_updated',
+            result: slotResult,
+          };
+          break;
+        }
+
+        case 'generate_plan': {
+          const { generateMealPlanPipeline } = await import('./food/mealPlanPipeline');
+          const { LocalDataProvider } = await import('../providers/localDataProvider');
+          const provider = new LocalDataProvider();
+          const today = new Date().toLocaleDateString('en-CA');
+          const summary = await provider.getDailySummary(today);
+          await generateMealPlanPipeline('local-user', summary.gaps, actionParams.preference || '');
+          result = {
+            reply: actionParams.preference
+              ? `Generated a meal plan with your preferences: "${actionParams.preference}". Check the Today tab.`
+              : `Your meal plan is ready. Check the Today tab.`,
+            action: 'meal_plan_generated',
+          };
+          break;
+        }
+
+        case 'set_preference': {
+          const { getDb } = await import('../database');
+          const db = getDb();
+          const profile = db.getFirstSync(`SELECT dietary_preferences FROM nutrition_profile WHERE id = 1`) as any;
+          let prefs: string[] = [];
+          try { prefs = JSON.parse(profile?.dietary_preferences || '[]'); } catch {}
+          if (!Array.isArray(prefs)) prefs = [];
+          const newPref = actionParams.preference || '';
+          if (newPref && !prefs.some((p: string) => p.toLowerCase() === newPref.toLowerCase())) {
+            prefs.push(newPref);
+            db.runSync(`UPDATE nutrition_profile SET dietary_preferences = ? WHERE id = 1`, [JSON.stringify(prefs)]);
+          }
+          result = {
+            reply: `Added "${newPref}" to your dietary preferences. Future meal plans will respect this.`,
+            action: 'preference_updated',
+          };
+          break;
+        }
+
+        case 'sun_exposure': {
+          const { getDb } = await import('../database');
+          const db = getDb();
+          const today = new Date().toLocaleDateString('en-CA');
+          const planRow = db.getFirstSync(
+            `SELECT vitamin_d_rec FROM daily_meal_plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1`,
+            [today],
+          ) as any;
+
+          if (planRow?.vitamin_d_rec) {
+            try {
+              const rec = JSON.parse(planRow.vitamin_d_rec);
+              result = {
+                reply: rec.feasible
+                  ? `Based on today's UV index (${rec.uvIndex || '?'}) and your skin type, get about ${rec.minutesNeeded} minutes of sun exposure. ${rec.note || ''}`
+                  : rec.note || 'UV is too low today for meaningful vitamin D synthesis. Consider a supplement.',
+                action: 'info',
+              };
+            } catch {
+              result = { reply: 'I have your vitamin D data but couldn\'t parse it. Check the Today tab for details.', action: 'info' };
+            }
+          } else {
+            result = {
+              reply: 'Generate a meal plan first so I can calculate your vitamin D needs based on today\'s UV conditions.',
+              action: 'info',
+            };
+          }
+          break;
+        }
+
+        default:
+          result = {
+            reply: "I'm not sure what meal plan action you want. Try 'regenerate lunch' or 'remove eggs from dinner'.",
+            action: 'unknown',
+          };
+      }
+
+      this.logger.completePhase(phaseIdx, `${action} → ${result.action}`);
+      this.emit('meal_action', { status: 'complete', result });
+      return result;
+
+    } catch (e: any) {
+      this.logger.failPhase(phaseIdx, e.message);
+      this.emit('meal_action', { status: 'error', error: e.message });
+      throw e;
+    }
   }
 }

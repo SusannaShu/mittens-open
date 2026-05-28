@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { useGetDailySummaryQuery, useGetTodayMealPlanQuery, useGenerateMealPlanAsyncMutation, useUpdateTodayMealPlanMutation } from '../../lib/services/nutritionApi';
+import { useGetDailySummaryQuery, useGetTodayMealPlanQuery, useGenerateMealPlanAsyncMutation, useUpdateTodayMealPlanMutation, useRegenerateSlotMutation } from '../../lib/services/nutritionApi';
 import { nutritionApi } from '../../lib/services/nutritionApi';
 import { useGetProfileQuery } from '../../lib/services/profileApi';
 import { colors, spacing } from '../../lib/theme';
@@ -25,6 +25,7 @@ import MetabolicStoryCard from '../../components/today/sections/MetabolicStoryCa
 import LoggedTodaySection from '../../components/today/sections/LoggedTodaySection';
 import NutrientStatusSection from '../../components/today/sections/NutrientStatusSection';
 import MealPlanSection from '../../components/today/sections/MealPlanSection';
+import OutdoorCard from '../../components/today/sections/SunExposureCard';
 import PantrySection from '../../components/today/sections/PantrySection';
 
 // Modal components
@@ -70,7 +71,9 @@ export default function TodayScreen() {
 
   // Meal plan generation
   const [generateMealPlanAsync] = useGenerateMealPlanAsyncMutation();
+  const [regenerateSlot] = useRegenerateSlotMutation();
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [regeneratingSlot, setRegeneratingSlot] = useState<string | null>(null);
   const autoGenTriggeredRef = useRef(false);
 
   // Weather state
@@ -78,16 +81,33 @@ export default function TodayScreen() {
 
   // All handlers + modal state from custom hook
   // Generate meal plan via local brain (no polling needed -- runs synchronously)
-  const triggerMealPlanRegeneration = () => {
+  const triggerMealPlanRegeneration = (sessionPrefs?: string) => {
     if (isGeneratingPlan) return;
     setIsGeneratingPlan(true);
 
-    generateMealPlanAsync().unwrap().then(() => {
+    generateMealPlanAsync({ sessionPrefs }).unwrap().then(() => {
       setIsGeneratingPlan(false);
-      // Invalidate MealPlan tag to refetch from SQLite
       dispatch(nutritionApi.util.invalidateTags(['MealPlan']));
-    }).catch(() => {
+    }).catch((err) => {
       setIsGeneratingPlan(false);
+      const errMsg = err?.error || err?.message || 'Brain not connected';
+      require('react-native').Alert.alert('Brain Offline', errMsg);
+    });
+  };
+
+  // Dismiss an item from a specific meal slot and regenerate just that slot
+  const handleDismissAndRegenerate = (food: string, slot: string) => {
+    if (regeneratingSlot) return;
+    setRegeneratingSlot(slot);
+
+    // Clean food name for exclusion
+    const cleaned = cleanFoodName(food);
+    regenerateSlot({ slot, excludedFoods: [cleaned] }).unwrap().then(() => {
+      setRegeneratingSlot(null);
+      dispatch(nutritionApi.util.invalidateTags(['MealPlan']));
+    }).catch((err) => {
+      setRegeneratingSlot(null);
+      console.warn('[TodayScreen] Slot regeneration failed:', err?.error || err?.message);
     });
   };
 
@@ -227,11 +247,9 @@ export default function TodayScreen() {
               )}
             </View>
           </View>
-          {/* 
           <TouchableOpacity style={styles.headAddBtn} onPress={() => h.setManualModalVisible(true)}>
             <Text style={styles.headAddBtnText}>+</Text>
           </TouchableOpacity>
-          */}
         </View>
 
         <ActivityTimerSection
@@ -294,6 +312,21 @@ export default function TodayScreen() {
           onRefetch={refetch}
         />
 
+        {/* Outdoor section — sun exposure + nature time */}
+        <OutdoorCard
+          vitaminDRec={rawMealPlan?.vitaminDRec || null}
+          skinType={profile?.skinType}
+          vitaminDPct={gaps.find((g: any) => g.nutrient === 'vitamin_d')?.pct}
+          weatherUv={weatherData?.uv}
+          weeklyNatureMin={
+            dashboardData?.healthPillars?.find((p: any) => p.id === 'touch_grass')?.metric
+              ? parseInt(dashboardData.healthPillars.find((p: any) => p.id === 'touch_grass').metric) || 0
+              : 0
+          }
+          collapsed={!!sectionCollapsed.outdoor}
+          onToggle={() => toggle('outdoor')}
+        />
+
         <MealPlanSection
           mealPlan={mealPlan}
           gapCoverage={gapCoverage}
@@ -303,7 +336,9 @@ export default function TodayScreen() {
           onOpenMealDetail={h.setMealDetailModal}
           onOpenGrocery={() => h.setGroceryModalVisible(true)}
           onOpenProjection={() => h.setProjectionExpanded(true)}
-          onGenerate={triggerMealPlanRegeneration}
+          onGenerate={(sessionPrefs) => triggerMealPlanRegeneration(sessionPrefs)}
+          onDismissAndRegenerate={handleDismissAndRegenerate}
+          isRegenerating={regeneratingSlot}
           onDislikeFood={(food) => {
             h.setDislikedMealItems((prev: string[]) => [...prev, food]);
             h.dislikeFoodMutation({ food: cleanFoodName(food) }).then(() => {

@@ -33,7 +33,22 @@ const MITTENS_ICON = require('../../assets/icon.png');
 
 export default function ChatScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ loggedMeal?: string; loggedItemCount?: string; loggedImageUrl?: string; loggedId?: string; prompt?: string; editedLogId?: string; editedItems?: string; editedMealName?: string; mealType?: string; items?: string }>();
+  const params = useLocalSearchParams<{ 
+    loggedMeal?: string; 
+    loggedItemCount?: string; 
+    loggedImageUrl?: string; 
+    loggedId?: string; 
+    prompt?: string; 
+    editedLogId?: string; 
+    editedItems?: string; 
+    editedMealName?: string; 
+    mealType?: string; 
+    items?: string;
+    triggerManualText?: string;
+    triggerManualPhotos?: string;
+    triggerMealType?: string;
+    triggerLoggedAt?: string;
+  }>();
   const scrollRef = useRef<ScrollView>(null);
   
   const [updateSleep] = useUpdateSleepLogMutation();
@@ -79,6 +94,7 @@ export default function ChatScreen() {
     brainFallbackError, setBrainFallbackError, switchBrainAfterError,
     reflectActivity, deleteActivity,
     handleSend,
+    triggerManualChatLog,
     handlePhotoCapture, removePendingPhoto, clearPendingPhotos,
     handleEditPendingEntry, handleDismissEntry, handleDeleteMessage,
     handleLongPress, handleVoiceFinalResult,
@@ -193,7 +209,25 @@ export default function ChatScreen() {
         setInput(params.prompt);
         router.setParams({ prompt: undefined });
       }
-    }, [params.loggedMeal, params.prompt, params.editedLogId])
+
+      if (params.triggerManualText || params.triggerManualPhotos) {
+        const text = params.triggerManualText || '';
+        const photos = params.triggerManualPhotos ? JSON.parse(params.triggerManualPhotos) : [];
+        const mealType = params.triggerMealType || 'snack';
+        const loggedAt = params.triggerLoggedAt || new Date().toISOString();
+
+        router.setParams({
+          triggerManualText: undefined,
+          triggerManualPhotos: undefined,
+          triggerMealType: undefined,
+          triggerLoggedAt: undefined,
+        });
+
+        setTimeout(() => {
+          triggerManualChatLog(text, photos, loggedAt, mealType);
+        }, 100);
+      }
+    }, [params.loggedMeal, params.prompt, params.editedLogId, params.triggerManualText, params.triggerManualPhotos, params.triggerMealType, params.triggerLoggedAt])
   );
 
   // Fridge inventory overlay

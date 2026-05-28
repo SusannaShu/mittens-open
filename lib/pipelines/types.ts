@@ -12,7 +12,7 @@
 // ═══════════════════════════════════════
 
 /** All possible pipeline types that triage can trigger */
-export type PipelineType = 'meal' | 'activity' | 'pantry' | 'sleep' | 'chat' | 'email' | 'watch';
+export type PipelineType = 'meal' | 'activity' | 'pantry' | 'sleep' | 'chat' | 'email' | 'watch' | 'timer' | 'face_recognition' | 'meal_action';
 
 /** A single detected intent from triage */
 export interface DetectedIntent {
@@ -40,6 +40,16 @@ export interface DetectedIntent {
     storageType?: 'fridge' | 'freezer' | 'pantry' | 'shelf';
     /** Whether faces are legible in the image */
     faceLegible?: boolean;
+    /** Name extracted from text (for face introduction) */
+    extractedName?: string;
+  };
+  /** For meal_action: extracted action parameters */
+  actionParams?: {
+    action: 'dismiss_item' | 'regenerate_slot' | 'set_preference' | 'generate_plan' | 'sun_exposure';
+    slot?: string;
+    foodItem?: string;
+    preference?: string;
+    persistPref?: boolean;
   };
 }
 

@@ -14,8 +14,9 @@ export function createHeadlessContext(
   // We keep a local array of messages just for this pipeline execution
   let localMessages: ChatMessage[] = [initialMessage];
 
-  return {
-    messages: localMessages,
+  // Wrapper object with a getter so callers always see the current array
+  const ctx: ChatContext = {
+    get messages() { return localMessages; },
     setMessages: (updater: any) => {
       if (typeof updater === 'function') {
         localMessages = updater(localMessages);
@@ -179,7 +180,10 @@ export function createHeadlessContext(
     },
     voiceSentRef: { current: false },
     photoTimestampsRef: { current: null },
+    getMessages: () => localMessages,
   };
+
+  return ctx;
 }
 
 /**

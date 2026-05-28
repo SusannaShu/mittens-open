@@ -17,6 +17,8 @@ import MealRow from '../MealRow';
 import { useGetLocationSessionsQuery, LocationSession } from '../../../lib/services/location/locationSessionApi';
 import { generateLocationBlockTitle, getChildActivitiesForSession } from '../../../lib/services/location/locationBlockTitle';
 
+import { getLocalDateString } from '../../../lib/dateUtils';
+
 const ACT_ICONS: Record<string, string> = {
   work: 'monitor', workout: 'zap', bike: 'navigation', run: 'trending-up',
   walk: 'map-pin', sun: 'sun', social: 'users', rest: 'moon',
@@ -42,7 +44,7 @@ const MAX_DEFAULT = 4;
 export default function LoggedTodaySection({ meals, todayActivities, collapsed, onToggle, onEditMeal, onEditActivity }: Props) {
   const [expanded, setExpanded] = useState(false);
 
-  const todayDate = new Date().toLocaleDateString('en-CA');
+  const todayDate = getLocalDateString();
   const { data: locationSessions = [] } = useGetLocationSessionsQuery(todayDate);
 
   // Build unified timeline: location blocks + manual meals + manual activities
@@ -54,8 +56,10 @@ export default function LoggedTodaySection({ meals, todayActivities, collapsed, 
   const items: TimelineItem[] = useMemo(() => {
     const result: TimelineItem[] = [];
 
-    // Location blocks with smart titles (skip those already converted/logged)
+    // Location blocks with smart titles (skip those already converted/logged, skip stationary points)
     for (const session of locationSessions) {
+      if (session.motionType === 'stationary') continue;
+
       const isLinked = todayActivities.some(
         (a) => a.meta?.locationSession?.id === session.id || a.originSessionId === session.id || a.id === session.id
       );
@@ -183,7 +187,7 @@ function LocationRow({ session, title, onEdit }: {
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>{title}</Text>
         <Text style={{ fontSize: 12, color: colors.textMuted }}>
-          {timeStr}{session.duration_min ? ` -- ${session.duration_min} min` : ''}
+          {timeStr}{session.duration_min ? ` -- ${Math.ceil(session.duration_min)} min` : ''}
         </Text>
       </View>
       <Text style={{ fontSize: 13, color: colors.textMuted }}>Edit</Text>
@@ -206,7 +210,7 @@ function ManualActivityRow({ act, onEdit }: { act: ActivityEntry; onEdit: () => 
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>{act.logName}</Text>
         <Text style={{ fontSize: 12, color: colors.textMuted }}>
-          {timeStr}{act.duration_min ? ` -- ${act.duration_min} min` : ''}{act.location ? ` -- ${act.location}` : ''}
+          {timeStr}{act.duration_min ? ` -- ${Math.ceil(act.duration_min)} min` : ''}{act.location ? ` -- ${act.location}` : ''}
         </Text>
       </View>
       {act.engagement != null && (

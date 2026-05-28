@@ -30,6 +30,7 @@ export interface ExpoFaceRecognitionModuleType {
   isModelLoaded(): boolean;
   detectFaces(imagePath: string): Promise<DetectedFace[]>;
   countFaces(imagePath: string): Promise<number>;
+  generateSceneEmbedding(imagePath: string): Promise<number[]>;
   unloadModel(): void;
 }
 

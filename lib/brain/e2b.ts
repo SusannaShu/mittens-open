@@ -68,32 +68,37 @@ export class E2BBrain implements Brain {
   async vision(prompt: string, images: string[], _opts?: BrainOptions): Promise<string> {
     console.log('[E2B] vision() images:', images.length, 'prompt:', prompt.slice(0, 80) + '...');
 
-    const imagePath = images[0];
-    if (!imagePath) {
+    if (!images.length) {
       console.log('[E2B] No image provided, falling back to text()');
       return this.text(prompt);
     }
 
-    // E2B is only used on Full tier (8GB+) -- use direct native vision
-    // Low-RAM devices use LlamaRNBrain (Gemma 3 1B) instead
     const { LocalInferenceService } = require('../services/ai/localInference');
     const { resizeForVision } = require('../imageUtils');
     const FileSystem = require('expo-file-system/legacy');
 
-    console.log('[E2B] Resizing image:', imagePath.slice(-40));
-    const resized = await resizeForVision(imagePath);
-
-    let fileSizeBytes = 0;
-    try {
-      const info = await FileSystem.getInfoAsync(resized);
-      fileSizeBytes = info?.size || 0;
-    } catch { /* non-blocking */ }
-    console.log('[E2B] Resized image:', resized.slice(-40), '| size:', fileSizeBytes, 'bytes');
-
-    console.log('[E2B] Calling generateWithImage, prompt:', prompt.length, 'chars');
     await this.ensureLoaded();
-    const result = await LocalInferenceService.generateWithImage(prompt, resized);
-    console.log('[E2B] vision() result:', result?.slice(0, 100));
+
+    if (images.length === 1) {
+      // Single image: existing fast path
+      const resized = await resizeForVision(images[0]);
+      let fileSizeBytes = 0;
+      try {
+        const info = await FileSystem.getInfoAsync(resized);
+        fileSizeBytes = info?.size || 0;
+      } catch { /* non-blocking */ }
+      console.log('[E2B] Single image:', resized.slice(-40), '| size:', fileSizeBytes, 'bytes');
+      const result = await LocalInferenceService.generateWithImage(prompt, resized);
+      console.log('[E2B] vision() result:', result?.slice(0, 100));
+      return result;
+    }
+
+    // Multi-image: resize all, use native multi-image API
+    console.log(`[E2B] Resizing ${images.length} images for multi-image vision`);
+    const resized = await Promise.all(images.map((img: string) => resizeForVision(img)));
+    console.log('[E2B] Calling generateWithImages, prompt:', prompt.length, 'chars');
+    const result = await LocalInferenceService.generateWithImages(prompt, resized);
+    console.log('[E2B] vision() multi-image result:', result?.slice(0, 100));
     return result;
   }
 

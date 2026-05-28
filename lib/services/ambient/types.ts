@@ -101,7 +101,11 @@ export interface SceneSignals {
 
 /** Combined output from the scene triage (Phase 2) */
 export interface SceneTriage {
-  /** Always-present title (free-form, e.g. "Park afternoon") */
+  /** Is the frame usable? False ONLY for pitch-black, fully covered, or nothing visible */
+  usable: boolean;
+  /** Has anything meaningful changed since the previous frame? */
+  sameScene?: boolean;
+  /** Always-present title (free-form, e.g. "Walking in Central Park") */
   title: string;
   /** Always-present one-line description */
   description: string;
@@ -115,6 +119,8 @@ export interface SceneTriage {
   faceLegible?: boolean;
   /** Sleep context for bedtime nudges */
   sleepContext?: { isDark: boolean; screensVisible: boolean };
+  /** Detected room type for visual place learning */
+  roomType?: string;
   /** Set when classification failed */
   error?: string;
 }

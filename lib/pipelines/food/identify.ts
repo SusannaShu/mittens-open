@@ -170,10 +170,12 @@ function buildCompactPrompt(caption?: string, memory?: string): string {
 
   return `${memLine}Identify each food item for USDA nutrition database matching.${captionLine}
 
-Provide the most specific food name possible (e.g., "grilled chicken breast" not "chicken").
-If a brand is visible, include it.
+NAMING & DECOMPOSING MIXTURES:
+- Provide the most specific, search-friendly food name possible (e.g., "grilled chicken breast" not "chicken").
+- NEVER group multiple separate basic ingredients (e.g. "rice, lentils, and quinoa mixture", "eggs and spinach", "chicken and rice bowl") into a single item. Decompose mixtures into their individual constituent ingredients (e.g., list "brown rice", "lentils", and "quinoa" separately) so they can be matched individually to USDA entries.
+- If a brand is visible, include it.
 
-PORTION REFS: plate ~25cm, stick ~15g, small bowl ~80g, handful ~25g.
+PORTION REFS: plate ~25cm, stick ~15g, small bowl ~80g, handful ~25g. Estimate individual portion weights for decomposed ingredients separately.
 CONFIDENCE: 0.9+ clear, 0.6-0.8 likely, <0.5 uncertain.
 
 JSON: {"items":[{"n":"Specific Food Name","g":45,"hp":"3 pieces","k":"grilled","c":0.9}]}`;
@@ -185,19 +187,21 @@ function buildVerbosePrompt(caption?: string, memory?: string): string {
 
   return `${memLine}Identify each food item in this meal photo.${captionLine}
 
-You are providing specific food names that will be matched against the USDA FoodData Central
-database to retrieve accurate nutritional data. The more specific the name, the better the match.
+You are providing specific, search-friendly food names that will be matched against the USDA FoodData Central
+database to retrieve accurate nutritional data. The more specific and clean the name, the better the match.
 
-NAMING:
+NAMING & DECOMPOSING MIXTURES:
 - Use specific names: "grilled chicken breast" not "chicken"
 - Include preparation: "steamed broccoli" not "broccoli"
 - Include variety when visible: "jasmine rice" not "rice"
+- NEVER group multiple separate basic ingredients (e.g. "rice, lentils, and quinoa mixture", "eggs and spinach", "chicken and rice bowl", "granola with yogurt") into a single composite item. You MUST decompose mixtures, combos, or multi-ingredient dishes into their individual constituent ingredients (e.g., list "brown rice", "lentils", and "quinoa" as three separate items) so they can be individually matched to USDA entries.
 - If a branded product is visible, include the brand name
 
 PORTION ESTIMATION:
 - Use plate/bowl/utensils as size references (dinner plate ~25cm, fork ~20cm)
 - A single stick/piece is ~15g, a small bowl ~80g, a handful ~25g
 - Provide BOTH grams AND household measure (1/2 cup, 2 pieces, 1 tbsp)
+- Estimate individual portion weights/sizes for each decomposed ingredient separately (e.g., calculate each portion out of the mixture's total weight).
 
 CONFIDENCE:
 - 0.9+ = clearly visible and identifiable

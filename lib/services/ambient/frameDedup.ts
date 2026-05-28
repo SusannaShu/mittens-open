@@ -126,6 +126,40 @@ export function getLastFrameDescription(): string | null {
   return lastFrameDescription;
 }
 
+/**
+ * Pixel-only dedup check (free, instant, no VLM).
+ * Used by the new context-aware pipeline as Phase 1 replacement
+ * for the old quality gate. Only catches truly identical frames.
+ */
+export async function pixelDedup(framePath: string): Promise<boolean> {
+  if (!lastFramePath) return false;
+
+  try {
+    const info = await FileSystem.getInfoAsync(lastFramePath);
+    if (!info.exists) {
+      lastFramePath = null;
+      lastFrameDescription = null;
+      return false;
+    }
+  } catch {
+    lastFramePath = null;
+    lastFrameDescription = null;
+    return false;
+  }
+
+  try {
+    const result = await pixelSimilarityCheck(lastFramePath, framePath);
+    if (result.similar) {
+      console.log(`[PixelDedup] Duplicate frame (diff: ${result.distance.toFixed(3)})`);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    console.warn('[PixelDedup] Check failed:', err?.message);
+    return false;
+  }
+}
+
 // --- Tier 1: Pixel Comparison ---
 
 async function pixelSimilarityCheck(

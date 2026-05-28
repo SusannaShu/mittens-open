@@ -47,11 +47,9 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
         const pendantStore = require('../../services/pendant/pendantStore');
         await pendantStore.initPendantStore();
 
-        // Initialize Kokoro neural voice (non-blocking -- falls back to native TTS)
-        try {
-          const { initVoice } = require('../../services/ai/voiceService');
-          initVoice();
-        } catch { /* voice init is best-effort */ }
+        // NOTE: initVoice() (Kokoro neural TTS + background audio keepalive) is now
+        // initialized at the app root level in _layout.tsx, not here. This ensures
+        // voice is ready before any speak() call, regardless of pendant state.
 
         // ─── Button Press: Audio + optional frame -> Brain -> TTS ───
         unsubButtonPress = service.onButtonPress(async (audioPath?: string, framePath?: string) => {
@@ -164,12 +162,14 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
 
             // Update pendant store with brain response
             pendantStore.updateCapture(captureId, {
-              brainResponse: responseText,
+              brainResponse: responseText || 'Processed (no reply generated)',
               processed: true,
             });
 
             if (responseText) {
               speak(responseText);
+            } else {
+              console.warn('[PendantBridge] No response text from pipeline -- voice reply skipped');
             }
 
           } catch (err: any) {
@@ -230,7 +230,13 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
             frameCaptures.delete(queuedFramePath);
 
             if (queuedResult.summary.toLowerCase().includes('skipped')) {
-              pendantStore.removeCapture(queuedCaptureId);
+              // Keep skipped captures visible -- quality gate can have false negatives.
+              // Mark as processed so they don't show "Processing..." forever.
+              pendantStore.updateCapture(queuedCaptureId, {
+                processed: true,
+                brainResponse: queuedResult.summary,
+                pipelineLog: queuedResult.log,
+              });
             } else if (queuedResult.summary.startsWith('Brain offline:')) {
               // Brain not connected -- keep the capture, show the error
               pendantStore.updateCapture(queuedCaptureId, {
@@ -263,7 +269,12 @@ export function usePendantBridge(options?: PendantBridgeOptions) {
               frameCaptures.delete(framePath);
 
               if (result.summary.toLowerCase().includes('skipped')) {
-                pendantStore.removeCapture(captureId);
+                // Keep skipped captures visible -- quality gate can have false negatives.
+                pendantStore.updateCapture(captureId, {
+                  processed: true,
+                  brainResponse: result.summary,
+                  pipelineLog: result.log,
+                });
               } else if (result.summary.startsWith('Brain offline:')) {
                 // Brain not connected -- keep the capture, show the error
                 pendantStore.updateCapture(captureId, {

@@ -258,7 +258,7 @@ export class LocalDataProvider implements DataProvider {
     const db = getDb();
     const now = new Date().toISOString();
     const result = db.runSync(
-      `INSERT INTO activity_logs (log_name, activity_type, duration_min, intensity, logged_at, outdoors, nature, location, nutrient_impact, absorption_multiplier, summary, source, meta, created_at, updated_at)
+      `INSERT INTO activity_logs (log_name, activity_type, duration_min, intensity, logged_at, outdoors, is_nature, location, nutrient_impact, absorption_multiplier, summary, source, meta, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.logName || data.activityType || 'Activity',
@@ -287,7 +287,7 @@ export class LocalDataProvider implements DataProvider {
     db.runSync(
       `UPDATE activity_logs SET
         log_name = ?, activity_type = ?, duration_min = ?, intensity = ?,
-        outdoors = ?, nature = ?, nutrient_impact = ?, summary = ?,
+        outdoors = ?, is_nature = ?, nutrient_impact = ?, summary = ?,
         meta = ?, updated_at = datetime('now')
        WHERE id = ?`,
       [
@@ -623,22 +623,24 @@ export class LocalDataProvider implements DataProvider {
       let avgDays: number | null = null;
 
       // For stored nutrients with multi-day windows, use rolling average
-      // when enough historical data exists
+      // when ANY historical data exists (body stores carry over)
       if (storage?.period === 'stored' && storage.rollingDays > 1) {
         const rolling = this.getRollingNutrientData(key, date, storage.rollingDays);
-        if (rolling.daysWithData >= storage.rollingDays) {
-          intake = rolling.avgDaily;
+        if (rolling.daysWithData > 0) {
+          // Divide by full window, not days-with-data: if you ate 100 mcg vit A
+          // on Monday and nothing else in 7 days, daily available = 100/7 ≈ 14 mcg
+          intake = rolling.total / storage.rollingDays;
           period = 'stored';
           avgDays = storage.rollingDays;
 
           if (key === 'vitamin_d') {
             const rollingDietary = this.getRollingDietaryVitaminD(date, storage.rollingDays);
-            dietaryIntake = rollingDietary.avgDaily;
+            dietaryIntake = rollingDietary.total / storage.rollingDays;
           } else {
             dietaryIntake = intake;
           }
         } else {
-          // Fall back to today-only
+          // No data at all — fall back to today-only
           if (key === 'vitamin_d') {
             const todayDietaryTotals = this.sumNutrients(meals.map(m => m.summaryNutrients));
             dietaryIntake = todayDietaryTotals['vitamin_d'] || 0;

@@ -394,9 +394,10 @@ JSON: {"ref":"which USDA name, or 'none'"}
 
 /** Full AI estimation for foods not in USDA */
 function buildEstimatePrompt(foodName: string, portionG: number, cooking: string): string {
-  return `Estimate nutrients for: ${foodName}, ${portionG}g, ${cooking || 'unknown preparation'}
+  return `This food item had no direct match in our USDA database. Provide a highly accurate, professional nutrient estimation for: ${foodName}, ${portionG}g, ${cooking || 'unknown preparation'}.
+If this is a composite item or mixture, mentally break it down into its separate raw/cooked components, estimate their individual weights, calculate their nutrients, and sum them up to get the total.
 
-Provide detailed step-by-step reasoning for macros and key vitamins in the reason field.
+Provide detailed step-by-step nutritional reasoning for macros and key vitamins/minerals in the reason field.
 JSON: {"nutrients":{"cal":0,"pro":0,"carb":0,"fat":0,"fib":0,"water":0,"vA":0,"vC":0,"vD":0,"vE":0,"vK":0,"vB6":0,"vB12":0,"fol":0,"ca":0,"fe":0,"mg":0,"k":0,"zn":0,"o3":0},"reason":"detailed step-by-step reasoning for estimates"}
 Values for THAT portion. cal=kcal pro/carb/fat/fib/water=g vitamins standard units minerals=mg o3=g`;
 }
@@ -452,10 +453,11 @@ function buildPickPrompt(foodName: string, portionG: number, cooking: string, re
   const candidateNames = refs.slice(0, 8).map((r, i) =>
     `${i + 1}. ${r.name} [${r.category}] (${Math.round(r.score * 100)}% match)`
   ).join('\n');
-  return `Food: "${foodName}" (${portionG}g, ${cooking || 'unknown preparation'}).
+  return `We are identifying this food item for an exact USDA FoodData Central database match to retrieve highly accurate, standard lab-measured nutrition.
+Food to match: "${foodName}" (${portionG}g, ${cooking || 'unknown preparation'}).
 
-Which USDA database entry best matches this SPECIFIC food? Consider the actual food, not just keyword overlap.
-Reply with ONLY the number (e.g., 1, 2, 0). If NONE are a good match, reply "0".
+Which USDA database entry best matches this SPECIFIC food item? Consider both the substance and prep/cooking style, not just generic keyword overlap.
+Reply with ONLY the number (e.g., 1, 2, 0). If NONE of the candidates represent this food accurately (or if they belong to a completely different form, e.g. dried powder instead of fresh), reply "0".
 
 ${candidateNames}`;
 }

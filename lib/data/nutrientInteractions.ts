@@ -231,11 +231,10 @@ function detectTriggers(
       }
     }
 
-    // Nutrient-based triggers
+    // Accumulate nutrient amounts from all foods (for dose-dependent triggers)
     if (food.nutrients) {
       for (const [key, val] of Object.entries(food.nutrients)) {
         if (val > 0) {
-          triggers.set(key, { strength: 1, sources: [...(nutrientSources.get(key) || []), food.name] });
           if (!nutrientSources.has(key)) nutrientSources.set(key, []);
           nutrientSources.get(key)!.push(food.name);
         }
@@ -243,6 +242,46 @@ function detectTriggers(
       if (food.nutrients['fat'] && food.nutrients['fat'] > 0) {
         totalFat += food.nutrients['fat'];
         fatSources.push(food.name);
+      }
+    }
+  }
+
+  // ── Dose-dependent nutrient triggers ──
+  // Instead of binary on/off, scale strength by amount relative to thresholds.
+  // Reference: Teucher 2004 (iron+VitC), Lynch 2000 (iron+Ca), Christakos 2011 (Ca+VitD)
+  const NUTRIENT_DOSE_THRESHOLDS: Record<string, { min: number; full: number; unit: string }> = {
+    vitamin_c:  { min: 5,    full: 50,   unit: 'mg'  },  // 25mg ≈ half effect, 50mg+ ≈ full (Teucher 2004)
+    calcium:    { min: 50,   full: 300,  unit: 'mg'  },  // 300mg dairy = full inhibition of iron (Lynch 2000)
+    vitamin_d:  { min: 2,    full: 10,   unit: 'mcg' },  // 10mcg (400IU) for full calcium synergy
+    iron:       { min: 1,    full: 8,    unit: 'mg'  },  // relevant for calcium competition context
+    folate:     { min: 50,   full: 200,  unit: 'mcg' },  // for vitamin C protection effect
+  };
+
+  // Sum nutrients across all foods in the meal
+  const totalMealNutrients: Record<string, number> = {};
+  for (const food of foods) {
+    if (food.nutrients) {
+      for (const [key, val] of Object.entries(food.nutrients)) {
+        if (typeof val === 'number' && val > 0) {
+          totalMealNutrients[key] = (totalMealNutrients[key] || 0) + val;
+        }
+      }
+    }
+  }
+
+  // Set nutrient triggers with dose-scaled strength
+  for (const [nutrient, total] of Object.entries(totalMealNutrients)) {
+    const threshold = NUTRIENT_DOSE_THRESHOLDS[nutrient];
+    if (threshold) {
+      if (total >= threshold.min) {
+        const strength = Math.min(1, (total - threshold.min) / (threshold.full - threshold.min));
+        triggers.set(nutrient, { strength, sources: nutrientSources.get(nutrient) || [] });
+      }
+      // Below min dose → no trigger (not even partial)
+    } else {
+      // Nutrients without defined thresholds: use binary (present = full strength)
+      if (total > 0) {
+        triggers.set(nutrient, { strength: 1, sources: nutrientSources.get(nutrient) || [] });
       }
     }
   }

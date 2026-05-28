@@ -74,8 +74,10 @@ export function buildCandidatePrompt(opts: {
   eatenStr: string;
   dietPrefs: string[];
   season: string;
+  sessionPrefs?: string;
+  recentFoods?: string[];
 }): string {
-  const { remainingMeals, gaps, pantryStr, dislikedStr, eatenStr, dietPrefs, season } = opts;
+  const { remainingMeals, gaps, pantryStr, dislikedStr, eatenStr, dietPrefs, season, sessionPrefs, recentFoods } = opts;
 
   // Exclude vitamin_d — addressed via sun/UV exposure, not food
   const needMore = gaps.filter(g =>
@@ -110,6 +112,8 @@ PANTRY: ${pantryStr}
 ${dislikedStr ? `DISLIKED: ${dislikedStr}` : ''}
 ${eatenStr}
 ${dietStr}
+${sessionPrefs ? `SESSION PREFERENCES: ${sessionPrefs}` : ''}
+${recentFoods && recentFoods.length > 0 ? `RECENTLY USED (avoid repeating if possible): ${recentFoods.slice(0, 20).join(', ')}` : ''}
 SEASON: ${season}
 
 RULES:

@@ -15,6 +15,7 @@
 import { getDb } from '../../database';
 import { solveMealPlan, MealPlanCandidate, NutrientGap } from './meal-plan-solver';
 import { applyBioavailability } from './mealPlanBioavailability';
+import { solveMealPlanWithBioavailability } from './bioSolver';
 import {
   buildCandidatePrompt,
   getCurrentSeason,
@@ -65,6 +66,21 @@ Return ONLY a JSON array of strings, e.g. ["lunch", "dinner"].`;
       if (valid.length > 0) return valid;
     }
   } catch (e: any) {
+    const msg = (e.message || String(e)).toLowerCase();
+    const isConn =
+      e.name === 'ConnectionError' ||
+      msg.includes('network request failed') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('econnrefused') ||
+      msg.includes('cannot reach') ||
+      msg.includes('aborterror') ||
+      msg.includes('model file not downloaded') ||
+      msg.includes('no brain available') ||
+      msg.includes('brain offline') ||
+      msg.includes('not connected');
+    if (isConn) {
+      throw new Error(`Brain offline: ${e.message}`);
+    }
     console.warn('[MealPlan] LLM slot selection failed, using time heuristic:', e.message);
   }
 
@@ -95,6 +111,10 @@ export async function generateMealPlanPipeline(
     brain = await getBrain();
   } catch (e: any) {
     console.warn('[MealPlan] Failed to load active brain for planning:', e.message);
+  }
+
+  if (!brain) {
+    throw new Error('Brain not connected. Please make sure local AI model is running and downloaded.');
   }
 
   // ── 1. Gather context ──
@@ -148,6 +168,9 @@ export async function generateMealPlanPipeline(
   try { dietPrefs = JSON.parse(profile?.dietary_preferences || '[]'); } catch {}
   if (!Array.isArray(dietPrefs)) dietPrefs = [];
 
+  // ── 1b. Query recent foods (last 3 days) for variety ──
+  const recentFoods = queryRecentFoods(db, today, 3);
+
   const eatenStr = loggedRows.length > 0
     ? `ALREADY EATEN TODAY: ${loggedRows.map(r => r.log_name || '').filter(Boolean).join(', ')}`
     : '';
@@ -161,6 +184,7 @@ export async function generateMealPlanPipeline(
 
   // ── 2. LLM generates whole food candidates targeting gaps ──
   const season = getCurrentSeason();
+  const sessionPrefs = customConstraint || '';
   const prompt = buildCandidatePrompt({
     remainingMeals,
     gaps,
@@ -169,6 +193,8 @@ export async function generateMealPlanPipeline(
     eatenStr,
     dietPrefs,
     season,
+    sessionPrefs,
+    recentFoods,
   });
 
   // Build fallback structure
@@ -179,9 +205,24 @@ export async function generateMealPlanPipeline(
 
   let llmPlan: Record<string, { candidates: Array<{ food: string; targets_gap?: string; fromPantry?: boolean }> }>;
   try {
-    if (!brain) throw new Error('No brain available');
+    if (!brain) throw new Error('Brain not connected');
     llmPlan = await brain.json(prompt, {}, fallbackPlan);
   } catch (e: any) {
+    const msg = (e.message || String(e)).toLowerCase();
+    const isConn =
+      e.name === 'ConnectionError' ||
+      msg.includes('network request failed') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('econnrefused') ||
+      msg.includes('cannot reach') ||
+      msg.includes('aborterror') ||
+      msg.includes('model file not downloaded') ||
+      msg.includes('no brain available') ||
+      msg.includes('brain offline') ||
+      msg.includes('not connected');
+    if (isConn) {
+      throw new Error(`Brain offline: ${e.message}`);
+    }
     console.warn('[MealPlan] LLM candidate gen failed, using fallback:', e.message);
     llmPlan = fallbackPlan;
   }
@@ -262,32 +303,16 @@ export async function generateMealPlanPipeline(
     targetCalories: targetCalories ? targetCalories.rda : 2000,
     dislikedFoods: dislikedList,
     mealSlots: remainingMeals,
+    recentFoods,
   };
 
-  const solverResult = solveMealPlan(allCandidates, gaps, solverConstraints);
+  // ── 5+6. Bioavailability-Aware MILP Solve (iterative) ──
+  const bioResult = solveMealPlanWithBioavailability(allCandidates, gaps, solverConstraints);
 
-  // ── 6. Bioavailability ──
-  const mealAssignment = assignToMeals(solverResult.selectedFoods, remainingMeals);
-  const mealPlanForBio: any = {};
-  for (const slot of remainingMeals) {
-    const foods = mealAssignment[slot] || [];
-    const mealNutrients: any = {};
-    for (const food of foods) {
-      for (const [k, v] of Object.entries(food.scaledNutrients || {})) {
-        if (typeof v === 'number') mealNutrients[k] = (mealNutrients[k] || 0) + v;
-      }
-    }
-    mealPlanForBio[slot] = {
-      items: foods.map((f: any) => ({ name: f.name })),
-      nutrients: mealNutrients,
-    };
-  }
-
-  const { adjustedCoverage, notes: bioNotes } = applyBioavailability(
-    mealPlanForBio, solverResult.coverage, gaps
-  );
+  const { selectedFoods, adjustedCoverage, bioNotes, metadata: solverMetadata } = bioResult;
 
   // ── 7. Assemble ──
+  const mealAssignment = assignToMeals(selectedFoods, remainingMeals);
   const assembledPlan = assemblePlan(mealAssignment, pantryRows, adjustedCoverage, remainingMeals, llmPlan);
 
   // Post-solver: generate cooking tips for final selected foods
@@ -320,11 +345,13 @@ export async function generateMealPlanPipeline(
       if (weatherRow?.meta) {
         try { uvIndex = JSON.parse(weatherRow.meta)?.uv || 0; } catch {}
       }
-      const skinType = profile?.skin_type || 'fitzpatrick-4';
+      const skinTypeRaw = profile?.skin_type || 'fitzpatrick-4';
+      const skinType = (typeof skinTypeRaw === 'number' ? skinTypeRaw : parseInt(String(skinTypeRaw).replace(/\D/g, ''), 10) || 4) as 1 | 2 | 3 | 4 | 5 | 6;
       const deficitMcg = Math.max(0, vitDGap.rda - vitDGap.actual);
 
       if (uvIndex >= 3) {
-        vitaminDRec = recommendSunExposure({ deficitMcg, uvIndex, skinType });
+        const sunRec = recommendSunExposure({ deficitMcg, uvIndex, skinType });
+        vitaminDRec = { ...sunRec, uvIndex };
       } else {
         vitaminDRec = {
           minutesNeeded: Infinity,
@@ -348,7 +375,7 @@ export async function generateMealPlanPipeline(
     grocery_list: JSON.stringify(assembledPlan.groceryList),
     gap_coverage: JSON.stringify(adjustedCoverage),
     bioavailability_notes: JSON.stringify(bioNotes),
-    solver_metadata: JSON.stringify(solverResult.metadata),
+    solver_metadata: JSON.stringify(solverMetadata),
     supplements: JSON.stringify(supplements),
     vitamin_d_rec: vitaminDRec ? JSON.stringify(vitaminDRec) : null,
     created_at: new Date().toISOString(),
@@ -385,7 +412,7 @@ export async function generateMealPlanPipeline(
       supplements,
       vitaminDRec,
       bioavailabilityNotes: bioNotes,
-      solverMetadata: solverResult.metadata,
+      solverMetadata,
       generatedAt: payload.created_at,
     },
   };
@@ -547,4 +574,229 @@ function formatScaledPortion(foodString: string, multiplier: number) {
   }
   const scaled = Math.round(num * multiplier * 10) / 10;
   return `${scaled} ${restStr}`;
+}
+
+// ── Variety: Query Recent Foods ──
+
+/**
+ * Extract food names from the last N days of actually logged meals.
+ * Uses nutrition_logs (what the user really ate) instead of daily_meal_plans
+ * (what was planned but may not have been followed).
+ */
+function queryRecentFoods(db: any, today: string, days: number): string[] {
+  try {
+    const rows = db.getAllSync(
+      `SELECT log_name, items FROM nutrition_logs
+       WHERE date(logged_at) < ? AND date(logged_at) >= date(?, '-' || ? || ' days')
+       AND deleted_at IS NULL
+       ORDER BY logged_at DESC`,
+      [today, today, days]
+    ) as any[];
+
+    const foods: string[] = [];
+    for (const row of rows) {
+      // log_name is the primary food name
+      const logName = (row.log_name || '').trim();
+      if (logName && logName.length > 2) {
+        // Strip portions like "1 cup cooked"
+        const clean = logName.replace(/^\d+[\s/]*\d*\s*(cup|oz|tbsp|tsp|large|medium|small|slice|piece)s?\s+/i, '').trim();
+        if (clean.length > 2) foods.push(clean.toLowerCase());
+      }
+
+      // Also extract individual items from the items JSON array
+      if (row.items) {
+        try {
+          const items = JSON.parse(row.items);
+          if (Array.isArray(items)) {
+            for (const item of items) {
+              const name = typeof item === 'string' ? item : (item.name || item.food || '');
+              const clean = String(name).replace(/^\d+[\s/]*\d*\s*(cup|oz|tbsp|tsp|large|medium|small|slice|piece)s?\s+/i, '').trim();
+              if (clean && clean.length > 2) foods.push(clean.toLowerCase());
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // Deduplicate
+    return [...new Set(foods)];
+  } catch (e: any) {
+    console.warn('[MealPlan] Failed to query recent foods for variety:', e.message);
+    return [];
+  }
+}
+
+// ── Slot-Level Re-generation ──
+
+/**
+ * Re-generate a single meal slot while preserving other slots.
+ *
+ * Used when a user dismisses a food item — only the affected slot
+ * gets new candidates and re-solved, keeping the rest of the plan stable.
+ *
+ * @param slot - Which meal slot to regenerate (breakfast/lunch/dinner/snack)
+ * @param excludedFoods - Foods to exclude (the dismissed items)
+ * @param sessionPrefs - Optional temporary preferences
+ */
+export async function regenerateSlotPipeline(
+  slot: string,
+  excludedFoods: string[],
+  sessionPrefs?: string,
+) {
+  const db = getDb();
+  const today = new Date().toLocaleDateString('en-CA');
+
+  // 0. Load brain
+  let brain: any = null;
+  try {
+    const { getBrain } = require('../../brain/selector');
+    brain = await getBrain();
+  } catch (e: any) {
+    throw new Error('Brain not available for slot regeneration');
+  }
+
+  // 1. Load current plan
+  const existingRow = db.getFirstSync(
+    `SELECT * FROM daily_meal_plans WHERE plan_date = ? ORDER BY id DESC LIMIT 1`,
+    [today]
+  ) as any;
+  if (!existingRow) throw new Error('No existing meal plan to regenerate from');
+
+  // 2. Gather context (same as main pipeline)
+  const { LocalDataProvider } = require('../../providers/localDataProvider');
+  const provider = new LocalDataProvider();
+  const summary = await provider.getDailySummary(today);
+  const gaps: NutrientGap[] = summary.gaps;
+
+  const profile = db.getFirstSync(`SELECT * FROM nutrition_profile WHERE id = 1`) as any;
+  let dislikedList: string[] = [];
+  try {
+    const parsed = JSON.parse(profile?.disliked_foods || '[]');
+    dislikedList = Array.isArray(parsed)
+      ? parsed.map((d: any) => typeof d === 'string' ? d : d.food || '').filter(Boolean)
+      : [];
+  } catch {
+    dislikedList = [];
+  }
+  let dietPrefs: string[] = [];
+  try { dietPrefs = JSON.parse(profile?.dietary_preferences || '[]'); } catch {}
+  if (!Array.isArray(dietPrefs)) dietPrefs = [];
+
+  const pantryRows = db.getAllSync(
+    `SELECT id, item_name, quantity, unit, freshness FROM smart_pantry WHERE quantity > 0 ORDER BY item_name`
+  ) as any[];
+
+  const loggedRows = db.getAllSync(
+    `SELECT log_name FROM nutrition_logs WHERE date(logged_at) = ? AND deleted_at IS NULL`,
+    [today]
+  ) as any[];
+
+  const eatenStr = loggedRows.length > 0
+    ? `ALREADY EATEN TODAY: ${loggedRows.map((r: any) => r.log_name || '').filter(Boolean).join(', ')}`
+    : '';
+  const pantryStr = pantryRows.length > 0
+    ? pantryRows.map((p: any) => `${p.item_name} (${p.quantity}${p.unit || ''})`).join(', ')
+    : 'Empty';
+
+  const recentFoods = queryRecentFoods(db, today, 3);
+  const season = getCurrentSeason();
+
+  // 3. Generate candidates for just this slot
+  const prompt = buildCandidatePrompt({
+    remainingMeals: [slot],
+    gaps,
+    pantryStr,
+    dislikedStr: [...dislikedList, ...excludedFoods].join(', '),
+    eatenStr,
+    dietPrefs,
+    season,
+    sessionPrefs,
+    recentFoods: [...recentFoods, ...excludedFoods], // treat dismissed as "recent" too
+  });
+
+  const fallbackPlan: Record<string, any> = {};
+  fallbackPlan[slot] = { candidates: [] };
+
+  let llmPlan: any;
+  try {
+    llmPlan = await brain.json(prompt, {}, fallbackPlan);
+  } catch {
+    llmPlan = fallbackPlan;
+  }
+
+  // 4. USDA matching (same as main pipeline)
+  const slotData = llmPlan[slot];
+  const candidates = slotData?.candidates || [];
+  const estimationPromises: Promise<any>[] = [];
+
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i];
+    const foodName = typeof cand === 'string' ? cand : cand.food;
+    if (!foodName) continue;
+
+    const pantryMatch = pantryRows.find((p: any) =>
+      foodName.toLowerCase().includes((p.item_name || '').toLowerCase()) ||
+      (p.item_name || '').toLowerCase().includes(foodName.toLowerCase().split(',')[0])
+    );
+
+    estimationPromises.push(
+      (async () => {
+        try {
+          const result = await estimateNutrients(foodName, 100, '', true, brain);
+          return { foodName, slot, index: i, cand, pantryMatch, result };
+        } catch { return null; }
+      })()
+    );
+  }
+
+  const estimationResults = await Promise.all(estimationPromises);
+  const allCandidates: MealPlanCandidate[] = [];
+  for (const item of estimationResults) {
+    if (!item) continue;
+    const candidate = buildCandidateFromResult(item.foodName, item.result, item.slot, item.index, item.pantryMatch);
+    if (item.cand.targets_gap) (candidate as any).targets_gap = item.cand.targets_gap;
+    allCandidates.push(candidate);
+  }
+
+  if (allCandidates.length === 0) {
+    throw new Error('No candidates generated for slot regeneration');
+  }
+
+  // 5. Solve for just this slot (with bio-awareness)
+  const targetCalories = gaps.find(g => g.nutrient === 'calories');
+  const solverConstraints = {
+    targetCalories: targetCalories ? targetCalories.rda : 2000,
+    dislikedFoods: [...dislikedList, ...excludedFoods],
+    mealSlots: [slot],
+    recentFoods: [...recentFoods, ...excludedFoods],
+    excludedFoods,
+  };
+
+  const bioResult = solveMealPlanWithBioavailability(allCandidates, gaps, solverConstraints);
+
+  // 6. Assemble just this slot
+  const mealAssignment = assignToMeals(bioResult.selectedFoods, [slot]);
+  const slotPlan = assemblePlan(mealAssignment, pantryRows, bioResult.adjustedCoverage, [slot]);
+
+  // Generate cook tip for the slot
+  if (brain) {
+    const cookTips = await generateAllCookTips(brain, mealAssignment, gaps);
+    if (cookTips[slot] && slotPlan[slot]) {
+      slotPlan[slot].prepTip = cookTips[slot];
+    }
+  }
+
+  // 7. Update only this slot in the stored plan
+  db.runSync(
+    `UPDATE daily_meal_plans SET ${slot} = ?, gap_coverage = ?, bioavailability_notes = ?, solver_metadata = ?, updated_at = datetime('now') WHERE id = ?`,
+    [
+      JSON.stringify(slotPlan[slot]),
+      JSON.stringify(bioResult.adjustedCoverage),
+      JSON.stringify(bioResult.bioNotes),
+      JSON.stringify(bioResult.metadata),
+      existingRow.id,
+    ]
+  );
+
+  return { slot, plan: slotPlan[slot], coverage: bioResult.adjustedCoverage };
 }

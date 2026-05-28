@@ -15,6 +15,7 @@ import { lookupRetention, applyRetention } from '../data/retentionFactors';
 import { applyInteractions } from '../data/nutrientInteractions';
 import { lookupUSDAAll, scaleNutrients, USDAReference, estimateNutrients, flattenNutrients } from '../services/food/nutrientEstimator';
 import type { FoodIdentification, NutrientEstimate } from '../providers/inferenceProvider';
+import { validateFood } from '../pipelines/food/validate';
 
 // Track abort controllers per food (messageId-foodIndex)
 type AbortMap = Map<string, AbortController>;
@@ -122,17 +123,40 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
       
       let adjustedNutrients: Record<string, number> = { ...nutrients };
       if (food.cooking) {
-        const retention = lookupRetention(food.name, food.cooking);
-        if (retention) {
-          const result = applyRetention(adjustedNutrients, retention.factors);
-          adjustedNutrients = result.adjusted;
-          retentionChanges = result.changes.length > 0 ? result.changes : undefined;
-          cookingSeverity = retention.severity;
-          cookingMethod = retention.method;
+        const refName = usedRef?.name?.toLowerCase() || '';
+        const cookedKeywords = ['cooked', 'boiled', 'baked', 'roasted', 'fried', 'steamed', 'poached', 'scrambled'];
+        const isRefAlreadyCooked = cookedKeywords.some(keyword => refName.includes(keyword));
+
+        if (isRefAlreadyCooked) {
+          console.log(`[NutrientPipeline] Skipping cooking retention for already cooked USDA reference: "${usedRef?.name}"`);
+        } else {
+          const retention = lookupRetention(food.name, food.cooking);
+          if (retention) {
+            const result = applyRetention(adjustedNutrients, retention.factors);
+            adjustedNutrients = result.adjusted;
+            retentionChanges = result.changes.length > 0 ? result.changes : undefined;
+            cookingSeverity = retention.severity;
+            cookingMethod = retention.method;
+          }
         }
       }
 
+      // Run gut health/NOVA validation directly in this phase
+      let validation: any;
+      try {
+        validation = await validateFood({ name: food.name, cooking: food.cooking });
+      } catch (valErr: any) {
+        console.warn(`[NutrientPipeline] Validation failed for "${food.name}":`, valErr.message);
+      }
+
       if (controller.signal.aborted) return;
+
+      const mappedAdjustments = adjustments.map(adj => ({
+        nutrient: adj.key,
+        usdaValue: adj.usdaValue ?? 0,
+        adjustedValue: adj.adjustedValue,
+        reason: adj.reason,
+      }));
 
       // Mark as complete (interactions applied later after all foods finish)
       callbacks.updateFood(messageId, index, {
@@ -141,22 +165,33 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
         usdaNutrients,
         usedRef: usedRef ? { fdcId: usedRef.fdcId, name: usedRef.name, score: usedRef.score } : undefined,
         allRefs: allRefsWithData,
-        adjustments: adjustments.map(adj => ({
-          nutrient: adj.key,
-          usdaValue: adj.usdaValue ?? 0,
-          adjustedValue: adj.adjustedValue,
-          reason: adj.reason,
-        })),
+        adjustments: mappedAdjustments,
         reasoning,
         retentionChanges,
         cookingSeverity,
         cookingMethod,
+        validation,
       });
 
       console.log('[NutrientPipeline] DONE:', food.name,
         usedRef ? `USDA "${usedRef.name}" (${usedRef.score})` : 'AI estimate',
         Object.keys(adjustedNutrients).length, 'nutrients');
-      return { index, nutrients: adjustedNutrients, name: food.name, portion_g: food.portion_g };
+
+      return {
+        index,
+        name: food.name,
+        portion_g: food.portion_g,
+        nutrients: adjustedNutrients,
+        usdaNutrients,
+        usedRef: usedRef ? { fdcId: usedRef.fdcId, name: usedRef.name, score: usedRef.score } : undefined,
+        allRefs: allRefsWithData,
+        adjustments: mappedAdjustments,
+        reasoning,
+        retentionChanges,
+        cookingSeverity,
+        cookingMethod,
+        validation,
+      };
 
     } catch (err: any) {
       console.log('[NutrientPipeline] ERROR:', food.name, err?.message);
@@ -206,7 +241,7 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
       const finalFoods = foods.map((f, i) => {
         const completed = completedFoods.find(cf => cf.index === i);
         if (completed) {
-          return { ...f, nutrients: completed.nutrients, status: 'complete' as const };
+          return { ...f, ...completed, status: 'complete' as const };
         }
         return f;
       });
@@ -254,7 +289,7 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
        // Since the other foods might be unchanged, we can construct the final array
        // Note: we don't re-run interactions here for simplicity, but we save the updated result
        const finalFoods = [...allFoods];
-       finalFoods[index] = { ...finalFoods[index], nutrients: result.nutrients, status: 'complete' };
+       finalFoods[index] = { ...finalFoods[index], ...result, status: 'complete' as const };
        callbacks.onPipelineComplete(messageId, finalFoods);
     }
   }, [callbacks, estimateOne]);
@@ -316,7 +351,7 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
     
     if (result && callbacks.onPipelineComplete) {
        const finalFoods = [...allFoods];
-       finalFoods[index] = { ...finalFoods[index], nutrients: result.nutrients, status: 'complete' };
+       finalFoods[index] = { ...finalFoods[index], ...result, status: 'complete' as const };
        callbacks.onPipelineComplete(messageId, finalFoods);
     }
   }, [callbacks, estimateOne]);
@@ -345,7 +380,7 @@ export function useNutrientPipeline(callbacks: PipelineCallbacks) {
     
     if (result && callbacks.onPipelineComplete) {
        const finalFoods = [...updated];
-       finalFoods[newIndex] = { ...finalFoods[newIndex], nutrients: result.nutrients, status: 'complete' };
+       finalFoods[newIndex] = { ...finalFoods[newIndex], ...result, status: 'complete' as const };
        if (finalFoods.every(f => f.status === 'complete')) {
          callbacks.onPipelineComplete(messageId, finalFoods);
        }

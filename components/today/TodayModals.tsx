@@ -225,20 +225,31 @@ export function EditModal({
                       <Text style={{ fontSize: 13, color: colors.textMuted }}>g</Text>
                     </View>
                   </View>
-                  {(item.usdaMatch || item.nutrient_source === 'usda' || item.usdaRef || item.meta?.usedRef || item.meta?.source === 'usda_ref' || item.meta?.primarySource === 'usda') && (
-                    <TouchableOpacity onPress={() => setSelectedItem(item)} style={{ marginLeft: 28, marginTop: 4 }}>
-                      <Text style={{ fontSize: 12, color: colors.primary, textDecorationLine: 'underline' }}>
-                        USDA Match: {item.usdaMatch || item.usdaRef?.name || item.meta?.usedRef?.name || item.name}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  {(!item.usdaMatch && item.nutrient_source !== 'usda' && !item.usdaRef && !item.meta?.usedRef && item.meta?.source !== 'usda_ref' && item.meta?.primarySource !== 'usda' && item.nutrients) && (
-                    <TouchableOpacity onPress={() => setSelectedItem(item)} style={{ marginLeft: 28, marginTop: 4 }}>
-                      <Text style={{ fontSize: 12, color: colors.textSecondary, textDecorationLine: 'underline' }}>
-                        AI Estimate
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                  {(() => {
+                    const hasUsdaRef = !!(item.usdaRef || item.usedRef || item.meta?.usedRef || item.meta?.usedReference);
+                    const hasFdcId = !!(item.usdaRef?.fdcId || item.usedRef?.fdcId || item.meta?.usedRef?.fdcId || item.meta?.usedReference?.fdcId || item.fdcId);
+                    const isRealUsda = hasUsdaRef && hasFdcId;
+
+                    if (isRealUsda) {
+                      const refName = item.usdaRef?.name || item.usedRef?.name || item.meta?.usedRef?.name || item.meta?.usedReference?.name || item.usdaMatch || item.name;
+                      return (
+                        <TouchableOpacity onPress={() => setSelectedItem(item)} style={{ marginLeft: 28, marginTop: 4 }}>
+                          <Text style={{ fontSize: 12, color: colors.primary, textDecorationLine: 'underline' }}>
+                            USDA Match: {refName}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    } else if (item.nutrients) {
+                      return (
+                        <TouchableOpacity onPress={() => setSelectedItem(item)} style={{ marginLeft: 28, marginTop: 4 }}>
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, textDecorationLine: 'underline' }}>
+                            AI Estimate
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    }
+                    return null;
+                  })()}
                 </View>
               ))}
             </View>

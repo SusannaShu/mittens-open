@@ -72,15 +72,12 @@ export default function LifeBalanceSection({
                         <TouchableOpacity
                           key={act.id}
                           style={gaugeStyles.breakdownRow}
-                          onPress={() => {
-                            const fullAct = todayActivities.find(a => a.id === act.id);
-                            if (fullAct) onEditActivity(fullAct);
-                          }}
+                          onPress={() => onEditActivity(act)}
                           activeOpacity={0.7}
                         >
                           <Text style={gaugeStyles.breakdownName} numberOfLines={1}>{act.logName}</Text>
                           <Text style={gaugeStyles.breakdownMeta}>
-                            {act.weighted_min}min{act.weight < 1 ? ` (${Math.round(act.weight * 100)}%)` : ''} -- {dayLabel}
+                            {Math.ceil(act.weighted_min)}min{act.weight < 1 ? ` (${Math.round(act.weight * 100)}%)` : ''} -- {dayLabel}
                           </Text>
                         </TouchableOpacity>
                       );

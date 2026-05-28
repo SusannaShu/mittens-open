@@ -64,9 +64,19 @@ async function createActivityLog(
   logger: PipelineLogger,
 ): Promise<number | null> {
   const actType = triage.signals.movementType || 'unknown';
-  const logName = `${actType} (pendant)`;
   const metValue = lookupMET(actType);
   let lifeDesignWeights: Record<string, number> | null = null;
+
+  // Resolve place name first so we can use it in the log name
+  let placeName: string | null = null;
+  try {
+    const { getCurrentPlace } = require('../location/locationService');
+    placeName = getCurrentPlace() || null;
+  } catch { /* location not available */ }
+
+  // Build descriptive log name: "Walking at Central Park" not "walking (pendant)"
+  const verb = actType.charAt(0).toUpperCase() + actType.slice(1);
+  const logName = placeName ? `${verb} at ${placeName}` : verb;
 
   const ldIdx = logger.startPhase('activity', 'lifeDesign');
   try {
@@ -81,12 +91,6 @@ async function createActivityLog(
   } catch (err: any) {
     logger.failPhase(ldIdx, err?.message);
   }
-
-  let placeName: string | null = null;
-  try {
-    const { getCurrentPlace } = require('../location/locationService');
-    placeName = getCurrentPlace() || null;
-  } catch { /* location not available */ }
 
   // Use outdoors/nature directly from triage signals (no separate VLM call)
   const isOutdoors = triage.signals.outdoors ? 1 : 0;
@@ -212,8 +216,8 @@ async function updateActivityLog(
         aeiouJson = { ...summary, _raw: rawObs };
       }
       // Merge: once outdoors/nature is true, it stays true for the session
-      isOutdoors = aeiouJson.isOutdoors || rawObs.some((o: any) => o.isOutdoors) ? 1 : isOutdoors;
-      isNature = aeiouJson.isNature || rawObs.some((o: any) => o.isNature) ? 1 : isNature;
+      isOutdoors = (aeiouJson.isOutdoors || rawObs.some((o: any) => o.isOutdoors)) ? 1 : isOutdoors;
+      isNature = (aeiouJson.isNature || rawObs.some((o: any) => o.isNature)) ? 1 : isNature;
       logger.completePhase(aeiouIdx, `${rawObs.length} observations`);
     } else {
       logger.completePhase(aeiouIdx, 'No AEIOU detected');

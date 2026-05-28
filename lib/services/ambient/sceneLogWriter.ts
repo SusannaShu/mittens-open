@@ -82,7 +82,8 @@ export async function executeLogDecision(
   }
 
   // Activity pipeline (delegated to activityLogWriter)
-  if (triage.signals.movement) {
+  // Trigger for movement OR outdoor/nature (sitting outdoors = still worth logging)
+  if (triage.signals.movement || triage.signals.outdoors || triage.signals.nature) {
     activityLogId = await handleActivity(triage, framePath, logger);
   }
 

@@ -76,6 +76,8 @@ export interface MealPlanConstraints {
   targetCalories?: number;
   dislikedFoods?: string[];
   mealSlots?: string[];
+  recentFoods?: string[];
+  excludedFoods?: string[];
 }
 
 export interface MealPlanCoverage {
@@ -106,7 +108,7 @@ export function solveMealPlan(
   constraints: MealPlanConstraints
 ): MealPlanResult {
   const startTime = Date.now();
-  const { targetCalories = 2000, dislikedFoods = [], mealSlots = ['snack'] } = constraints;
+  const { targetCalories = 2000, dislikedFoods = [], mealSlots = ['snack'], recentFoods = [], excludedFoods = [] } = constraints;
 
   // Build gap map for quick lookup
   const gapMap: Record<string, NutrientGap> = {};
@@ -133,6 +135,8 @@ export function solveMealPlan(
   const W_PANTRY = 1.5;
   const W_PANTRY_URGENT = 2.5;  // use_soon items
   const W_DISLIKE = -20;
+  const W_RECENT = -2;      // soft penalty for recently used foods (variety)
+  const W_EXCLUDED = -100;  // hard penalty for explicitly excluded foods
 
   const SAFETY_TIER: Record<string, number> = {
     calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0,
@@ -237,6 +241,22 @@ export function solveMealPlan(
     }
 
     if (isDisliked) score += W_DISLIKE;
+
+    // Excluded foods (from item dismissal) — effectively blacklist
+    const isExcluded = excludedFoods.some(e =>
+      (food.name || '').toLowerCase().includes(e.toLowerCase())
+    );
+    if (isExcluded) score += W_EXCLUDED;
+
+    // Recent food penalty — soft discouragement for variety
+    // (pantry items are exempt: if you have it in the fridge, use it)
+    if (!food.fromPantry && recentFoods.length > 0) {
+      const isRecent = recentFoods.some(r =>
+        (food.name || '').toLowerCase().includes(r.toLowerCase()) ||
+        r.toLowerCase().includes((food.name || '').toLowerCase().split(',')[0])
+      );
+      if (isRecent) score += W_RECENT;
+    }
 
     const variable: any = { score };
 

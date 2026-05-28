@@ -187,6 +187,33 @@ public class ExpoFaceRecognitionModule: Module {
       #endif
     }
 
+    // ─── Generate a scene embedding for the full image (place recognition) ───
+    AsyncFunction("generateSceneEmbedding") { (imagePath: String) -> [Float] in
+      let path = self.toFilePath(imagePath)
+
+      guard let imageData = FileManager.default.contents(atPath: path),
+            let uiImage = UIImage(data: imageData),
+            let cgImage = uiImage.cgImage else {
+        NSLog("[FaceRecognition] generateSceneEmbedding: failed to read image: %@", path)
+        return []
+      }
+
+      // Resize full frame to 224x224 for scene-level feature extraction
+      guard let resized = self.resizeCGImage(cgImage, to: CGSize(width: 224, height: 224)) else {
+        NSLog("[FaceRecognition] generateSceneEmbedding: failed to resize image")
+        return []
+      }
+
+      do {
+        let embedding = try await self.extractEmbeddingVision(faceCG: resized)
+        NSLog("[FaceRecognition] Scene embedding generated: %d dims", embedding.count)
+        return embedding
+      } catch {
+        NSLog("[FaceRecognition] generateSceneEmbedding error: %@", error.localizedDescription)
+        return []
+      }
+    }
+
     // ─── Unload model to free memory ───
     Function("unloadModel") { () in
       self.faceNetModel = nil

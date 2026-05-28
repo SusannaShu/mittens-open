@@ -132,6 +132,8 @@ PIPELINES:
 - pantry: stored, raw, or unprepped food (fridge, shelf, groceries)
 - sleep: sleep-related content
 - timer: explicit request to start or stop a timer/focus session
+- meal_action: user wants to CHANGE their meal plan (remove item, regenerate slot, set diet preferences, ask about sun/vitamin D exposure). NOT for logging food they ate.
+  Examples: "remove the chickpeas", "I don't want eggs in lunch", "make it vegan", "regenerate dinner", "how much sun do I need", "I'm in the mood for pasta"
 - chat: conversational, greetings, or unclear
 
 PHASE EVIDENCE (only list phases where you see concrete visual or textual cues):
@@ -161,9 +163,13 @@ JSON: {"intents":[
   {"pipeline":"timer","confidence":0.9,"activityType":"work","phases":[]}
 ]}
 
-pipeline must be: meal, activity, pantry, sleep, timer, chat
+pipeline must be: meal, activity, pantry, sleep, timer, meal_action, chat
 activityType (if activity or timer): walk, run, bike, workout, sun, work, social, rest, stress, soul, cooking, commute, other
 faceLegible (boolean): true ONLY if a person's face is clearly visible, in focus, and facing the camera. False if person is detected from behind, blurred, or face is not legible.
+actionType (if meal_action): dismiss_item, regenerate_slot, generate_plan, set_preference, sun_exposure
+actionSlot (if meal_action dismiss/regenerate): breakfast, lunch, dinner
+actionFood (if meal_action dismiss): the specific food to remove
+actionPreference (if meal_action generate/set_preference): the preference text
 
 Guidance:
 - pantry = stored, raw, or unprepped food (fridge, shelf, groceries). meal = prepared, plated, or being eaten.
@@ -207,13 +213,17 @@ const TRIAGE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          pipeline: { type: 'string', enum: ['meal', 'activity', 'pantry', 'sleep', 'email', 'watch', 'timer', 'chat'] },
+          pipeline: { type: 'string', enum: ['meal', 'activity', 'pantry', 'sleep', 'email', 'watch', 'timer', 'meal_action', 'chat'] },
           confidence: { type: 'number' },
           activityType: { type: 'string' },
           mealType: { type: 'string' },
           storageType: { type: 'string' },
           extractedName: { type: 'string' },
           faceLegible: { type: 'boolean' },
+          actionType: { type: 'string' },
+          actionSlot: { type: 'string' },
+          actionFood: { type: 'string' },
+          actionPreference: { type: 'string' },
           phases: { type: 'array', items: { type: 'string' } },
         },
         required: ['pipeline', 'confidence'],
@@ -233,7 +243,9 @@ For each detected intent, also specify which analysis phases have evidence in th
 
 pipeline: meal (ONLY if explicitly logging a meal they ate/are eating. DO NOT trigger for questions like "what should I eat" or "recommend a meal"), activity (movement, events, work, social situations),
 sleep (sleep mention), email (emails, orders, inbox), watch (websites, news, feeds),
-timer (start or stop a focus timer), chat (conversational, question, or unclear. Questions about food belong here)
+timer (start or stop a focus timer),
+meal_action (user wants to CHANGE their meal plan, remove/swap food items, regenerate a slot, set dietary preferences, or ask about sun/vitamin D exposure. Examples: "remove chickpeas from lunch", "I don't want eggs", "make it vegan", "regenerate dinner", "how much sun today?", "I'm in the mood for pasta"),
+chat (conversational, question, or unclear. Questions about food belong here UNLESS they want to change the plan)
 
 For meal: include "identify" ONLY if specific foods or drinks are named. "eatingContext" ONLY if the text explicitly describes HOW they are eating (e.g., "eating quickly", "eating while watching tv"). DO NOT include "eatingContext" for just mentioning what they ate. Include "pantryDelta" ONLY if they are cooking or eating at home (skip if eating out).
 
@@ -247,7 +259,8 @@ Can return multiple intents.
 
 JSON: {"intents":[
   {"pipeline":"activity","confidence":0.9,"activityType":"work","phases":["detect","environment"]},
-  {"pipeline":"timer","confidence":0.9,"phases":[]}
+  {"pipeline":"timer","confidence":0.9,"phases":[]},
+  {"pipeline":"meal_action","confidence":0.9,"actionType":"dismiss_item","actionSlot":"lunch","actionFood":"chickpeas","phases":[]}
 ]}`;
 
   const fallback = { intents: [{ pipeline: 'chat', confidence: 0.5 }] };
@@ -289,6 +302,13 @@ function normalizeTriageResult(parsed: any): TriageResult {
           extractedName: i.extractedName,
           faceLegible: i.faceLegible,
         },
+        // Extract action params for meal_action pipeline
+        actionParams: i.pipeline === 'meal_action' ? {
+          action: i.actionType || 'generate_plan',
+          slot: i.actionSlot,
+          foodItem: i.actionFood,
+          preference: i.actionPreference,
+        } : undefined,
       }))
       .filter((i: any) => i.confidence >= 0.3); // Do not log if below confidence level
 

@@ -152,9 +152,10 @@ export default function LocationLogModal({ visible, session, existingActivity, o
     d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
   const formatDuration = (min: number) => {
-    if (min < 60) return `${min}min`;
-    const h = Math.floor(min / 60);
-    const m = min % 60;
+    const roundedMin = Math.ceil(min);
+    if (roundedMin < 60) return `${roundedMin}min`;
+    const h = Math.floor(roundedMin / 60);
+    const m = roundedMin % 60;
     return m > 0 ? `${h}h ${m}min` : `${h}h`;
   };
 

@@ -286,8 +286,8 @@ function getBaseConcept(name) {
 
   // Take first 2 meaningful parts
   const meaningful = parts.filter(p => {
-    // Skip cooking methods and generic modifiers
-    return !/^(raw|cooked|boiled|baked|roasted|grilled|fried|steamed|dried|canned|frozen|fresh|mature seeds|immature seeds|solids and liquids|drained solids|packed in|with salt|without salt|fat free|lowfat|low fat|nonfat|whole|reduced fat|light|fortified|unfortified|unenriched|enriched|unsalted|salted|unsweetened|sweetened|prepared|unprepared|regular|commercially|homemade|ns as to|from concentrate|not from concentrate|with added|without added|infant|junior|strained|dehydrated|powdered|flakes|granulated|condensed|evaporated|dry form|reconstituted)$/i.test(p);
+    // Skip generic cooking methods and structural modifiers, but PRESERVE essential qualifiers (raw, fresh, dried, canned, frozen, dehydrated, powdered, sweetened, unsweetened)
+    return !/^(cooked|boiled|baked|roasted|grilled|fried|steamed|mature seeds|immature seeds|solids and liquids|drained solids|packed in|with salt|without salt|fat free|lowfat|low fat|nonfat|whole|reduced fat|light|fortified|unfortified|unenriched|enriched|unsalted|salted|prepared|unprepared|regular|commercially|homemade|ns as to|from concentrate|not from concentrate|with added|without added|infant|junior|strained|flakes|granulated|condensed|evaporated|dry form|reconstituted)$/i.test(p);
   });
 
   // Take first 2 parts max

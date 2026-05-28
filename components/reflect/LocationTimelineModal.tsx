@@ -213,7 +213,7 @@ export default function LocationTimelineModal({ visible, session, timeRange, tit
                       </View>
                     </TouchableOpacity>
                     {row.duration_min != null && row.duration_min > 0 && (
-                      <Text style={styles.durationText}>{row.duration_min}min</Text>
+                      <Text style={styles.durationText}>{Math.ceil(row.duration_min)}min</Text>
                     )}
                     <TouchableOpacity
                       onPress={() => setEditingRowIdx(editingRowIdx === idx ? null : idx)}

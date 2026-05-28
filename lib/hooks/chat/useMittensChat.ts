@@ -150,7 +150,9 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
             ...i,
             status: 'complete',
             phases: i.phases.map(p => 
-              p.key === 'nutrients' ? { ...p, status: 'complete' } : p
+              ['nutrients', 'bioavailability', 'validate'].includes(p.key) 
+                ? { ...p, status: 'complete' } 
+                : p
             )
           };
         })
@@ -171,7 +173,8 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
       retentionChanges: f.retentionChanges,
       interactionChanges: f.interactionChanges,
       cookingSeverity: f.cookingSeverity,
-      cookingMethod: f.cookingMethod
+      cookingMethod: f.cookingMethod,
+      validation: f.validation,
     }));
 
     try {
@@ -358,6 +361,40 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
     }
   };
 
+  const triggerManualChatLog = async (text: string, photos: string[], loggedAtStr?: string, mealType?: string) => {
+    if ((!text && photos.length === 0) || sending) return;
+
+    const loggedAt = loggedAtStr ? new Date(loggedAtStr) : new Date();
+
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: 'user',
+      text: text || 'Photo',
+      photos: photos.length > 0 ? photos : undefined,
+      timestamp: loggedAt,
+    };
+    addMessage(userMsg);
+    setSending(true);
+    scrollToEnd();
+
+    try {
+      await handleMessage(text, photos, ctx, loggedAt, userMsg.id);
+    } catch (err: any) {
+      const errorMsg = err?.message || String(err);
+      console.error('[Pipeline] triggerManualChatLog FAILED:', errorMsg);
+      addMessage({
+        id: `e-${Date.now()}`,
+        role: 'mittens',
+        text: `Error: ${errorMsg}`,
+        timestamp: new Date(),
+      });
+      showBrainFallbackModal(errorMsg);
+    } finally {
+      setSending(false);
+      setSendingStatus(null);
+    }
+  };
+
   // ── Return (same shape as old useChatHandlers for easy swap) ──
   return {
     // Input state
@@ -377,6 +414,7 @@ export function useMittensChat({ messages, setMessages, addMessage, saveMessageB
 
     // Handlers
     handleSend,
+    triggerManualChatLog,
     handlePhotoCapture,
     removePendingPhoto,
     clearPendingPhotos,

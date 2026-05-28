@@ -36,8 +36,24 @@
           "fetch",
           "remote-notification",
           "audio",
+          "bluetooth-central",
+          "location",
+          "fetch",
+          "remote-notification",
+          "audio",
+          "bluetooth-central",
+          "location",
+          "fetch",
+          "remote-notification",
+          "audio",
+          "bluetooth-central",
+          "location",
+          "fetch",
+          "remote-notification",
+          "audio",
           "bluetooth-central"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.susannahuang.mittensopen"
     },
@@ -56,7 +72,9 @@
         "android.permission.ACTIVITY_RECOGNITION",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH_ADVERTISE"
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "config": {
         "googleMaps": {
@@ -111,6 +129,19 @@
       ],
       "react-native-motion-activity-tracker",
       "react-native-audio-api"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2ff1f498-4dac-4979-a71e-e202373c4efa"
+      }
+    },
+    "owner": "susannahuang",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2ff1f498-4dac-4979-a71e-e202373c4efa"
+    }
   }
 }

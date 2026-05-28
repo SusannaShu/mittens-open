@@ -151,23 +151,31 @@ export function consolidatePantryItems(items: PantryItem[]): PantryItem[] {
 export async function identifyPantryItem(input: PipelineInput): Promise<{ items: PantryItem[] }> {
   const brain = await getBrain();
   
-  const prompt = `Identify ALL food and grocery items visible in this photo.
+  const prompt = `Identify ALL food and grocery items in this photo.
+
+The photo could be:
+- Physical food items (fridge, counter, shelf, grocery bags)
+- A grocery receipt or store receipt (read the text to extract items + quantities)
+- A grocery list or note
+- Food packaging with labels
 
 CRITICAL INSTRUCTIONS FOR ITEM NAMES:
 - ALWAYS use the singular form of the item name (e.g. "orange" instead of "oranges", "tomato" instead of "tomatoes", "egg" instead of "eggs", "apple" instead of "apples").
 - Be as specific and concrete as possible (e.g. "orange", "broccoli", "carrot", "cheddar cheese", "tomato", "cucumber", "zucchini", "red bell pepper").
 - NEVER use combined/broad categories, slash-separated names, or "or" (e.g., do NOT output "broccoli/cauliflower", "oranges/citrus fruits", "yellow cheese or firm vegetable", or "green vegetables (cucumbers/zucchini)"). Choose the exact, specific item visible in the photo.
+- For receipts: extract the food item name from each line item. Skip non-food items (bags, tax, etc).
 
 CRITICAL INSTRUCTIONS FOR QUANTITIES AND DUPLICATES:
 - ALWAYS provide a specific numeric count or clear, measurable unit (e.g., "3", "1 bunch", "1 head", "2 lbs").
+- For receipts: use the quantity from the receipt line item.
 - NEVER output vague or abstract quantifiers like "several", "multiple", "some", "few", or "many". If a count is approximate, estimate a specific number (e.g., "5" instead of "several", "3" instead of "multiple").
 - CONSOLIDATE DUPLICATES: Do NOT list the same food item multiple times in separate array entries. If there are multiple separate instances of the same food item in the image (e.g. three separate oranges or two separate heads of broccoli), combine them into a single consolidated JSON entry with their quantities summed together.
 
-For EACH item you can see, return:
+For EACH item, return:
 - name: specific singular item name
 - quantity: estimated concrete total amount (e.g. "3", "1 bunch", "1 head")
 - confidence: how certain you are, 0.0 to 1.0
-- freshness: 'fresh', 'good', 'use_soon', or 'questionable'
+- freshness: 'fresh', 'good', 'use_soon', or 'questionable' (assume 'fresh' for receipts/new purchases)
 - storageLocation: 'fridge', 'freezer', 'pantry', or 'counter'
 - checkBy: ISO date or null
 
@@ -175,6 +183,7 @@ Return JSON only, no explanation:
 {"items":[{"name":"red bell pepper","quantity":"2","confidence":0.95,"freshness":"good","storageLocation":"fridge","checkBy":null}]}
 
 Context text: ${input.text || 'None'}`;
+
 
   // Vision: use brain.vision() then parse (grammar can't constrain vision output)
   if (input.photos && input.photos.length > 0 && brain.supportsVision) {

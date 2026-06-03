@@ -374,9 +374,11 @@ export const nutritionApi = baseApi.injectEndpoints({
           const db = getDb();
           const { estimateVitaminDSynthesis } = require('../../services/vitaminDSynthesis');
 
-          // Get profile for skin type
-          const profile = db.getFirstSync('SELECT skin_type FROM nutrition_profile WHERE id = 1') as any;
+          // Get profile for skin type + home latitude (for the solar-zenith correction)
+          const profile = db.getFirstSync('SELECT skin_type, home_latitude FROM nutrition_profile WHERE id = 1') as any;
           const skinType = profile?.skin_type || 'fitzpatrick-4';
+          const latitude = typeof profile?.home_latitude === 'number' ? profile.home_latitude : undefined;
+          const dayOfYear = Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
 
           // Get UV from the activity itself or current weather
           const activity = db.getFirstSync('SELECT * FROM activity_logs WHERE id = ?', [id]) as any;
@@ -396,11 +398,13 @@ export const nutritionApi = baseApi.injectEndpoints({
 
           const dur = duration_min || activity?.duration_min || 15;
           const synthesis = estimateVitaminDSynthesis({
-            durationMin: dur,
+            durationMinutes: dur,
             uvIndex,
             skinType,
             bodyCoverage: (coverage_pct || 25) / 100,
             sunscreen: sunscreen ?? false,
+            latitude,
+            dayOfYear,
           });
 
           // Update the activity's nutrient_impact

@@ -150,19 +150,10 @@ export const CITATIONS: Record<string, Citation> = {
     doi: '10.1192/apt.11.5.338',
   },
 
-  // Nutrient Depletion
-  exercise_electrolyte_loss: {
-    claim: 'Exercise depletes magnesium, potassium, sodium, zinc via sweat.',
-    source: 'Nielsen & Lukaski 2006',
-    journal: 'J. Am. Coll. Nutrition',
-    doi: '10.1080/07315724.2006.10719573',
-  },
-  cortisol_b_vitamin: {
-    claim: 'Sustained cortisol from desk work depletes B vitamins and magnesium.',
-    source: 'Kennedy et al.',
-    journal: 'Nutrients',
-    doi: '10.3390/nu8020068',
-  },
+  // Note: activity is decoupled from nutrition. The former exercise_electrolyte_loss
+  // (magnesium/potassium/zinc via sweat) and cortisol_b_vitamin (B-vitamin/magnesium
+  // depletion) citations were removed — activity cannot be measured accurately enough
+  // to drive nutrient adjustments, so it no longer feeds the nutrition model.
   social_cortisol_reset: {
     claim: 'Positive social interactions lower cortisol and improve nutrient absorption.',
     source: 'Heinrichs et al.',

@@ -237,12 +237,13 @@ export const activityApi = baseApi.injectEndpoints({
           if (body.lifeCategories !== undefined) { sets.push('life_categories = ?'); vals.push(body.lifeCategories ? JSON.stringify(body.lifeCategories) : null); }
           if (body.meta !== undefined) { sets.push('meta = ?'); vals.push(body.meta ? JSON.stringify(body.meta) : null); }
 
+          // Activity is decoupled from nutrition: movement/outdoor activity no longer
+          // injects vitamin D (or any nutrient) into daily intake totals. Vitamin D from
+          // sun is handled separately via the sun-exposure recommendation + explicit
+          // sun log (see nutritionApi.updateSunExposure / vitaminDSynthesis.ts).
+          // Strip any legacy vitamin_d that older logs may have written.
           let nutrientImpact = existing.nutrient_impact ? JSON.parse(existing.nutrient_impact) : {};
-          if (outdoors || isNature) {
-             nutrientImpact.vitamin_d = (duration || 0) * 1.5;
-             sets.push('nutrient_impact = ?');
-             vals.push(JSON.stringify(nutrientImpact));
-          } else if (nutrientImpact.vitamin_d !== undefined) {
+          if (nutrientImpact.vitamin_d !== undefined) {
              delete nutrientImpact.vitamin_d;
              sets.push('nutrient_impact = ?');
              vals.push(Object.keys(nutrientImpact).length > 0 ? JSON.stringify(nutrientImpact) : null);

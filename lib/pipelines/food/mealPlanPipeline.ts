@@ -350,7 +350,9 @@ export async function generateMealPlanPipeline(
       const deficitMcg = Math.max(0, vitDGap.rda - vitDGap.actual);
 
       if (uvIndex >= 3) {
-        const sunRec = recommendSunExposure({ deficitMcg, uvIndex, skinType });
+        const latitude = typeof profile?.home_latitude === 'number' ? profile.home_latitude : undefined;
+        const dayOfYear = Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+        const sunRec = recommendSunExposure({ deficitMcg, uvIndex, skinType, latitude, dayOfYear });
         vitaminDRec = { ...sunRec, uvIndex };
       } else {
         vitaminDRec = {

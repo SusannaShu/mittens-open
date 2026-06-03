@@ -11,6 +11,9 @@ interface Props {
     feasible: boolean;
     note: string;
     uvIndex?: number;
+    safeMaxMinutes?: number;
+    sessionsNeeded?: number;
+    mcgPerSafeSession?: number;
   } | null;
   skinType?: number | string;
   vitaminDPct?: number;
@@ -54,8 +57,10 @@ export default function OutdoorCard({
   }, [vitaminDRec, weatherUv, type, vitaminDPct, vitaminDRdaMcg]);
 
   const uvIndex = sunRec?.uvIndex ?? weatherUv ?? 0;
-  const isFeasible = sunRec ? sunRec.feasible && sunRec.minutesNeeded < Infinity : false;
-  const safeMax = SAFE_MAX[type] || 30;
+  const synthesisPossible = sunRec ? sunRec.minutesNeeded < Infinity : false;
+  const isFeasible = sunRec ? sunRec.feasible && synthesisPossible : false;
+  const safeMax = sunRec?.safeMaxMinutes ?? (SAFE_MAX[type] || 30);
+  const sessionsNeeded = sunRec?.sessionsNeeded ?? 1;
   const natureRemaining = Math.max(0, NATURE_WEEKLY_GOAL - weeklyNatureMin);
   const natureGoalMet = natureRemaining === 0;
 
@@ -88,6 +93,11 @@ export default function OutdoorCard({
                     <Text style={{ fontSize: 14, color: colors.textPrimary }}>
                       <Text style={{ fontWeight: '700' }}>{sunRec!.minutesNeeded} min</Text>
                       {'  sun exposure'}
+                    </Text>
+                  ) : synthesisPossible ? (
+                    <Text style={{ fontSize: 14, color: colors.textPrimary }}>
+                      <Text style={{ fontWeight: '700' }}>{safeMax} min</Text>
+                      {sessionsNeeded > 1 ? `  sun  ·  ×${sessionsNeeded} days` : '  sun (+ food/D3)'}
                     </Text>
                   ) : (
                     <Text style={{ fontSize: 14, color: colors.textSecondary }}>

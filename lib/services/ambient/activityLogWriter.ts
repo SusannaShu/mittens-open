@@ -116,10 +116,10 @@ async function createActivityLog(
     logger.failPhase(aeiouIdx, err?.message);
   }
 
+  // Activity is decoupled from nutrition: outdoor/nature activity no longer seeds a
+  // vitamin_d nutrient impact. Vitamin D from sun is handled separately via the
+  // sun-exposure recommendation + explicit sun log.
   let nutrientImpact: any = {};
-  if (isOutdoors || isNature) {
-    nutrientImpact.vitamin_d = 0;
-  }
   const hasNutrientImpact = Object.keys(nutrientImpact).length > 0;
 
   const result = db.runSync(
@@ -226,10 +226,10 @@ async function updateActivityLog(
     logger.failPhase(aeiouIdx, err?.message);
   }
 
+  // Activity decoupled from nutrition: no vitamin_d injection from outdoor/nature
+  // activity. Strip any legacy vitamin_d that older logs may carry.
   let nutrientImpact = existing?.nutrient_impact ? JSON.parse(existing.nutrient_impact) : {};
-  if (isOutdoors || isNature) {
-    nutrientImpact.vitamin_d = (durationMin || 0) * 1.5;
-  } else if (nutrientImpact.vitamin_d !== undefined) {
+  if (nutrientImpact.vitamin_d !== undefined) {
     delete nutrientImpact.vitamin_d;
   }
   const hasNutrientImpact = Object.keys(nutrientImpact).length > 0;
